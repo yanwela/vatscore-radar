@@ -260,7 +260,7 @@ if data:
     # Başlık Alanı, Refresh ve Ayarlar Butonlarının Düzeni
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col:
-        st.title("⚡ VATSCORE // Premium Global Radar")
+        st.title("⚡ VATSCORE // Premium Stats Radar")
     
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
