@@ -68,7 +68,7 @@ st.markdown("""
 
 # --- 🛰️ SESSİZ LOGLAMA VE ADMİN SİSTEMİ ALTYAPISI ---
 LOG_FILE = "radar_traffic_logs.csv"
-ADMIN_PASSWORD = "alp123"  # <--- Admin şifreni buradan değiştirebilirsin knk
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 def init_log_file():
     if not os.path.exists(LOG_FILE):
