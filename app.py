@@ -440,6 +440,56 @@ if data:
             st.markdown("### 🎙️ Busiest Airspaces (ATC)")
             atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
             for k, v in Counter(atc_pos).most_common(7): st.write(f"• `{k}_CTR / APP` : {v} open frequencies")
+            
+        # 📡 DİNAMİK LİVE ATC TRACKER PANELDEN EKLEME ALANI (Mevcut Tab Yapısı Aynen Korundu)
+        st.markdown("---")
+        st.subheader("📡 Live ATC Tracker & Frequencies")
+        
+        if not controllers:
+            st.info("No active ATC online at the moment.")
+        else:
+            atc_list = []
+            for atc in controllers:
+                callsign = atc.get("callsign", "")
+                if any(pos in callsign for pos in ["_TWR", "_APP", "_CTR", "_GND", "_DEL"]):
+                    if "_CTR" in callsign: pos_type = "🟢 Center (CTR)"
+                    elif "_APP" in callsign: pos_type = "🔵 Approach (APP)"
+                    elif "_TWR" in callsign: pos_type = "🔴 Tower (TWR)"
+                    elif "_GND" in callsign: pos_type = "🟤 Ground (GND)"
+                    else: pos_type = "🟡 Delivery (DEL)"
+
+                    online_mins = 0
+                    if atc.get("logon_time"):
+                        try:
+                            logon_dt = datetime.strptime(atc.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
+                            online_mins = int((datetime.now() - logon_dt).seconds / 60)
+                        except: pass
+
+                    atc_list.append({
+                        "Callsign": callsign,
+                        "Position": pos_type,
+                        "Frequency": atc.get("frequency", "000.000"),
+                        "Controller Name": atc.get("name", "Unknown"),
+                        "Time Online (Mins)": online_mins
+                    })
+
+            if atc_list:
+                df_atc = pd.DataFrame(atc_list)
+                search_atc = st.text_input("🔍 Search ATC Position or Airport (e.g., LTFM, EGLL, KJFK):", "", key="atc_search_box").upper().strip()
+                if search_atc:
+                    df_atc = df_atc[df_atc["Callsign"].str.contains(search_atc)]
+                
+                st.dataframe(
+                    df_atc, 
+                    use_container_width=True,
+                    column_config={
+                        "Frequency": st.column_config.TextColumn("Frequency 📻"),
+                        "Time Online (Mins)": st.column_config.NumberColumn("Time Online ⏳")
+                    }
+                )
+                st.caption(f"Showing {len(df_atc)} active ATC connections.")
+            else:
+                st.info("No active ATC found matching standard position filters.")
 
     with tab4:
         st.subheader("🛸 Live Anomaly Radar (X-Files)")
