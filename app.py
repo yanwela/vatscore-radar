@@ -25,19 +25,17 @@ st.components.v1.html(
         window.parent.document.addEventListener('DOMContentLoaded', function() {
             if (!window.parent.__vatsim_refresh_interval) {
                 window.parent.__vatsim_refresh_interval = setInterval(function() {
-                    // Streamlit'in yenileme butonunu simüle et veya sayfayı tetikle
                     const buttons = window.parent.document.querySelectorAll("button");
                     const rerunButton = Array.from(buttons).find(el => el.textContent.includes("Rerun") || el.innerText.includes("Rerun"));
                     if (rerunButton) {
                         rerunButton.click();
                     } else {
-                        // Eğer buton bulunamazsa güvenli bir şekilde rerun tetiklemek için ufak bir hile
                         const streamlitDoc = window.parent.document.querySelector('.stApp');
                         if(streamlitDoc) {
                             window.parent.location.reload();
                         }
                     }
-                }, 30000); // 30000 milisaniye = 30 saniye
+                }, 30000); // 30 saniye
             }
         });
     </script>
@@ -73,17 +71,16 @@ st.markdown("""
         text-decoration: underline;
     }
     
-    /* 🔴 [KRİTİK GÜNCELLEME]: Tablo Başlıklarındaki Rahatsız Edici Menü İkonlarını Kökten Kaldır */
+    /* Tablo Başlıklarındaki Menü İkonlarını Kaldır */
     button[data-testid="stDataFrameColumnHeaderMenuTrigger"] {
         display: none !important;
     }
-    /* Sadece tam ekran butonu (Fullscreen) kalacak şekilde diğer tüm araç çubuğu elemanlarını uçur */
     div[data-testid="stDataFrameToolbar"] button:not([data-testid="stDataFrameFullscreenButton"]) {
         display: none !important;
     }
     
-    /* Ayarlar emojisi için özel şık buton stili */
-    .settings-emoji-btn button {
+    /* Üst Sağ Butonlar (Yenileme ve Ayarlar) İçin Özel Şık Buton Stili */
+    .top-emoji-btn button {
         background: none !important;
         border: none !important;
         font-size: 24px !important;
@@ -139,12 +136,10 @@ def log_activity(action):
     except:
         pass
 
-# Kullanıcı ilk girdiğinde tetikle
 if "initialized" not in st.session_state:
     log_activity("Radar Dashboard Opened")
     st.session_state.initialized = True
 
-# URL Parametresinden Admin Kontrolü (?admin=true kontrolü)
 query_params = st.query_params
 is_admin_route = query_params.get("admin") == "true"
 
@@ -164,7 +159,6 @@ if is_admin_route:
                 st.error("Invalid Secret Token.")
         st.stop()
     else:
-        # --- 📈 KORUMALI ADMİN PANELİ GÖRÜNÜMÜ ---
         st.title("🛰️ VatScore // Core Traffic Analytics HQ")
         if st.button("⬅️ Return to Live Radar"):
             st.session_state.admin_authenticated = False
@@ -243,7 +237,7 @@ def classify_aircraft(ac_type, callsign):
     if ac_type in military_types: return "⚔️ Military"
         
     military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
-    if callsign.startswith(military_prefixes) or "MIL" in callsign: return "⚔️ Military"
+    if callsign.startswith(military_prefixes) or "MIL" in callsign or "MIL" in callsign: return "⚔️ Military"
         
     ga_types = {
         "C150", "C152", "C172", "C182", "C206", "C208", 
@@ -263,14 +257,23 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    # Başlık Alanı ve Küçük Ayarlar Emojisi Girişi
-    title_col, emoji_col = st.columns([0.94, 0.06])
+    # Başlık Alanı, Refresh ve Ayarlar Butonlarının Düzeni
+    title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col:
-        st.title("⚡ VATSCORE // Premium Stats Radar")
+        st.title("⚡ VATSCORE // Premium Global Radar")
+    
+    with refresh_col:
+        st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
+        refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
+        st.markdown('</div>', unsafe_allow_html=True)
+        if refresh_clicked:
+            st.clear_cache()  # Cache temizle ve veriyi zorla çek
+            st.rerun()
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="settings-emoji-btn">', unsafe_allow_html=True)
+        st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
         settings_clicked = st.button("⚙️", help="Click to toggle Column visibility and Fleet filters")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -337,7 +340,6 @@ if data:
         )
         selected_fir_prefix = selected_option.split(" - ")[0]
         
-        # Filtreleme değiştikçe arka planda sessizce logla
         log_activity(f"Selected FIR: {selected_fir_prefix}")
         
         search_query = st.text_input("🔍 Quick Search by Callsign (e.g., THY123, PGT56G):", "").upper().strip()
@@ -439,8 +441,6 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
-            
-            # Tablo burada basılıyor, menüler CSS ile tamamen uçuruldu!
             st.dataframe(df_fir[final_columns], use_container_width=True)
             
             csv = df_fir.to_csv(index=False).encode('utf-8')
