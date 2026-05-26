@@ -18,6 +18,34 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# 🔄 30 Saniyede Bir Otomatik Yenileme (Auto-Refresh) Sağlayan Güvenli HTML/JS Enjeksiyonu
+st.components.v1.html(
+    """
+    <script>
+        window.parent.document.addEventListener('DOMContentLoaded', function() {
+            if (!window.parent.__vatsim_refresh_interval) {
+                window.parent.__vatsim_refresh_interval = setInterval(function() {
+                    // Streamlit'in yenileme butonunu simüle et veya sayfayı tetikle
+                    const buttons = window.parent.document.querySelectorAll("button");
+                    const rerunButton = Array.from(buttons).find(el => el.textContent.includes("Rerun") || el.innerText.includes("Rerun"));
+                    if (rerunButton) {
+                        rerunButton.click();
+                    } else {
+                        // Eğer buton bulunamazsa güvenli bir şekilde rerun tetiklemek için ufak bir hile
+                        const streamlitDoc = window.parent.document.querySelector('.stApp');
+                        if(streamlitDoc) {
+                            window.parent.location.reload();
+                        }
+                    }
+                }, 30000); // 30000 milisaniye = 30 saniye
+            }
+        });
+    </script>
+    """,
+    height=0,
+    width=0
+)
+
 # CUSTOM CSS (Gizlemeler, İmza, Temiz Arayüz ve Tablo Menü Temizliği)
 st.markdown("""
     <style>
@@ -238,7 +266,7 @@ if data:
     # Başlık Alanı ve Küçük Ayarlar Emojisi Girişi
     title_col, emoji_col = st.columns([0.94, 0.06])
     with title_col:
-        st.title("⚡ VATSCORE // Premium Global Radar")
+        st.title("⚡ VATSCORE // Premium Stats Radar")
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -441,7 +469,7 @@ if data:
             atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
             for k, v in Counter(atc_pos).most_common(7): st.write(f"• `{k}_CTR / APP` : {v} open frequencies")
             
-        # 📡 DİNAMİK LİVE ATC TRACKER PANELDEN EKLEME ALANI (Mevcut Tab Yapısı Aynen Korundu)
+        # 📡 DİNAMİK LIVE ATC TRACKER PANELDEN EKLEME ALANI
         st.markdown("---")
         st.subheader("📡 Live ATC Tracker & Frequencies")
         
@@ -487,7 +515,7 @@ if data:
                         "Time Online (Mins)": st.column_config.NumberColumn("Time Online ⏳")
                     }
                 )
-                st.caption(f"Showing {len(df_atc)} active ATC connections.")
+                st.caption(f"Showing {len(df_atc)} active ATC connections. (Autorefresh active: 30s)")
             else:
                 st.info("No active ATC found matching standard position filters.")
 
