@@ -237,7 +237,7 @@ def classify_aircraft(ac_type, callsign):
     if ac_type in military_types: return "⚔️ Military"
         
     military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
-    if callsign.startswith(military_prefixes) or "MIL" in callsign or "MIL" in callsign: return "⚔️ Military"
+    if callsign.startswith(military_prefixes) or "MIL" in callsign: return "⚔️ Military"
         
     ga_types = {
         "C150", "C152", "C172", "C182", "C206", "C208", 
@@ -268,7 +268,9 @@ if data:
         refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
-            st.clear_cache()  # Cache temizle ve veriyi zorla çek
+            # Önbellekteki fonksiyon verilerini sıfırla ve yeniden yükle
+            fetch_vatsim_data.clear()
+            load_global_fir_dictionary.clear()
             st.rerun()
     
     with emoji_col:
@@ -417,7 +419,7 @@ if data:
         leader_data = []
         if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
         if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
-        if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callspeed'] if 'callspeed' in slowest_p else slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
+        if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
         if veteran_p: leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {veteran_p.get('logon_time','')[11:16]} UTC", "Pilot": veteran_p.get('name')})
         st.table(leader_data)
 
