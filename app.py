@@ -12,7 +12,7 @@ VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-dat
 
 # Sayfa Yapılandırması (Sol menü kapalı, geniş ekran düzeni)
 st.set_page_config(
-    page_title="VatScore Web — Premium ScoreRadar", 
+    page_title="VatScore — Premium ScoreRadar", 
     page_icon="⚡", 
     layout="wide",
     initial_sidebar_state="collapsed"
