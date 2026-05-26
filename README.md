@@ -1,7 +1,7 @@
-# vatscore-radar
+# Vatscore-radar
 VatScore Web is a Streamlit-based global radar dashboard that fetches live flight and air traffic control (ATC) data from the VATSIM network to provide detailed airspace analytics.
 
-## ** VatScore Strategic Development Roadmap **
+## VatScore Strategic Development Roadmap
 
 Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM network, focusing on premium telemetry and optimized interface layouts. Below is our active development queue.
 
@@ -16,4 +16,4 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 
 ### Phase 4: Admin Infrastructure and Branding
 - [ ] Hourly Analytics Profiles: Upgrade the encrypted VatScore HQ control room with analytical chart integration to model peak server connection hours graph-by-graph.
-- [ ] Custom Domain Integration: Move the final deployment to a dedicated standalone custom domain for a professional web experience.
+- [ ] Custom Domain Integration: Purchase a dedicated aviation-centric domain name and configure DNS routing (CNAME records) to transition the platform from a generic deployment to a fully branded premium web infrastructure.
