@@ -505,7 +505,7 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- COMPLETELY ENGLISHED TELEPHONY TITLE -->
+                            <!-- COMPLETELY ENGLISHD TELEPHONY TITLE -->
                             <p class="v-label" style="margin-top:14px;">🎙️ Telephony / Callsign</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
@@ -594,6 +594,22 @@ if data:
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
 
+                // Built-in dictionary fallback mechanism to translate raw code prefixes into their absolute telephony words.
+                const fallbackAirlinesMap = {
+                    "THY": "TURKISH",
+                    "PGT": "SUNTURK",
+                    "SXS": "SUNEXPRESS",
+                    "BAW": "SPEEDBIRD",
+                    "EZY": "EASY",
+                    "DLH": "LUFTHANSA",
+                    "AFR": "AIRFRANS",
+                    "AAL": "AMERICAN",
+                    "UAL": "UNITED",
+                    "UAE": "EMIRATES",
+                    "QTR": "QATARI",
+                    "RYR": "RYANAIR"
+                };
+
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
                     const fillBar = document.getElementById("progressBarFill");
@@ -652,28 +668,29 @@ if data:
                     return "✈️ Commercial";
                 }
 
-                // --- PURE DYNAMIC API DETECTOR ---
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
                     
-                    // Extracts the pure alpha character prefix (e.g. "THY" from "THY1823" or "PGT" from "PGT46K")
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
                     if (cleanPrefix.length < 2) return;
 
-                    // Directly query the parsed external API object injected from Streamlit
+                    // 1. Check local custom fallback system to solve empty fields instantly
+                    if (fallbackAirlinesMap[cleanPrefix]) {
+                        callsignField.innerText = fallbackAirlinesMap[cleanPrefix];
+                        return;
+                    }
+
+                    // 2. Query against external dataset
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
-                    
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        // If API has explicit callsign word, use it. Otherwise, cleanPrefix or fallback airline name
-                        callsignField.innerText = airlineData.callsign || airlineData.name || cleanPrefix;
+                        callsignField.innerText = airlineData.callsign || cleanPrefix;
                     } else {
-                        // Fallback fallback if completely custom/unknown code
                         callsignField.innerText = cleanPrefix;
                     }
                 }
@@ -874,17 +891,16 @@ with tab5:
     st.markdown("""
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
-        <div class="roadmap-title">✈️ Advanced Interactive Grid & Telemetry Engine</div>
-        <div class="roadmap-desc"><strong>Status:</strong> Finalized (May 2026)<br>
-        Implementation of a custom HTML/JS-based grid engine enabling dynamic flight data visualization, interactive pilot profile inspection, and real-time flight plan parsing within a unified dashboard interface.</div>
+        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+        <div class="roadmap-desc">Interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.</div>
     </div>
     <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
-        <div class="roadmap-title">📢 Automated Dynamic Telephony & API Integration</div>
-        <div class="roadmap-desc"><strong>Status:</strong> Under Development (May 2026)<br>
-        Transitioning from static dictionary lookups to a fully automated, asynchronous API-driven architecture. Current efforts focus on optimizing real-time telemetry processing and improving the precision of dynamic mapping between ICAO prefixes and standardized airline telephony callsigns.</div>
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
+        <div class="roadmap-title">📢 Official Telephony Matcher Engine</div>
+        <div class="roadmap-desc">The user's callsign prefix structure is extracted, filtered through an enhanced regular expression architecture, and automatically linked to verified Telephony callsigns via both local fallback dictionary matrices and external real-time data syncs. Completely tailored to match international standard English formats.</div>
     </div>
     """, unsafe_allow_html=True)
+
 if data:
     st.markdown("""
     <div class="signature-container">
