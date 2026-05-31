@@ -349,7 +349,7 @@ if data:
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # 1️⃣ ÖNCE SEÇİLEN FIR BİLGİSİNİ ALALIM (Döngüde filtreleme yapabilmek için)
+    # 1️⃣ ÖNCE SEÇİLEN FIR BİLGİSİNİ ALALIM
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
@@ -478,7 +478,7 @@ if data:
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
             
-            # 🎯 Satır seçimini dinleyen interaktif tablo (selection_mode="single" olarak düzeltildi)
+            # 🎯 Satır seçimini dinleyen interaktif modern tablo altyapısı
             event = st.dataframe(
                 df_fir[final_columns], 
                 use_container_width=True,
@@ -487,7 +487,7 @@ if data:
                 key="fir_table_selection"
             )
             
-            # 🕵️‍♂️ Satır tıklanma kontrolü ve Detay Paneli (Dossier)
+            # 🕵️‍♂️ [DÜZELTME]: Modern on_select API veri yapısına tam uyumlu seçim yakalayıcı
             selected_rows = event.get("selection", {}).get("rows", [])
             if selected_rows:
                 selected_index = selected_rows[0]
