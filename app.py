@@ -6,11 +6,11 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
-from pyairports.airport import Airports 
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
+CSV_FILE_PATH = "airports.csv"  # 📌 Senin bulduğun CSV dosyası
 
 # Page Configuration
 st.set_page_config(
@@ -198,34 +198,45 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
-# --- 🛰️ DYNAMIC PYAIRPORTS COORD GENERATOR ---
+# --- 🛰️ LOCAL CSV COORD GENERATOR ---
+@st.cache_data
+def load_csv_database():
+    """Loads the 3MB airports.csv database into a quick lookup dictionary."""
+    if os.path.exists(CSV_FILE_PATH):
+        try:
+            # Bulduğun CSV'deki sütun isimleri: icao, latitude, longitude
+            df = pd.read_csv(CSV_FILE_PATH)
+            # Kolay arama için icao kodunu index yapıp sözlüğe çeviriyoruz
+            return df.set_index('icao')[['latitude', 'longitude']].to_dict('index')
+        except:
+            pass
+    return {}
+
 def get_coordinates_from_library(pilots_list):
-    """Dynamically extracts and builds coordinate map for active flights using pyairports."""
+    """Dynamically extracts and builds coordinate map for active flights using your CSV data."""
     coords_map = {}
-    try:
-        airport_db = Airports()
-        for p in pilots_list:
-            fplan = p.get("flight_plan") or {}
-            dep = str(fplan.get("departure", "")).strip().upper()
-            arr = str(fplan.get("arrival", "")).strip().upper()
-            
-            # Extract Departure Coords
-            if dep and len(dep) == 4 and dep not in coords_map:
-                try:
-                    info = airport_db.lookup(dep)
-                    if info:
-                        coords_map[dep] = {"latitude_deg": float(info.lat), "longitude_deg": float(info.lon)}
-                except: pass
+    csv_db = load_csv_database()
+    
+    for p in pilots_list:
+        fplan = p.get("flight_plan") or {}
+        dep = str(fplan.get("departure", "")).strip().upper()
+        arr = str(fplan.get("arrival", "")).strip().upper()
+        
+        # Extract Departure Coords from CSV
+        if dep and len(dep) == 4 and dep not in coords_map:
+            if dep in csv_db:
+                coords_map[dep] = {
+                    "latitude_deg": float(csv_db[dep]['latitude']),
+                    "longitude_deg": float(csv_db[dep]['longitude'])
+                }
                 
-            # Extract Arrival Coords
-            if arr and len(arr) == 4 and arr not in coords_map:
-                try:
-                    info = airport_db.lookup(arr)
-                    if info:
-                        coords_map[arr] = {"latitude_deg": float(info.lat), "longitude_deg": float(info.lon)}
-                except: pass
-    except:
-        pass
+        # Extract Arrival Coords from CSV
+        if arr and len(arr) == 4 and arr not in coords_map:
+            if arr in csv_db:
+                coords_map[arr] = {
+                    "latitude_deg": float(csv_db[arr]['latitude']),
+                    "longitude_deg": float(csv_db[arr]['longitude'])
+                }
         
     # Hardcoded premium operational fallbacks safely injected
     fallback = {
@@ -270,7 +281,7 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
-    # Generate coordinates dynamically from library for current online flights
+    # Generate coordinates dynamically from your uploaded airports.csv
     airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
