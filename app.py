@@ -19,43 +19,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 🔄 GÜVENLİ VE OTOMATİK ÇALIŞAN AUTO-REFRESH ENGINE (Butona basmadan tetiklenir)
-st.components.v1.html(
-    """
-    <script>
-        (function() {
-            function startRefresher() {
-                if (!window.parent.__vatsim_refresh_active) {
-                    window.parent.__vatsim_refresh_active = true;
-                    setInterval(function() {
-                        // Streamlit'in gizli yenileme/rerun butonlarını bulup tetikler
-                        const buttons = window.parent.document.querySelectorAll("button");
-                        const rerunButton = Array.from(buttons).find(el => el.textContent.includes("Rerun") || el.innerText.includes("Rerun"));
-                        if (rerunButton) {
-                            rerunButton.click();
-                        } else {
-                            // Yedek plan: Buton bulunamazsa pencereyi doğrudan yeniler
-                            const streamlitDoc = window.parent.document.querySelector('.stApp');
-                            if(streamlitDoc) {
-                                window.parent.location.reload();
-                            }
-                        }
-                    }, 30000); // 30 Saniye
-                }
-            }
-            // Sayfa DOM yapısı hazır olduğunda veya yükleme bittiğinde direkt çalıştır
-            if (window.parent.document.readyState === "complete" || window.parent.document.readyState === "interactive") {
-                startRefresher();
-            } else {
-                window.parent.document.addEventListener('DOMContentLoaded', startRefresher);
-            }
-        })();
-    </script>
-    """,
-    height=0,
-    width=0
-)
-
 # CUSTOM CSS
 st.markdown("""
     <style>
@@ -214,7 +177,6 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-# Tüm Dünyadaki FIR Sözlüğünü Oluşturan Fonksiyon
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
     fir_dict = {}
@@ -264,7 +226,7 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    # Başlık Alanı ve Yenileme/Ayarlar
+    # Başlık Alanı
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
     
@@ -307,11 +269,10 @@ if data:
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # Data Processing
+    # İlk Veri İşleme
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
-    atlantic_count = 0
     highest_p, fastest_p, slowest_p, veteran_p = None, None, None, None
     max_alt, max_gs, min_gs = -1, -1, 9999
     min_logon = "9999-12-31"
@@ -323,7 +284,6 @@ if data:
     else: selected_fir_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
 
     current_fleet_filter = st.session_state.fleet_filter_selection
-    
     pilot_dossiers = {}
 
     for p in pilots:
@@ -344,7 +304,6 @@ if data:
         if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
 
         category = classify_aircraft(ac_type, callsign)
-
         if current_fleet_filter == "Commercial Only" and category != "✈️ Commercial": continue
         if current_fleet_filter == "General Aviation Only" and category != "🛩️ General Aviation": continue
         if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
@@ -371,21 +330,13 @@ if data:
                     online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
                 except: pass
             
-            rating_map = {0: "OBS", 1: "P1", 2: "P2", 3: "P3", 4: "P4", 5: "P5"}
-            rating_text = rating_map.get(p.get("pilot_rating", 0), "P1 (Licensed)")
+            rating_text = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"}.get(p.get("pilot_rating", 0), "P1 (Licensed)")
             v5_voice = "🎙️ Voice Active" if p.get("has_voice", True) else "⌨️ Text Only"
 
             pilot_dossiers[callsign] = {
-                "name": p.get("name", "Anonymous"),
-                "cid": p.get("cid", "N/A"),
-                "rating": rating_text,
-                "online": online_mins,
-                "voice": v5_voice,
-                "squawk": p.get("transponder", "0000"),
-                "origin": display_dep,
-                "destination": display_arr,
-                "airframe": ac_type,
-                "route": route
+                "name": p.get("name", "Anonymous"), "cid": p.get("cid", "N/A"), "rating": rating_text,
+                "online": online_mins, "voice": v5_voice, "squawk": p.get("transponder", "0000"),
+                "origin": display_dep, "destination": display_arr, "airframe": ac_type, "route": route
             }
 
         if alt > max_alt: max_alt = alt; highest_p = p
@@ -396,7 +347,6 @@ if data:
         if str(p.get("transponder")) == "7700": anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday", "Airframe": ac_type})
         if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
         if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
-        if (15000 < alt < 45000) and (45.0 < lat < 62.0) and (-40.0 < lon < -15.0): atlantic_count += 1
 
     # Sekmeler
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
@@ -414,12 +364,11 @@ if data:
         st.subheader("✈️ Regional Airspace Monitor")
         selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
-        # Açılır Grafik Kutusu
+        # Grafik Alanı
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
             df_fir = pd.DataFrame(fir_pilots)
-            
             with chart_expander:
                 c_col1, c_col2 = st.columns(2)
                 with c_col1:
@@ -433,11 +382,14 @@ if data:
 
             # Tablo Sütun Filtrelemesi
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            raw_rows_json = df_fir[active_cols].to_dict(orient="records")
             
-            # HTML Tablo ve Fixed Modal Enjeksiyonu
-            html_table_and_modal_code = f"""
+            # --- PYLANCE SAFE - ZERO FLICKER HTML ENGINE ---
+            th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
+            
+            raw_html_template = """
             <div id="vatscore-custom-container">
+                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
+
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
@@ -447,34 +399,23 @@ if data:
                         <div class="v-modal-body">
                             <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:20px; font-family:sans-serif;"></h4>
                             <hr style="border-color:#1e293b; margin-bottom:15px;">
-                            
                             <div class="v-grid">
                                 <div>
-                                    <p class="v-label">👤 Pilot Name</p>
-                                    <p id="popName" class="v-val"></p>
-                                    <p class="v-label">🆔 VATSIM CID</p>
-                                    <p id="popCid" class="v-val"></p>
-                                    <p class="v-label">🎖️ Rating</p>
-                                    <p id="popRating" class="v-val"></p>
+                                    <p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>
+                                    <p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>
+                                    <p class="v-label">🎖️ Rating</p><p id="popRating" class="v-val"></p>
                                 </div>
                                 <div>
-                                    <p class="v-label">🟢 Online Time</p>
-                                    <p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
-                                    <p class="v-label">📻 VHF Comms & Frequency</p>
-                                    <p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
-                                    <p class="v-label">📡 Squawk</p>
-                                    <p id="popSquawk" class="v-val"></p>
+                                    <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
+                                    <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
+                                    <p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p>
                                 </div>
                                 <div>
-                                    <p class="v-label">🛫 Origin</p>
-                                    <p id="popOrigin" class="v-val"></p>
-                                    <p class="v-label">🛬 Destination</p>
-                                    <p id="popDestination" class="v-val"></p>
-                                    <p class="v-label">✈️ Airframe</p>
-                                    <p id="popAirframe" class="v-val"></p>
+                                    <p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>
+                                    <p class="v-label">🛬 Destination</p><p id="popDestination" class="v-val"></p>
+                                    <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
-                            
                             <p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
@@ -484,150 +425,126 @@ if data:
                 <div class="table-responsive">
                     <table class="radar-html-table">
                         <thead>
-                            <tr>
-                                {"".join(f"<th>{col}</th>" for col in active_cols)}
+                            <tr id="table-headers">
+                                {HEADERS_PLACEHOLDER}
                             </tr>
                         </thead>
-                        <tbody>
-                            {"".join(f'''
-                            <tr onclick="openDossier('{row["Callsign"]}')">
-                                {"".join(f'<td><b style="color:#3b82f6; cursor:pointer;">{row[col]}</b></td>' if col == "Callsign" else f"<td>{row[col]}</td>" for col in active_cols)}
-                            </tr>
-                            ''' for row in raw_rows_json)}
-                        </tbody>
+                        <tbody id="table-body"></tbody>
                     </table>
                 </div>
             </div>
 
             <style>
-                #vatscore-custom-container {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    background-color: #0f111a;
-                    color: #f8fafc;
-                }}
-                .table-responsive {{
-                    width: 100%;
-                    overflow-x: auto;
-                    border: 1px solid #1e293b;
-                    border-radius: 8px;
-                    background-color: #11131f;
-                }}
-                .radar-html-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    text-align: left;
-                    font-size: 14px;
-                }}
-                .radar-html-table th {{
-                    background-color: #1e293b;
-                    color: #94a3b8;
-                    padding: 12px 16px;
-                    font-weight: 600;
-                    border-bottom: 2px solid #0f111a;
-                }}
-                .radar-html-table tr {{
-                    border-bottom: 1px solid #1e293b;
-                    transition: background-color 0.2s ease;
-                    cursor: pointer;
-                }}
-                .radar-html-table tr:hover {{
-                    background-color: #1e293b80;
-                }}
-                .radar-html-table td {{
-                    padding: 12px 16px;
-                    color: #e2e8f0;
-                }}
-                .v-modal {{
-                    display: none; 
-                    position: fixed; 
-                    z-index: 999999 !important; 
-                    left: 0; top: 0;
-                    width: 100vw; height: 100vh;
-                    background-color: rgba(0, 0, 0, 0.7);
-                    backdrop-filter: blur(5px);
-                    box-sizing: border-box;
-                }}
-                .v-modal-content {{
-                    background-color: #151824;
-                    position: absolute;
-                    top: 50%; left: 50%;
-                    transform: translate(-50%, -50%);
-                    width: 65%;
-                    border: 1px solid #3b82f640;
-                    border-radius: 12px;
-                    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
-                    box-sizing: border-box;
-                }}
-                .v-modal-header {{
-                    padding: 14px 20px;
-                    background-color: #1e293b;
-                    border-top-left-radius: 11px;
-                    border-top-right-radius: 11px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }}
-                .v-modal-title {{
-                    color: #94a3b8;
-                    font-weight: bold;
-                    font-size: 15px;
-                }}
-                .v-close-btn {{
-                    color: #94a3b8;
-                    font-size: 28px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    line-height: 1;
-                }}
-                .v-close-btn:hover {{
-                    color: #ef4444;
-                }}
-                .v-modal-body {{
-                    padding: 20px;
-                }}
-                .v-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 15px;
-                }}
-                .v-label {{
-                    color: #64748b;
-                    font-size: 11px;
-                    font-weight: bold;
-                    text-transform: uppercase;
-                    margin: 8px 0 2px 0;
-                }}
-                .v-val {{
-                    color: #f1f5f9;
-                    font-size: 14px;
-                    background-color: #1e293b40;
-                    padding: 6px 10px;
-                    border-radius: 4px;
-                    margin: 0;
-                    border: 1px solid #1e293b;
-                }}
-                .v-textarea {{
-                    width: 100%;
-                    height: 65px;
-                    background-color: #1e293b40;
-                    border: 1px solid #1e293b;
-                    color: #cbd5e1;
-                    padding: 8px;
-                    border-radius: 6px;
-                    resize: none;
-                    font-family: monospace;
-                    font-size: 13px;
-                    box-sizing: border-box;
-                }}
+                #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
+                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
+                .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+                .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
+                .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
+                .radar-html-table tr:hover { background-color: #1e293b80; }
+                .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
+                
+                #sync-notification {
+                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
+                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
+                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
+                    animation: pulse-blue 1.5s infinite ease-in-out;
+                }
+                @keyframes pulse-blue {
+                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+                }
+
+                .v-modal { display: none; position: fixed; z-index: 9999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); }
+                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
+                .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
+                .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
+                .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
+                .v-close-btn:hover { color: #ef4444; }
+                .v-modal-body { padding: 20px; }
+                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+                .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 2px 0; }
+                .v-val { color: #f1f5f9; font-size: 14px; background-color: #1e293b40; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
+                .v-textarea { width: 100%; height: 65px; background-color: #1e293b40; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
             </style>
 
             <script>
-                const dossiers = {json.dumps(pilot_dossiers)};
-                
-                function openDossier(callsign) {{
-                    const p = dossiers[callsign];
+                let globalDossiers = {};
+                const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
+                const activeColumns = ACTIVE_COLS_PLACEHOLDER;
+
+                function classifyAircraftLocal(acType, callsign) {
+                    acType = String(acType).toUpperCase().trim();
+                    callsign = String(callsign).toUpperCase().trim();
+                    const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
+                    if (milTypes.includes(acType)) return "⚔️ Military";
+                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
+                    const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
+                    if (gaTypes.includes(acType)) return "🛩️ General Aviation";
+                    return "✈️ Commercial";
+                }
+
+                function buildTable(pilotsList) {
+                    const tbody = document.getElementById("table-body");
+                    tbody.innerHTML = "";
+                    globalDossiers = {};
+
+                    pilotsList.forEach(p => {
+                        const callsign = p.callsign || "N/A";
+                        const fplan = p.flight_plan || {};
+                        const dep = fplan.departure || "";
+                        const arr = fplan.arrival || "";
+                        const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
+                        const category = classifyAircraftLocal(acType, callsign);
+                        
+                        const matchesPlan = dep.startsWith(targetPrefix) || arr.startsWith(targetPrefix);
+                        let isPhysHere = false;
+                        if (targetPrefix === "LT" && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
+                            isPhysHere = true;
+                        }
+
+                        if (matchesPlan || isPhysHere) {
+                            const rowData = {
+                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
+                                "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude,
+                                "Speed (KT)": p.groundspeed, "Squawk": p.transponder || "0000"
+                            };
+
+                            let onlineMins = "Unknown";
+                            if (p.logon_time) {
+                                const logDt = new Date(p.logon_time);
+                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
+                            }
+
+                            globalDossiers[callsign] = {
+                                name: p.name || "Anonymous", cid: p.cid || "N/A",
+                                rating: "P1 (Licensed)", online: onlineMins,
+                                voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
+                                squawk: p.transponder || "0000", origin: rowData.Origin,
+                                destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed."
+                            };
+
+                            const tr = document.createElement("tr");
+                            tr.onclick = () => openDossier(callsign);
+                            
+                            activeColumns.forEach(col => {
+                                const td = document.createElement("td");
+                                if (col === "Callsign") {
+                                    td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
+                                } else {
+                                    td.innerText = rowData[col];
+                                }
+                                tr.appendChild(td);
+                            });
+                            tbody.appendChild(tr);
+                        }
+                    });
+                }
+
+                function openDossier(callsign) {
+                    const p = globalDossiers[callsign];
                     if (!p) return;
-                    
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -639,22 +556,39 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
-                    
                     document.getElementById("dossierModal").style.display = "block";
                 }}
-                
-                function closeModal() {{
-                    document.getElementById("dossierModal").style.display = "none";
-                }}
-                
-                window.onclick = function(event) {{
-                    const modal = document.getElementById("dossierModal");
-                    if (event.target == modal) {{
-                        modal.style.display = "none";
-                    }}
-                }}
+
+                function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
+                window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
+
+                async function updateData() {
+                    const notifier = document.getElementById("sync-notification");
+                    notifier.style.display = "block";
+                    try {
+                        const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
+                        const data = await res.json();
+                        if (data && data.pilots) {
+                            buildTable(data.pilots);
+                        }
+                    } catch(e) { console.log(e); }
+                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
+                }
+
+                const initialData = INITIAL_DATA_PLACEHOLDER;
+                buildTable(initialData);
+                setInterval(updateData, 30000);
             </script>
             """
+            
+            # Değişkenleri f-string olmadan, güvenli replace metoduyla enjekte ediyoruz
+            html_table_and_modal_code = raw_html_template\
+                .replace("{HEADERS_PLACEHOLDER}", th_elements)\
+                .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
+                .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
+                .replace("VATSIM_DATA_URL_PLACEHOLDER", str(VATSIM_DATA_URL))\
+                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
+
             st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
             
             csv = df_fir.to_csv(index=False).encode('utf-8')
@@ -685,16 +619,14 @@ if data:
     with tab5:
         st.subheader("🚀 VatScore Strategic Development Roadmap")
         
-        # 🟢 PHASE 1: COMPLETED & TARİH
         st.markdown("""
         <div class="roadmap-card">
             <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
-            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Fixed Modal View</div>
-            <div class="roadmap-desc">Successfully migrated from native Streamlit dataframes to a premium HTML/JS grid engine, completely bypassing Python 3.14 selection bugs. Features a responsive layout with smooth hover animations and a native Javascript telemetry modal that locks perfectly to the center of the screen upon click.</div>
+            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+            <div class="roadmap-desc">Successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. This was achieved by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal that locks perfectly to the center of the screen upon click. Fixed dashboard viewports by engineering background asychronous fetch routines for a zero-flicker experience.</div>
         </div>
         """, unsafe_allow_html=True)
         
-        # 🟡 PHASE 2: IN PROGRESS & GELECEK ÖZELLİKLER
         st.markdown("""
         <div class="roadmap-card in-progress">
             <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
