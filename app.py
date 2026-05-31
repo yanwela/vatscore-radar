@@ -169,6 +169,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
+# --- FIXED DECORATOR HACK FROM IMAGE_7C659D.PNG ---
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -308,7 +309,7 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
             fetch_vatsim_data.clear()
-            # NO RERUN: We increment a state trigger so the Iframe knows a manual sync was requested without shaking the UI
+            # NO RERUN/SHAKE SHIELD: We increment the signal stamp. The internal watcher catches it and updates silently!
             st.session_state.iframe_signal += 1
     
     with emoji_col:
@@ -734,7 +735,7 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            // MODAL STATE PERSISTENCE: If modal was open, refresh telemetry layout inside seamlessly
+                            // MODAL STATE PERSISTENCE: If modal was open, refresh layout values smoothly inside without closing!
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
@@ -751,12 +752,12 @@ if data:
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
 
-                // Check for manual refresh signals via invisible DOM watcher
+                // BRIDGE ANTI-DESTRUCTION GATEWAY: Watch the hidden DOM signal attribute for any manual refreshes
                 setInterval(() => {
                     const el = document.getElementById("signal-receiver");
                     const currentSig = el.getAttribute("data-sig");
                     if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData();
+                        updateData(); // Sinyal değiştiyse iframe içinden sessizce fetch at, asla destroy etme!
                     }
                     window.lastKnownSig = currentSig;
                 }, 500);
