@@ -169,7 +169,6 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-# --- FIXED ATTR ERROR: Changed from st.context.cache_data to st.cache_data ---
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -290,6 +289,9 @@ def classify_aircraft(ac_type, callsign):
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
+if "iframe_signal" not in st.session_state:
+    st.session_state.iframe_signal = 0
+
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
@@ -306,8 +308,8 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
             fetch_vatsim_data.clear()
-            load_global_fir_dictionary.clear()
-            st.rerun()
+            # NO RERUN: We increment a state trigger so the Iframe knows a manual sync was requested without shaking the UI
+            st.session_state.iframe_signal += 1
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -447,10 +449,11 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE (MODAL PERSISTENCE REINFORCED) ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE (SHAKE-FREE & MODAL LOCK ACTIVATED) ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
+                <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
@@ -560,13 +563,12 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentlyOpenCallsign = null; // Track modal state across data frames
+                let currentlyOpenCallsign = null; // Track modal status safely across network sync operations
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
 
-                // 📐 TRUE HAVERSINE GEODESIC ENGINE (NM CALCULATOR)
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
                     const fillBar = document.getElementById("progressBarFill");
@@ -695,10 +697,6 @@ if data:
 
                     currentlyOpenCallsign = callsign;
 
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.set('selected_callsign', callsign);
-                    window.parent.history.replaceState({}, '', url);
-
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -722,9 +720,6 @@ if data:
                 function closeModal() { 
                     currentlyOpenCallsign = null;
                     document.getElementById("dossierModal").style.display = "none"; 
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.delete('selected_callsign');
-                    window.parent.history.replaceState({}, '', url);
                 }
                 
                 window.onclick = function(e) { 
@@ -739,15 +734,16 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            // Keep modal open and refresh telemetry seamlessly
+                            // MODAL STATE PERSISTENCE: If modal was open, refresh telemetry layout inside seamlessly
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
                         }
                     } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
+                    setTimeout(() => { notifier.style.display = "none"; }, 1500);
                 }
 
+                // Initial load
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
@@ -755,6 +751,17 @@ if data:
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
 
+                // Check for manual refresh signals via invisible DOM watcher
+                setInterval(() => {
+                    const el = document.getElementById("signal-receiver");
+                    const currentSig = el.getAttribute("data-sig");
+                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
+                        updateData();
+                    }
+                    window.lastKnownSig = currentSig;
+                }, 500);
+
+                // Seamless Background Auto Sync Timer (Every 30 Seconds)
                 setInterval(updateData, 30000);
             </script>
             """
@@ -766,7 +773,8 @@ if data:
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
+                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
+                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
