@@ -878,14 +878,13 @@ with tab5:
         <div class="roadmap-desc"><strong>Status:</strong> Finalized (May 2026)<br>
         Implementation of a custom HTML/JS-based grid engine enabling dynamic flight data visualization, interactive pilot profile inspection, and real-time flight plan parsing within a unified dashboard interface.</div>
     </div>
-    <div class="roadmap-card">
-        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed</div>
+    <div class="roadmap-card in-progress">
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
         <div class="roadmap-title">📢 Automated Dynamic Telephony & API Integration</div>
-        <div class="roadmap-desc"><strong>Status:</strong> Operational (May 31, 2026)<br>
-        Transition from static dictionaries to a fully automated, asynchronous API-driven architecture. The system now performs real-time telemetry processing, fetching live global airline database records to dynamically map ICAO prefixes to standardized telephony callsigns with high precision.</div>
+        <div class="roadmap-desc"><strong>Status:</strong> Under Development (May 2026)<br>
+        Transitioning from static dictionary lookups to a fully automated, asynchronous API-driven architecture. Current efforts focus on optimizing real-time telemetry processing and improving the precision of dynamic mapping between ICAO prefixes and standardized airline telephony callsigns.</div>
     </div>
     """, unsafe_allow_html=True)
-
 if data:
     st.markdown("""
     <div class="signature-container">
