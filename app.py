@@ -606,58 +606,93 @@ if data:
         else:
             st.warning("No active flights found for this region prefix right now.")
 
-    with tab3:
-        st.subheader("Global Network Insights")
-        col_g1, col_g2, col_g3 = st.columns(3)
-        with col_g1:
-            st.markdown("### 📍 Busiest Hubs")
-            st.write("**Top Departures:**")
-            for k, v in Counter(dep_airports).most_common(4): st.write(f"• `{k}`: {v} flights")
-        with col_g2:
-            st.markdown("### ✈️ Fleet Distribution")
-            for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
-        with col_g3:
-            st.markdown("### 🎙️ Busiest Airspaces (ATC)")
-            atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
-            for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
+with tab3:
+    st.subheader("Global Network Insights")
 
-    with tab4:
-        st.subheader("🛸 Live Anomaly Radar (X-Files)")
-        if anomalies: st.dataframe(anomalies, use_container_width=True)
-        else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+    col_g1, col_g2, col_g3 = st.columns(3)
 
-    with tab5:
-        st.subheader("🚀 VatScore Strategic Development Roadmap")
-        
-        st.markdown("""
-        <div class="roadmap-card">
-            <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
-            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-            <div class="roadmap-desc">Successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. This was achieved by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal that locks perfectly to the center of the screen upon click. Fixed dashboard viewports by engineering background asychronous fetch routines for a zero-flicker experience.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="roadmap-card in-progress">
-            <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
-            <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
-            <div class="roadmap-desc">
-                This phase focuses on deep telemetry sorting and production deployment adjustments:
-                <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
-                    <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
-                    <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
-                    <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
-                    <li><b>Custom Domain Deployment:</b> Migrating infrastructure under a dedicated brand domain name.</li>
-                </ul>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    with col_g1:
+        st.markdown("### 📍 Busiest Hubs")
+
+        hub_view = st.radio(
+            "Select Focus:",
+            ["🛫 Top Departures", "🛬 Top Arrivals"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if "Departures" in hub_view:
+            st.write("**Top Flight Departures Currently:**")
+            for k, v in Counter(dep_airports).most_common(5):
+                st.write(f"• `{k}`: {v} flights")
+        else:
+            st.write("**Top Flight Arrivals Currently:**")
+            for k, v in Counter(arr_airports).most_common(5):
+                st.write(f"• `{k}`: {v} flights")
+
+    with col_g2:
+        st.markdown("### ✈️ Fleet Distribution")
+        for k, v in Counter(aircraft_types).most_common(7):
+            st.write(f"• **{k}** : {v} aircraft")
+
+    with col_g3:
+        st.markdown("### 🎙️ Busiest Airspaces (ATC)")
+        atc_pos = [
+            a.get("callsign", "").split("_")[0]
+            for a in controllers
+            if "_" in a.get("callsign", "")
+        ]
+
+        for k, v in Counter(atc_pos).most_common(4):
+            st.write(f"• `{k}_CTR` : {v} open frequencies")
+
+
+with tab4:
+    st.subheader("🛸 Live Anomaly Radar (X-Files)")
+
+    if anomalies:
+        st.dataframe(anomalies, use_container_width=True)
+    else:
+        st.success(
+            "Sky is clear. No telemetric anomalies or emergencies detected."
+        )
+
+
+with tab5:
+    st.subheader("🚀 VatScore Strategic Development Roadmap")
 
     st.markdown("""
-        <div class="signature-container">
-            ⚡ VatScore Dashboard // Made by alp-1863530 <br>
-            📬 For any questions or requests, contact: <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
-        </div>
+    <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
+        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+        <div class="roadmap-desc">Successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. This was achieved by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal that locks perfectly to the center of the screen upon click. Fixed dashboard viewports by engineering background asychronous fetch routines for a zero-flicker experience.</div>
+    </div>
     """, unsafe_allow_html=True)
-else:
-    st.error("Could not fetch data from VATSIM API. Please reload page.")
+
+    st.markdown("""
+    <div class="roadmap-card in-progress">
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+        <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
+        <div class="roadmap-desc">
+            This phase focuses on deep telemetry sorting and production deployment adjustments:
+            <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
+                <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
+                <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
+                <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
+                <li><b>Custom Domain Deployment:</b> Migrating infrastructure under a dedicated brand domain name.</li>
+            </ul>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("""
+<div class="signature-container">
+    ⚡ VatScore Dashboard // Made by alp-1863530 <br>
+    📬 For any questions or requests, contact:
+    <a class="signature-link" href="mailto:alpqwesy1@gmail.com">
+        alpqwesy1@gmail.com
+    </a>
+</div>
+""", unsafe_allow_html=True)
