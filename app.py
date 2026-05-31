@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 🔄 30 Saniyede Bir Otomatik Yenileme (Auto-Refresh) Sağlayan Güvenli HTML/JS Enjeksiyonu
+# 🔄 30 Saniyede Bir Otomatik Yenileme (Auto-Refresh)
 st.components.v1.html(
     """
     <script>
@@ -45,7 +45,7 @@ st.components.v1.html(
     width=0
 )
 
-# CUSTOM CSS (Streamlit elementlerini temizleme ve genel stil)
+# CUSTOM CSS
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -65,12 +65,8 @@ st.markdown("""
         padding-top: 30px; border-top: 1px solid #1e293b; margin-top: 40px;
         line-height: 1.6;
     }
-    .signature-link {
-        color: #3b82f6; text-decoration: none;
-    }
-    .signature-link:hover {
-        text-decoration: underline;
-    }
+    .signature-link { color: #3b82f6; text-decoration: none; }
+    .signature-link:hover { text-decoration: underline; }
     
     /* Roadmap Kart Tasarımları */
     .roadmap-card {
@@ -93,7 +89,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 🛰️ SESSİZ LOGLAMA VE ADMİN SİSTEMİ ALTYAPISI ---
+# --- 🛰️ SESSİZ LOGLAMA VE ADMİN SİSTEMİ ---
 LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
@@ -314,7 +310,6 @@ if data:
 
     current_fleet_filter = st.session_state.fleet_filter_selection
     
-    # Detaylı Haritalama İçin Tüm Pilot Verilerini Sözlük Yapısında Saklayalım (JS Okuyacak)
     pilot_dossiers = {}
 
     for p in pilots:
@@ -355,7 +350,6 @@ if data:
                 "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
             })
 
-            # JavaScript Popup Altyapısı için her uçağın ham verisini hazırlıyoruz
             online_mins = "Unknown"
             if logon:
                 try:
@@ -406,17 +400,28 @@ if data:
         st.subheader("✈️ Regional Airspace Monitor")
         selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
-        # HTML + CSS + JS TABLO VE MODAL ENJEKSİYONU
+        # 📊 EXACT GREEN LINE LOCATION: Bölge seçiminin hemen altındaki açılır grafik kutusu
+        chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
+        
         if fir_pilots:
             df_fir = pd.DataFrame(fir_pilots)
             
-            # Seçilen sütunları filtrele
+            with chart_expander:
+                c_col1, c_col2 = st.columns(2)
+                with c_col1:
+                    st.markdown("##### 📈 FIR Altitude Profiles (FT)")
+                    df_alt_chart = df_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
+                    st.bar_chart(df_alt_chart, y='Altitude (FT)', color='#3b82f6')
+                with c_col2:
+                    st.markdown("##### ⚡ FIR Groundspeed Profiles (KT)")
+                    df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
+                    st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
+
+            # Tablo Sütun Filtrelemesi
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            
-            # JSON formatına dökerek JS'e paslayalım
             raw_rows_json = df_fir[active_cols].to_dict(orient="records")
             
-            # 🚀 İŞTE BEKLEDİĞİN SÜPER HTML / CSS / JAVASCRIPT BLOKLARI
+            # HTML Tablo ve Kusursuz Fixed Modal Enjeksiyonu
             html_table_and_modal_code = f"""
             <div id="vatscore-custom-container">
                 <div id="dossierModal" class="v-modal">
@@ -519,32 +524,30 @@ if data:
                     color: #e2e8f0;
                 }}
                 
-                /* POPUP MODAL (MODAL CSS) */
+                /* 🚀 KAPATINCA VEYA SCROLL EDİNCE ASLA KAYMAYAN TAM EKRAN ORTALI POPUP CSS */
                 .v-modal {{
                     display: none; 
                     position: fixed; 
-                    z-index: 99999; 
+                    z-index: 999999 !important; 
                     left: 0; top: 0;
-                    width: 100%; height: 100%;
-                    background-color: rgba(0,0,0,0.6);
-                    backdrop-filter: blur(4px);
+                    width: 100vw; height: 100vh;
+                    background-color: rgba(0, 0, 0, 0.7);
+                    backdrop-filter: blur(5px);
+                    box-sizing: border-box;
                 }}
                 .v-modal-content {{
                     background-color: #151824;
-                    margin: 10% auto;
-                    padding: 0;
-                    border: 1px solid #3b82f640;
+                    position: absolute;
+                    top: 50%; left: 50%;
+                    transform: translate(-50%, -50%); /* Sayfayı kaydırsan bile tam merkezde kilitler */
                     width: 65%;
+                    border: 1px solid #3b82f640;
                     border-radius: 12px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-                    animation: animatetop 0.3s;
-                }}
-                @keyframes animatetop {{
-                    from {{top:-300px; opacity:0}}
-                    to {{top:0; opacity:1}}
+                    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+                    box-sizing: border-box;
                 }}
                 .v-modal-header {{
-                    padding: 12px 20px;
+                    padding: 14px 20px;
                     background-color: #1e293b;
                     border-top-left-radius: 11px;
                     border-top-right-radius: 11px;
@@ -632,7 +635,6 @@ if data:
                     document.getElementById("dossierModal").style.display = "none";
                 }}
                 
-                // Pencere dışına tıklayınca otomatik kapatma
                 window.onclick = function(event) {{
                     const modal = document.getElementById("dossierModal");
                     if (event.target == modal) {{
@@ -641,8 +643,7 @@ if data:
                 }}
             </script>
             """
-            # HTML Kodunu Streamlit Sayfasına Güvenle Basıyoruz
-            st.components.v1.html(html_table_and_modal_code, height=550, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
             
             csv = df_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
@@ -674,8 +675,8 @@ if data:
         st.markdown("""
         <div class="roadmap-card">
             <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Completed</div>
-            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine</div>
-            <div class="roadmap-desc">Streamlit yerel tablolarından bağımsız, Python 3.14 buglarından etkilenmeyen ve tıklayınca özel popup açan premium HTML tablosu başarıyla entegre edildi.</div>
+            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Fixed Modal View</div>
+            <div class="roadmap-desc">Successfully migrated from native Streamlit dataframes to a premium HTML/JS grid engine, completely bypassing Python 3.14 selection bugs. Features a responsive layout with smooth hover animations and a native Javascript telemetry modal that locks perfectly to the center of the screen upon click.</div>
         </div>
         """, unsafe_allow_html=True)
 
