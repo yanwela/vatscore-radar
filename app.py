@@ -169,7 +169,8 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.context.cache_data(ttl=15)
+# --- FIXED ATTR ERROR: Changed from st.context.cache_data to st.cache_data ---
+@st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
@@ -177,7 +178,7 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-@st.context.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
     fir_dict = {}
     try:
@@ -199,7 +200,7 @@ def load_global_fir_dictionary():
     return fir_dict
 
 # --- 🛰️ LOCAL CSV COORD GENERATOR ---
-@st.context.cache_data
+@st.cache_data
 def load_csv_database():
     """Loads the 3MB airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
@@ -446,7 +447,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE (MODAL PERSISTENCE REINFORCED) ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -559,7 +560,7 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentlyOpenCallsign = null;
+                let currentlyOpenCallsign = null; // Track modal state across data frames
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
@@ -738,6 +739,7 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
+                            // Keep modal open and refresh telemetry seamlessly
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
