@@ -6,6 +6,10 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
+#Items Under Review: 
+# Callsign Telephony System: Automate the Callsign matching system directly via API.
+# Progress Bar Mini-Update: Optimization of visual tracking accuracy for best values.
+# Auto-Refresh Update: Implementation of automated telemetry synchronization.
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
