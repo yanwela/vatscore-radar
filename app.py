@@ -202,7 +202,7 @@ def load_global_fir_dictionary():
 # --- 🛰️ LOCAL CSV COORD GENERATOR ---
 @st.cache_data
 def load_csv_database():
-    """Loads the 3MB airports.csv database into a quick lookup dictionary."""
+    """Loads the airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -497,14 +497,13 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- AIRLINE DISPLAY AREA DESIGNED FROM IMAGE_7AF55A.PNG -->
                             <p class="v-label" style="margin-top:14px;">Airline</p>
                             <div class="airline-premium-box" id="airlinePremiumBox">
-                                <div id="airlineMainName" class="airline-title-text">Loading Airline Data...</div>
+                                <div id="airlineMainName" class="airline-title-text">General Aviation / Private Flight</div>
                                 <div class="airline-meta-row">
-                                    <span id="airlineIcaoCode" class="meta-item">---</span>
-                                    <span class="meta-dot">•</span>
-                                    <span id="airlineCallsignText" class="meta-item">---</span>
+                                    <span id="airlineIcaoCode" class="meta-item-icao">---</span>
+                                    <span id="airlineMetaDot" class="meta-dot" style="display:none;">•</span>
+                                    <span id="airlineCallsignText" class="meta-item-callsign">---</span>
                                     <span id="airlineBadgeContainer"></span>
                                 </div>
                             </div>
@@ -542,7 +541,7 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* CUSTOM CARD CONTAINER INSPIRED BY IMAGE_7AF55A.PNG */
+                /* RECREATED PREMIUM LAYOUT FROM DESIGN IMAGES */
                 .airline-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -563,6 +562,14 @@ if data:
                     gap: 8px;
                     font-size: 13px;
                     color: #94a3b8;
+                }
+                .meta-item-icao {
+                    color: #3b82f6;
+                    font-weight: bold;
+                }
+                .meta-item-callsign {
+                    color: #cbd5e1;
+                    font-weight: 500;
                 }
                 .meta-dot {
                     color: #475569;
@@ -677,48 +684,67 @@ if data:
                     return "✈️ Commercial";
                 }
 
+                // --- SMART VARIABLE-LENGTH CALLSIGN TELEMETRY DECODER ---
                 async function fetchAirlineCompany(callsign) {
                     const mainNameField = document.getElementById("airlineMainName");
                     const icaoField = document.getElementById("airlineIcaoCode");
                     const callsignField = document.getElementById("airlineCallsignText");
+                    const metaDot = document.getElementById("airlineMetaDot");
                     const badgeContainer = document.getElementById("airlineBadgeContainer");
                     
-                    // Default placeholders
+                    // Defaults
                     mainNameField.innerText = "General Aviation / Private Flight";
                     icaoField.innerText = "---";
                     callsignField.innerText = "---";
+                    metaDot.style.display = "none";
                     badgeContainer.innerHTML = "";
 
-                    if (!callsign || callsign.length < 3) return;
+                    if (!callsign || callsign.length < 2) return;
                     
-                    // Extract potential ICAO prefix (First 3 alphabet characters)
-                    const matches = callsign.match(/^[A-Z]{3}/i);
-                    if (!matches) return;
-                    const icaoAirline = matches[0].toUpperCase();
-                    
-                    icaoField.innerText = icaoAirline;
-                    
-                    try {
-                        const response = await fetch(`${vatsimAirlinesUrl}/${icaoAirline}`);
-                        if (response.ok) {
-                            const airlineData = await response.json();
-                            
-                            // 1. Set Company Full Name
-                            mainNameField.innerText = airlineData.name || airlineData.airline || (icaoAirline + " Fleet");
-                            
-                            // 2. Set Telemetry Callsign Voice Phrase
-                            callsignField.innerText = airlineData.callsign || "UNKNOWN";
-                            
-                            // 3. Render 'Virtual Airline' Badge dynamically if applicable
-                            if (airlineData.is_virtual || airlineData.virtual || callsign.includes("VA")) {
-                                badgeContainer.innerHTML = '<span class="meta-dot">•</span><span class="airline-badge-blue">Virtual Airline</span>';
+                    // Strip numbers to parse clean prefix string (e.g. SUNTURK123 -> SUNTURK, THY54B -> THY)
+                    let alphaPrefix = callsign.replace(/[0-9]/g, '').trim().toUpperCase();
+                    if (!alphaPrefix) return;
+
+                    async function executeQuery(codeStr) {
+                        try {
+                            let response = await fetch(`${vatsimAirlinesUrl}/${codeStr}`);
+                            if (response.ok) {
+                                let airlineData = await response.json();
+                                if (airlineData && (airlineData.name || airlineData.airline)) {
+                                    return airlineData;
+                                }
                             }
-                        } else {
-                            mainNameField.innerText = icaoAirline + " Fleet Track";
-                            callsignField.innerText = "CHARTER";
+                        } catch(e) {}
+                        return null;
+                    }
+
+                    // Attempt 1: Query full dynamic variable-length prefix string
+                    let lookupData = await executeQuery(alphaPrefix);
+                    
+                    // Fallback Attempt 2: If long prefix failed, slice to classic 3-letter standard ICAO code
+                    if (!lookupData && alphaPrefix.length > 3) {
+                        let classicIcao = alphaPrefix.slice(0, 3);
+                        lookupData = await executeQuery(classicIcao);
+                        if (lookupData) {
+                            alphaPrefix = classicIcao;
                         }
-                    } catch(e) {
-                        mainNameField.innerText = icaoAirline + " Air Transport";
+                    }
+
+                    if (lookupData) {
+                        mainNameField.innerText = lookupData.name || lookupData.airline || (alphaPrefix + " Air Transport");
+                        icaoField.innerText = alphaPrefix;
+                        callsignField.innerText = lookupData.callsign || "---";
+                        metaDot.style.display = "inline";
+                        
+                        if (lookupData.is_virtual || lookupData.virtual || callsign.includes("VA")) {
+                            badgeContainer.innerHTML = '<span class="meta-dot">•</span><span class="airline-badge-blue">Virtual Airline</span>';
+                        }
+                    } else {
+                        // Fallback placeholder formatting for missing registry items
+                        icaoField.innerText = alphaPrefix;
+                        callsignField.innerText = "CHARTER";
+                        metaDot.style.display = "inline";
+                        mainNameField.innerText = alphaPrefix + " Fleet Track";
                     }
                 }
 
@@ -917,14 +943,14 @@ with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
-        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">I successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. I achieved this by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal.</div>
+        <div class="roadmap-desc">Interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.</div>
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📐 Live Nautical Mile (NM) Haversine Tracker Integrated</div>
-        <div class="roadmap-desc">Switched from old static percentage calculations to a live flight-distance progress telemetry tracking engine. Distance flown and total length are dynamically computed in Nautical Miles (NM) utilizing the local airports geodesic coordinates database.</div>
+        <div class="roadmap-title">📐 Live Variable-Length Callsign & Airline Telsiz Name Tracker</div>
+        <div class="roadmap-desc">Sanal havayolları ve özel çağrı adları için sayı temizleme ve çoklu harf sorgulama algoritmaları entegre edildi. SUNTURK veya THYVA gibi uzun kombinasyonlar akıllıca çözümleniyor.</div>
     </div>
     """, unsafe_allow_html=True)
 
