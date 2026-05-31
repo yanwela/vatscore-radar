@@ -8,8 +8,12 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 ### Phase 1: Telemetry and UI Expansion
 - [x] Flight Detail Insight System: Implement interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.
 
-### Phase 2: Pro-Tier Filtering
-- [ ] This phase drives the ecosystem toward production-grade telemetry processing, shifting from basic regional boundaries to comprehensive tracking and fleet isolation. It introduces **Dynamic Fleet and Airline Intelligence**, expanding standard FIR filters to support global ICAO airline codes and giving users the ability to explicitly isolate fleets (e.g., tracking only THY, PGT, or BAW callsigns) paired with automated IFR and VFR telemetry tags. Concurrently, a **Real-Time Route and Distance Engine** replaces time-based progress estimations with a precise coordinate calculation framework based on the **Haversine Formula**, which cross-references live aircraft positions ($Latitude / Longitude$) against global airport databases to deliver pixel-perfect flight progress tracking. To refine user experience, a native **Favorites & Watchlist System** will allow seamless tracking of specific airframes and pilot CIDs across radar sessions, backed by infrastructure migration to high-availability servers under a premium custom brand domain.
+### Phase 2: Pro-Tier Filtering & Advanced Telemetry
+- [ ] Airline Call-Sign Isolation: Expand standard FIR filters to support global ICAO airline codes, allowing users to explicitly isolate specific fleets (e.g., THY, PGT, BAW).
+- [ ] Automated Telemetry Tagging: Integrate automated IFR and VFR flight rule telemetry tags based on live flight plan data.
+- [ ] Real-Time Haversine Distance Engine: Replace estimated progress tracking with a precise coordinate calculation framework based on the Haversine Formula, cross-referencing live positions against global airport databases.
+- [ ] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
+- [ ] High-Availability Server Migration: Upgrade core network infrastructure to high-availability servers to support premium custom branding and stable user connections.
 
 ### Phase 3: Hyper-Personalization
 - [ ] Localized Favorites Ecosystem: Enable virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns using session states and local storage architecture to pin favorite airframes cleanly at the top of the radar hierarchy.
