@@ -361,6 +361,12 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
+            # --- POPUP HAFIZA YÖNETİMİ ---
+            if "selected_callsign" in st.query_params:
+                st.session_state.active_popup = st.query_params["selected_callsign"]
+            if "active_popup" not in st.session_state:
+                st.session_state.active_popup = ""
+
             # --- MODAL DÜZENİ: TEK RATING BOX + SQUAWK BOX AYRIMI + BÜYÜTÜLMÜŞ BOYUTLAR ---
             raw_html_template = """
             <div id="vatscore-custom-container">
@@ -464,8 +470,6 @@ if data:
                 .v-modal-body { padding: 22px; }
                 .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 4px 0; }
-                
-                /* DEĞİŞİKLİK: Kutular biraz daha büyütüldü (Padding 8px 12px, font-size 15px yapıldı) */
                 .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
             </style>
@@ -474,6 +478,7 @@ if data:
                 let globalDossiers = {};
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
+                const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
 
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
@@ -552,6 +557,12 @@ if data:
                 function openDossier(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
+
+                    // URL'e parametreyi çaktırmadan ekle ki yenileme sonrası kimin açık kalacağı Python tarafında bilinsin
+                    const url = new URL(window.parent.location.href);
+                    url.searchParams.set('selected_callsign', callsign);
+                    window.parent.history.replaceState({}, '', url);
+
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -566,7 +577,14 @@ if data:
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
-                function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
+                function closeModal() { 
+                    document.getElementById("dossierModal").style.display = "none"; 
+                    
+                    // Kapatıldığında URL'deki parametreyi temizle
+                    const url = new URL(window.parent.location.href);
+                    url.searchParams.delete('selected_callsign');
+                    window.parent.history.replaceState({}, '', url);
+                }
                 
                 window.onclick = function(e) { 
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
@@ -587,6 +605,14 @@ if data:
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
+
+                // Eğer hafızada veya URL parametresinde aktif bir uçak varsa otomatik aç
+                if (autoOpenCallsign && autoOpenCallsign !== "") {
+                    setTimeout(() => {
+                        openDossier(autoOpenCallsign);
+                    }, 100);
+                }
+
                 setInterval(updateData, 30000);
             </script>
             """
@@ -596,6 +622,7 @@ if data:
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
+                .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
@@ -686,7 +713,7 @@ with tab5:
         </div>
     </div>
     """, unsafe_allow_html=True)
-# ill look here later
+
 if data:
   st.markdown("""
     <div class="signature-container">
