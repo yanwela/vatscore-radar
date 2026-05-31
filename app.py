@@ -874,13 +874,15 @@ with tab5:
     st.markdown("""
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
-        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">Interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.</div>
+        <div class="roadmap-title">✈️ Advanced Interactive Grid & Telemetry Engine</div>
+        <div class="roadmap-desc"><strong>Status:</strong> Finalized (May 2026)<br>
+        Implementation of a custom HTML/JS-based grid engine enabling dynamic flight data visualization, interactive pilot profile inspection, and real-time flight plan parsing within a unified dashboard interface.</div>
     </div>
-    <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📢 Automated Live API Telephony Matcher Engine</div>
-        <div class="roadmap-desc">No more raw hardcoded dictionary lookups. The dashboard processes the live injected global airline database array fetched straight from the production API endpoint. It extracts prefix strings asynchronously inside the client iframe and prints matching official standard telephony codes flawlessly.</div>
+    <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed</div>
+        <div class="roadmap-title">📢 Automated Dynamic Telephony & API Integration</div>
+        <div class="roadmap-desc"><strong>Status:</strong> Operational (May 31, 2026)<br>
+        Transition from static dictionaries to a fully automated, asynchronous API-driven architecture. The system now performs real-time telemetry processing, fetching live global airline database records to dynamically map ICAO prefixes to standardized telephony callsigns with high precision.</div>
     </div>
     """, unsafe_allow_html=True)
 
