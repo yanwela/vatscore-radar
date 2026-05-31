@@ -275,27 +275,41 @@ if data:
 
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     
-    # --- 🗺️ TEMİZ VE KARARLI SEÇİM MANTIĞI ---
+    # --- 🗺️ PERSISTENT FIR SELECTION MANTIĞI ---
+    if "saved_fir" in st.query_params:
+        st.session_state.current_fir_prefix = st.query_params["saved_fir"]
+    
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
 
     matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
     calculated_index = matched_indices[0] if matched_indices else 0
 
+    # --- 🛰️ POPUP HAFIZA YÖNETİMİ ---
+    if "selected_callsign" in st.query_params:
+        st.session_state.active_popup = st.query_params["selected_callsign"]
+    if "active_popup" not in st.session_state:
+        st.session_state.active_popup = ""
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
         st.subheader("✈️ Regional Airspace Monitor")
         
+        def on_fir_change():
+            new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
+            st.session_state.current_fir_prefix = new_prefix
+            st.query_params["saved_fir"] = new_prefix
+
         selected_option = st.selectbox(
             "Choose Region/FIR Focus:", 
             options=fir_options, 
             index=calculated_index, 
-            key="main_fir_selectbox"
+            key="main_fir_selectbox",
+            on_change=on_fir_change
         )
         
-        selected_fir_prefix = selected_option.split(" - ")[0]
-        st.session_state.current_fir_prefix = selected_fir_prefix
+        selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
 
         for p in pilots:
@@ -363,7 +377,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- MODAL DÜZENİ: PROGRESS BAR VE GÖRSEL AYARLAR EKLEMDİ ---
+            # --- MODAL DÜZENİ: HARAKETLİ UÇAK İKONLU FLIGHT PROGRESS BAR ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -395,17 +409,20 @@ if data:
                                 </div>
                             </div>
 
-                            <div class="progress-section" style="margin-top: 22px; margin-bottom: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                    <span class="v-label" style="margin: 0;">✈️ Flight Progress Profile</span>
-                                    <span id="popProgressPercent" style="color: #3b82f6; font-size: 12px; font-weight: bold; font-family: monospace;">0%</span>
+                            <div class="progress-section" style="margin-top: 25px; margin-bottom: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span class="v-label" style="margin: 0;">✈️ Flight Track Progress</span>
+                                    <span id="popProgressPercent" style="color: #3b82f6; font-size: 13px; font-weight: bold; font-family: monospace;">0%</span>
                                 </div>
-                                <div class="progress-bar-bg">
-                                    <div id="popProgressBar" class="progress-bar-fill"></div>
+                                <div class="progress-container-wrapper">
+                                    <div class="progress-bar-bg">
+                                        <div id="popProgressBar" class="progress-bar-fill"></div>
+                                    </div>
+                                    <div id="popAirplaneIcon" class="progress-airplane">✈️</div>
                                 </div>
                             </div>
 
-                            <p class="v-label" style="margin-top:10px;">🗺️ Filed Route String</p>
+                            <p class="v-label" style="margin-top:18px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -480,7 +497,14 @@ if data:
                 .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
                 
-                /* 🏁 PROGRESS BAR PREMIUM CSS STYLES */
+                /* 🏁 TRACK BAR PRECISE ALIGNMENT DESIGNS */
+                .progress-container-wrapper {
+                    position: relative;
+                    width: 100%;
+                    height: 24px; /* Uçağın taşmaması için dikey alan genişletildi */
+                    display: flex;
+                    align-items: center;
+                }
                 .progress-bar-bg {
                     width: 100%;
                     height: 6px;
@@ -493,7 +517,19 @@ if data:
                     width: 0%;
                     background: linear-gradient(90deg, #3b82f6, #22c55e);
                     border-radius: 10px;
-                    transition: width 0.5s ease-out;
+                    transition: width 0.4s ease-out;
+                }
+                .progress-airplane {
+                    position: absolute;
+                    top: 50%;
+                    left: 0%;
+                    transform: translate(-50%, -50%) rotate(90deg); /* Sağa doğru uçması için 90 derece döndürüldü */
+                    font-size: 18px;
+                    line-height: 1;
+                    z-index: 10;
+                    user-select: none;
+                    transition: left 0.4s ease-out;
+                    text-shadow: 0 0 4px rgba(0,0,0,0.8);
                 }
             </style>
 
@@ -501,6 +537,7 @@ if data:
                 let globalDossiers = {};
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
+                const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
 
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
@@ -547,14 +584,14 @@ if data:
                                 onlineText = onlineMins + " Mins";
                             }
 
-                            // Dinamik Havada Kalış Oranı Hesaplama Dengesi (Mesafe simülasyonu)
+                            // Dinamik Uçuş Süresi Tamamlama Simülatörü
                             let progressPercent = 0;
                             if (onlineMins > 0) {
                                 if (onlineMins < 45) progressPercent = Math.min(Math.floor(onlineMins * 1.3), 48);
                                 else if (onlineMins < 120) progressPercent = Math.min(48 + Math.floor((onlineMins - 45) * 0.4), 78);
                                 else progressPercent = Math.min(78 + Math.floor((onlineMins - 120) * 0.1), 96);
                             }
-                            if (!dep || !arr) progressPercent = 0; // Plan yoksa sıfırda kalsın
+                            if (!dep || !arr) progressPercent = 0;
 
                             const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
                             const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
@@ -592,6 +629,10 @@ if data:
                     const p = globalDossiers[callsign];
                     if (!p) return;
 
+                    const url = new URL(window.parent.location.href);
+                    url.searchParams.set('selected_callsign', callsign);
+                    window.parent.history.replaceState({}, '', url);
+
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -604,15 +645,19 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
                     
-                    // Bar Tetikleme ve Güncelleme İşlemi
+                    // Bar Genişliği ve Kayar Uçak İkonu Senkronizasyonu
                     document.getElementById("popProgressPercent").innerText = p.progress + "%";
                     document.getElementById("popProgressBar").style.width = p.progress + "%";
+                    document.getElementById("popAirplaneIcon").style.left = p.progress + "%";
 
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
                 function closeModal() { 
                     document.getElementById("dossierModal").style.display = "none"; 
+                    const url = new URL(window.parent.location.href);
+                    url.searchParams.delete('selected_callsign');
+                    window.parent.history.replaceState({}, '', url);
                 }
                 
                 window.onclick = function(e) { 
@@ -635,6 +680,12 @@ if data:
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
+                if (autoOpenCallsign && autoOpenCallsign !== "") {
+                    setTimeout(() => {
+                        openDossier(autoOpenCallsign);
+                    }, 150);
+                }
+
                 setInterval(updateData, 30000);
             </script>
             """
@@ -644,6 +695,7 @@ if data:
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
+                .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
