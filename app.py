@@ -291,7 +291,6 @@ if data:
         fplan = p.get("flight_plan") or {}
         dep = fplan.get("departure", "")
         arr = fplan.get("arrival", "")
-        route = fplan.get("route", "No Flight Plan Filed.")
         ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
 
         if dep: dep_airports.append(dep)
@@ -317,18 +316,6 @@ if data:
                 "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
                 "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
             })
-
-            online_mins = "Unknown"
-            if logon:
-                try:
-                    logon_dt = datetime.strptime(logon[:19], "%Y-%m-%dT%H:%M:%S")
-                    online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
-                except: pass
-            
-            # --- ATC VE PILOT RATING DECODER ---
-            p_rating = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"}.get(p.get("pilot_rating", 0), "P1")
-            a_rating = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"}.get(p.get("military_rating", p.get("rating", 0)), "OBS")
-            v5_voice = "🎙️ Voice Active" if p.get("has_voice", True) else "⌨️ Text Only"
 
         if alt > max_alt: max_alt = alt; highest_p = p
         if gs > max_gs: max_gs = gs; fastest_p = p
@@ -374,7 +361,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- MODAL ARKA PLAN RENGİ KOYULAŞTIRILDI VE ATC RATING EKLENDİ ---
+            # --- MODAL DÜZENİ: TEK RATING BOX + SQUAWK BOX AYRIMI + BÜYÜTÜLMÜŞ BOYUTLAR ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -386,18 +373,18 @@ if data:
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:20px; font-family:sans-serif;"></h4>
-                            <hr style="border-color:#1e293b; margin-bottom:15px;">
+                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px;"></h4>
+                            <hr style="border-color:#1e293b; margin-bottom:18px;">
                             <div class="v-grid">
                                 <div>
                                     <p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>
                                     <p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>
-                                    <p class="v-label">🎖️ Pilot Rating</p><p id="popRating" class="v-val"></p>
+                                    <p class="v-label">🎖️ VATSIM Ratings</p><p id="popCombinedRating" class="v-val" style="color:#3b82f6; font-weight:600;"></p>
                                 </div>
                                 <div>
                                     <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
                                     <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
-                                    <p class="v-label">🎛️ ATC Rating</p><p id="popATCRating" class="v-val" style="color:#3b82f6; font-weight:bold;"></p>
+                                    <p class="v-label">📡 Squawk Code</p><p id="popSquawkBox" class="v-val" style="color:#e2e8f0; font-family:monospace; font-weight:bold;"></p>
                                 </div>
                                 <div>
                                     <p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>
@@ -405,8 +392,7 @@ if data:
                                     <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
-                            <p class="v-label" style="margin-top:15px;">📡 Squawk Code: <span id="popSquawk" style="color:#e2e8f0; font-family:monospace;"></span></p>
-                            <p class="v-label" style="margin-top:10px;">🗺️ Filed Route String</p>
+                            <p class="v-label" style="margin-top:18px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -464,24 +450,24 @@ if data:
                     top: 50%; 
                     left: 50%; 
                     transform: translate(-50%, -50%); 
-                    width: 70%; 
-                    max-width: 900px;
+                    width: 72%; 
+                    max-width: 950px;
                     border: 1px solid #3b82f640; 
                     border-radius: 12px; 
                     box-shadow: 0 20px 50px rgba(0,0,0,0.7); 
                     box-sizing: border-box; 
                 }
-                .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
+                .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
-                .v-modal-body { padding: 20px; }
-                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-                .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 2px 0; }
+                .v-modal-body { padding: 22px; }
+                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+                .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 4px 0; }
                 
-                /* DEĞİŞİKLİK: Kutuların içi artık çok daha koyu lacivert/siyah tonda */
-                .v-val { color: #f1f5f9; font-size: 14px; background-color: #0a0c14; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
-                .v-textarea { width: 100%; height: 75px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
+                /* DEĞİŞİKLİK: Kutular biraz daha büyütüldü (Padding 8px 12px, font-size 15px yapıldı) */
+                .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
+                .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
             </style>
 
             <script>
@@ -540,7 +526,7 @@ if data:
 
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                rating: pRatingText, atc_rating: aRatingText, online: onlineMins,
+                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed."
@@ -569,11 +555,10 @@ if data:
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
-                    document.getElementById("popRating").innerText = p.rating;
-                    document.getElementById("popATCRating").innerText = p.atc_rating;
+                    document.getElementById("popCombinedRating").innerText = p.combined_rating;
                     document.getElementById("popOnline").innerText = p.online;
                     document.getElementById("popVoice").innerText = p.voice;
-                    document.getElementById("popSquawk").innerText = p.squawk;
+                    document.getElementById("popSquawkBox").innerText = p.squawk;
                     document.getElementById("popOrigin").innerText = p.origin;
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
@@ -613,7 +598,7 @@ if data:
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
-            st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
