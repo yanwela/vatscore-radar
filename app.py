@@ -204,10 +204,29 @@ def load_csv_database():
     """Loads the 3MB airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
         try:
-            # Bulduğun CSV'deki sütun isimleri: icao, latitude, longitude
             df = pd.read_csv(CSV_FILE_PATH)
-            # Kolay arama için icao kodunu index yapıp sözlüğe çeviriyoruz
-            return df.set_index('icao')[['latitude', 'longitude']].to_dict('index')
+            # Sütun isimlerindeki boşlukları temizleyip küçük harfe çekiyoruz
+            df.columns = [c.lower().strip() for c in df.columns]
+            
+            # Dinamik sütun ismi yakalama (icao, latitude, longitude uyumluluğu için)
+            icao_col = 'icao' if 'icao' in df.columns else df.columns[0]
+            lat_col = 'latitude' if 'latitude' in df.columns else 'latitude_deg' if 'latitude_deg' in df.columns else 'lat'
+            lon_col = 'longitude' if 'longitude' in df.columns else 'longitude_deg' if 'longitude_deg' in df.columns else 'lon'
+            
+            # Anahtarları büyük harf yaparak sözlüğe aktar (JS tarafına temiz gitmesi için)
+            df[icao_col] = df[icao_col].astype(str).str.upper().str.strip()
+            
+            # JavaScript'e her ihtimale karşı hem latitude_deg hem de düz latitude olarak göndermek için haritalıyoruz
+            res_dict = {}
+            for _, row in df.iterrows():
+                icao_code = row[icao_col]
+                res_dict[icao_code] = {
+                    "latitude_deg": float(row[lat_col]),
+                    "longitude_deg": float(row[lon_col]),
+                    "latitude": float(row[lat_col]),
+                    "longitude": float(row[lon_col])
+                }
+            return res_dict
         except:
             pass
     return {}
@@ -226,16 +245,16 @@ def get_coordinates_from_library(pilots_list):
         if dep and len(dep) == 4 and dep not in coords_map:
             if dep in csv_db:
                 coords_map[dep] = {
-                    "latitude_deg": float(csv_db[dep]['latitude']),
-                    "longitude_deg": float(csv_db[dep]['longitude'])
+                    "latitude_deg": csv_db[dep]['latitude'],
+                    "longitude_deg": csv_db[dep]['longitude']
                 }
                 
         # Extract Arrival Coords from CSV
         if arr and len(arr) == 4 and arr not in coords_map:
             if arr in csv_db:
                 coords_map[arr] = {
-                    "latitude_deg": float(csv_db[arr]['latitude']),
-                    "longitude_deg": float(csv_db[arr]['longitude'])
+                    "latitude_deg": csv_db[arr]['latitude'],
+                    "longitude_deg": csv_db[arr]['longitude']
                 }
         
     # Hardcoded premium operational fallbacks safely injected
@@ -450,7 +469,7 @@ if data:
                             <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px;"></h4>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
-                            <p class="v-label" style="margin-bottom: 6px;">📍 Flight Progress & Enroute Trajectory</p>
+                            <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
                             <div class="progress-wrapper">
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
@@ -459,9 +478,9 @@ if data:
                                 </div>
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
-                            <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:12px; color:#64748b; font-family:monospace;">
-                                <span id="progressCalculatedText">Distance calculated via Geodesic Haversine Equation</span>
-                                <span id="progressPercentageText">0% Completed</span>
+                            <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:13px; color:#3b82f6; font-family:monospace; font-weight:bold;">
+                                <span id="progressCalculatedText">Distance Tracking Active</span>
+                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM / 0 NM Flown (0%)</span>
                             </div>
 
                             <div class="v-grid">
@@ -553,39 +572,53 @@ if data:
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
 
-                // 📐 TRUE HAVERSINE GEODESIC ENGINE
-                function calculateHaversineProgress(depIcao, arrIcao, currentLat, currentLon) {
-                    if (!depIcao || !arrIcao || !currentLat || !currentLon) return 0;
+                // 📐 TRUE HAVERSINE GEODESIC ENGINE (NM CALCULATOR)
+                function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
+                    const txtBox = document.getElementById("progressPercentageText");
+                    const fillBar = document.getElementById("progressBarFill");
+                    const planeIcon = document.getElementById("progressPlaneIcon");
+
+                    if (!depIcao || !arrIcao || !currentLat || !currentLon) {
+                        txtBox.innerText = "No Position Metrics";
+                        fillBar.style.width = "0%"; planeIcon.style.left = "0%"; return;
+                    }
                     
                     const depPoint = airportsDatabase[depIcao.toUpperCase()];
                     const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
                     
-                    if (!depPoint || !arrPoint) return 50; 
-                    
-                    const lat1 = depPoint.latitude_deg;
-                    const lon1 = depPoint.longitude_deg;
-                    const lat2 = arrPoint.latitude_deg;
-                    const lon2 = arrPoint.longitude_deg;
-                    
-                    function toRad(v) { return v * Math.PI / 180; }
-                    function getDistance(la1, lo1, la2, lo2) {
-                        let R = 6371;
-                        let dLat = toRad(la2 - la1);
-                        let dLon = toRad(lo2 - lo1);
-                        let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    if (!depPoint || !arrPoint) {
+                        txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
+                        fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
                     }
                     
-                    let totalFlightDistance = getDistance(lat1, lon1, lat2, lon2);
-                    let distanceRemainingToTarget = getDistance(currentLat, currentLon, lat2, lon2);
-                    let distanceFlownFromOrigin = getDistance(lat1, lon1, currentLat, currentLon);
+                    // Hem büyük harf hem de küçük harf varyasyonları için toleranslı veri okuma
+                    const lat1 = depPoint.latitude_deg || depPoint.latitude;
+                    const lon1 = depPoint.longitude_deg || depPoint.longitude;
+                    const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
+                    const lon2 = arrPoint.longitude_deg || arrPoint.longitude;
                     
-                    if (totalFlightDistance <= 5) return 100;
-                    if (distanceRemainingToTarget < 2.5) return 100;
-                    if (distanceFlownFromOrigin < 1.5) return 0;
+                    function toRad(v) { return v * Math.PI / 180; }
+                    function getDistanceNM(la1, lo1, la2, lo2) {
+                        let R = 6371; // Dünya yarıçapı KM
+                        let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
+                        let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                        let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                        return (R * c) * 0.539957; // KM'yi Deniz Miline (NM) çevirir
+                    }
                     
-                    let progressPercentage = ((totalFlightDistance - distanceRemainingToTarget) / totalFlightDistance) * 100;
-                    return Math.max(0, Math.min(100, Math.round(progressPercentage)));
+                    let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
+                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
+                    let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
+                    
+                    if (flownNM > totalNM) flownNM = totalNM;
+                    if (remainingNM < 5) flownNM = totalNM;
+
+                    let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
+                    if (pct > 100) pct = 100; if (pct < 0) pct = 0;
+
+                    fillBar.style.width = pct + "%";
+                    planeIcon.style.left = pct + "%";
+                    txtBox.innerText = flownNM + " NM / " + totalNM + " NM Flown (" + pct + "%)";
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
@@ -686,11 +719,8 @@ if data:
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
 
-                    let computedProgress = calculateHaversineProgress(p.origin, p.destination, p.lat, p.lon);
-
-                    document.getElementById("progressBarFill").style.width = computedProgress + "%";
-                    document.getElementById("progressPlaneIcon").style.left = computedProgress + "%";
-                    document.getElementById("progressPercentageText").innerText = computedProgress + "% Completed";
+                    // Canlı mesafe ve harita ilerleme metriklerini tetikle
+                    updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
 
                     document.getElementById("dossierModal").style.display = "block";
                 }
@@ -789,6 +819,11 @@ with tab5:
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">I successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. I achieved this by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal.</div>
+    </div>
+    <div class="roadmap-card in-progress">
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
+        <div class="roadmap-title">📐 Live Nautical Mile (NM) Haversine Tracker Integrated</div>
+        <div class="roadmap-desc">Switched from old static percentage calculations to a live flight-distance progress telemetry tracking engine. Distance flown and total length are dynamically computed in Nautical Miles (NM) utilizing the local airports geodesic coordinates database.</div>
     </div>
     """, unsafe_allow_html=True)
 
