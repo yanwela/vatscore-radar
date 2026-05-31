@@ -478,60 +478,68 @@ if data:
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
             
-            # 🕵️‍♂️ [SÜPER DEĞİŞİKLİK]: Python 3.14 bug'ına yakalanmayan %100 güvenli, temiz veri tablosu görünümü
+            # Python 3.14 bug'ından arınmış, stabil ana veri tablosu
             st.dataframe(df_fir[final_columns], use_container_width=True)
             
-            # 🎯 [YENİ SİSTEM DETAY DETEKTÖRÜ]: Python 3.14 uyumlu interaktif uçuş dosyası dökücü
-            st.markdown("🔍 **Telemetry Dossier Decoder**")
+            # 🎯 🌌 ULTRA MODERN DETAY POPUP MODÜLÜ (POPOVER)
             all_available_callsigns = sorted(df_fir["Callsign"].tolist())
             
-            clicked_callsign = st.selectbox(
-                "Select Active Callsign to decrypt full flight log & dossier:",
-                options=["-- Choose Aircraft --"] + all_available_callsigns
-            )
-            
-            if clicked_callsign and clicked_callsign != "-- Choose Aircraft --":
-                raw_pilot = next((p for p in pilots if p.get("callsign") == clicked_callsign), None)
+            st.markdown("<br>", unsafe_allow_html=True)
+            # Şık bir buton popover'ı başlatıyoruz
+            with st.popover("🕵️‍♂️ Open Radar Dossier Popup (Inspect Aircraft Metadata)", use_container_width=True):
+                st.markdown("### 🛰️ VatScore Radar Dossier Decoder")
+                st.write("Select an aircraft track below to analyze real-time live connection details:")
                 
-                if raw_pilot:
-                    fplan_raw = raw_pilot.get("flight_plan") or {}
+                clicked_callsign = st.selectbox(
+                    "Choose Active Aircraft Target:",
+                    options=["-- No Target Selected --"] + all_available_callsigns
+                )
+                
+                if clicked_callsign and clicked_callsign != "-- No Target Selected --":
+                    raw_pilot = next((p for p in pilots if p.get("callsign") == clicked_callsign), None)
                     
-                    online_mins = "Unknown"
-                    if raw_pilot.get("logon_time"):
-                        try:
-                            logon_dt = datetime.strptime(raw_pilot.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
-                            online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
-                        except: pass
-                    
-                    rating_map = {
-                        0: "OBS (Observer)", 1: "P1 (Private Pilot License)", 
-                        2: "P2 (Flight Instructor / Advanced)", 3: "P3 (Airline Transport Pilot)",
-                        4: "P4 (Senior Flight Instructor)", 5: "P5 (Check Airman / Examiner)"
-                    }
-                    raw_rating = raw_pilot.get("pilot_rating", 0)
-                    rating_text = rating_map.get(raw_rating, f"P{raw_rating} (Licensed)")
-                    
-                    v5_voice = "🎙️ Voice (VHF Active)" if raw_pilot.get("has_voice", True) else "⌨️ Text Only"
-
-                    st.markdown(f"### 🛰️ Telemetry Dossier: `{clicked_callsign}`")
-                    
-                    det_c1, det_c2, det_c3 = st.columns(3)
-                    with det_c1:
-                        st.markdown(f"**👤 Pilot Name:** `{raw_pilot.get('name', 'Anonymous')}`")
-                        st.markdown(f"**🆔 VATSIM CID:** `{raw_pilot.get('cid', 'N/A')}`")
-                        st.markdown(f"**🎖️ Pilot Rating:** `{rating_text}`")
-                    with det_c2:
-                        st.markdown(f"**⏳ Session Duration:** `{online_mins}`")
-                        st.markdown(f"**📻 VHF Comms:** `{v5_voice}`")
-                        st.markdown(f"**📡 Transponder:** `{raw_pilot.get('transponder', '0000')}`")
-                    with det_c3:
-                        st.markdown(f"**🛫 Assigned Dep:** `{fplan_raw.get('departure', 'N/A')}`")
-                        st.markdown(f"**🛬 Assigned Arr:** `{fplan_raw.get('arrival', 'N/A')}`")
-                        st.markdown(f"**✈️ Airframe Type:** `{fplan_raw.get('aircraft', 'N/A')}`")
+                    if raw_pilot:
+                        fplan_raw = raw_pilot.get("flight_plan") or {}
                         
-                    st.text_area("🗺️ Filed Route String:", value=fplan_raw.get("route", "No Flight Plan Filed."), height=70, disabled=True)
-                    st.markdown("---")
+                        online_mins = "Unknown"
+                        if raw_pilot.get("logon_time"):
+                            try:
+                                logon_dt = datetime.strptime(raw_pilot.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
+                                online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
+                            except: pass
+                        
+                        rating_map = {
+                            0: "OBS (Observer)", 1: "P1 (Private Pilot)", 
+                            2: "P2 (Flight Instructor)", 3: "P3 (Airline Transport Pilot)",
+                            4: "P4 (Senior Instructor)", 5: "P5 (Examiner)"
+                        }
+                        raw_rating = raw_pilot.get("pilot_rating", 0)
+                        rating_text = rating_map.get(raw_rating, f"P{raw_rating} (Licensed)")
+                        
+                        v5_voice = "🎙️ Voice Active" if raw_pilot.get("has_voice", True) else "⌨️ Text Only"
+
+                        st.markdown(f"#### ✈️ Target Profile: `{clicked_callsign}`")
+                        st.markdown("---")
+                        
+                        det_c1, det_c2, det_c3 = st.columns(3)
+                        with det_c1:
+                            st.markdown(f"**👤 Pilot Name:** `{raw_pilot.get('name', 'Anonymous')}`")
+                            st.markdown(f"**🆔 VATSIM CID:** `{raw_pilot.get('cid', 'N/A')}`")
+                            st.markdown(f"**🎖️ Rating:** `{rating_text}`")
+                        with det_c2:
+                            st.markdown(f"**🟢 Online Time:** `{online_mins}`")
+                            st.markdown(f"**📻 VHF Comms:** `{v5_voice}`")
+                            st.markdown(f"**📡 Squawk:** `{raw_pilot.get('transponder', '0000')}`")
+                        with det_c3:
+                            st.markdown(f"**🛫 Origin:** `{fplan_raw.get('departure', 'N/A')}`")
+                            st.markdown(f"**🛬 Destination:** `{fplan_raw.get('arrival', 'N/A')}`")
+                            st.markdown(f"**✈️ Airframe:** `{fplan_raw.get('aircraft', 'N/A')}`")
+                            
+                        st.text_area("🗺️ Filed Route String:", value=fplan_raw.get("route", "No Flight Plan Filed."), height=70, disabled=True)
+                        st.markdown("---")
+                        st.caption("ℹ️ Tip: Click anywhere outside this popup card or on the button again to quickly close it.")
             
+            st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download This FIR Data as CSV", data=csv,
