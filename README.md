@@ -17,6 +17,7 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 
 ### Phase 3: Hyper-Personalization
 - [ ] Localized Favorites Ecosystem: Enable virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns using session states and local storage architecture to pin favorite airframes cleanly at the top of the radar hierarchy.
+- [ ] White Mode for User Interface.
 
 ### Phase 4: Admin Infrastructure and Branding
 - [ ] Hourly Analytics Profiles: Upgrade the encrypted VatScore HQ control room with analytical chart integration to model peak server connection hours graph-by-graph.
