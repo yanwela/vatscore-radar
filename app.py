@@ -68,7 +68,7 @@ st.markdown("""
 
 # --- 🛰️ SESSİZ LOGLAMA VE ADMİN SİSTEMİ ---
 LOG_FILE = "radar_traffic_logs.csv"
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
 
 def init_log_file():
     if not os.path.exists(LOG_FILE):
@@ -168,7 +168,6 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-# Canlı Uçuş Verisi Çekici
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -226,7 +225,6 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    # Başlık Alanı
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
     
@@ -263,13 +261,11 @@ if data:
                 st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
             st.markdown("---")
 
-    # Üst İstatistik Kartları
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # İlk Veri İşleme
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
@@ -284,7 +280,6 @@ if data:
     else: selected_fir_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
 
     current_fleet_filter = st.session_state.fleet_filter_selection
-    pilot_dossiers = {}
 
     for p in pilots:
         callsign = p.get("callsign", "N/A")
@@ -330,14 +325,10 @@ if data:
                     online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
                 except: pass
             
-            rating_text = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"}.get(p.get("pilot_rating", 0), "P1 (Licensed)")
+            # --- ATC VE PILOT RATING DECODER ---
+            p_rating = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"}.get(p.get("pilot_rating", 0), "P1")
+            a_rating = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"}.get(p.get("military_rating", p.get("rating", 0)), "OBS")
             v5_voice = "🎙️ Voice Active" if p.get("has_voice", True) else "⌨️ Text Only"
-
-            pilot_dossiers[callsign] = {
-                "name": p.get("name", "Anonymous"), "cid": p.get("cid", "N/A"), "rating": rating_text,
-                "online": online_mins, "voice": v5_voice, "squawk": p.get("transponder", "0000"),
-                "origin": display_dep, "destination": display_arr, "airframe": ac_type, "route": route
-            }
 
         if alt > max_alt: max_alt = alt; highest_p = p
         if gs > max_gs: max_gs = gs; fastest_p = p
@@ -348,7 +339,6 @@ if data:
         if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
         if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
 
-    # Sekmeler
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab1:
@@ -364,7 +354,6 @@ if data:
         st.subheader("✈️ Regional Airspace Monitor")
         selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
-        # Grafik Alanı
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
@@ -380,15 +369,12 @@ if data:
                     df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
-            # Tablo Sütun Filtrelemesi
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            
-            # Üst taraftaki dinamik bilgilendirme barı
             st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
-            # --- PYLANCE SAFE - ZERO FLICKER HTML ENGINE (BUG FIXED VERSION) ---
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
+            # --- MODAL ARKA PLAN RENGİ KOYULAŞTIRILDI VE ATC RATING EKLENDİ ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -406,12 +392,12 @@ if data:
                                 <div>
                                     <p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>
                                     <p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>
-                                    <p class="v-label">🎖️ Rating</p><p id="popRating" class="v-val"></p>
+                                    <p class="v-label">🎖️ Pilot Rating</p><p id="popRating" class="v-val"></p>
                                 </div>
                                 <div>
                                     <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
                                     <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
-                                    <p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p>
+                                    <p class="v-label">🎛️ ATC Rating</p><p id="popATCRating" class="v-val" style="color:#3b82f6; font-weight:bold;"></p>
                                 </div>
                                 <div>
                                     <p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>
@@ -419,7 +405,8 @@ if data:
                                     <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
-                            <p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p>
+                            <p class="v-label" style="margin-top:15px;">📡 Squawk Code: <span id="popSquawk" style="color:#e2e8f0; font-family:monospace;"></span></p>
+                            <p class="v-label" style="margin-top:10px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -459,7 +446,6 @@ if data:
                     100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
                 }
 
-                /* BUG FIX: position: fixed ve viewport kilitlemesi ile sayfa kaysa bile modal ortada kalır */
                 .v-modal { 
                     display: none; 
                     position: fixed; 
@@ -473,7 +459,7 @@ if data:
                     -webkit-backdrop-filter: blur(4px);
                 }
                 .v-modal-content { 
-                    background-color: #151824; 
+                    background-color: #11131f; 
                     position: fixed; 
                     top: 50%; 
                     left: 50%; 
@@ -492,8 +478,10 @@ if data:
                 .v-modal-body { padding: 20px; }
                 .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 2px 0; }
-                .v-val { color: #f1f5f9; font-size: 14px; background-color: #1e293b40; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
-                .v-textarea { width: 100%; height: 75px; background-color: #1e293b40; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
+                
+                /* DEĞİŞİKLİK: Kutuların içi artık çok daha koyu lacivert/siyah tonda */
+                .v-val { color: #f1f5f9; font-size: 14px; background-color: #0a0c14; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
+                .v-textarea { width: 100%; height: 75px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
             </style>
 
             <script>
@@ -544,9 +532,15 @@ if data:
                                 onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
                             }
 
+                            const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
+                            const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
+                            
+                            const pRatingText = pRatings[p.pilot_rating] || "P1";
+                            const aRatingText = aRatings[p.rating] || "OBS";
+
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                rating: "P1 (Licensed)", online: onlineMins,
+                                rating: pRatingText, atc_rating: aRatingText, online: onlineMins,
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed."
@@ -576,6 +570,7 @@ if data:
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popRating").innerText = p.rating;
+                    document.getElementById("popATCRating").innerText = p.atc_rating;
                     document.getElementById("popOnline").innerText = p.online;
                     document.getElementById("popVoice").innerText = p.voice;
                     document.getElementById("popSquawk").innerText = p.squawk;
@@ -588,7 +583,6 @@ if data:
 
                 function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
                 
-                // Dışarı tıklayınca kapanma kontrolü
                 window.onclick = function(e) { 
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
                 }
@@ -612,7 +606,6 @@ if data:
             </script>
             """
             
-            # Değişken enjeksiyonu
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
@@ -675,7 +668,6 @@ if data:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- BRANDING SIGNATURE ---
     st.markdown("""
         <div class="signature-container">
             ⚡ VatScore Dashboard // Made by alp-1863530 <br>
