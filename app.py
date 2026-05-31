@@ -449,7 +449,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE WITH ITALIC CALLSIGN & AIRLINES API ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -497,8 +497,17 @@ if data:
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">✈️ Airline Company</p>
-                            <p id="popAirline" class="v-val" style="color:#3b82f6; font-weight:bold;">Fetching...</p>
+                            <!-- AIRLINE DISPLAY AREA DESIGNED FROM IMAGE_7AF55A.PNG -->
+                            <p class="v-label" style="margin-top:14px;">Airline</p>
+                            <div class="airline-premium-box" id="airlinePremiumBox">
+                                <div id="airlineMainName" class="airline-title-text">Loading Airline Data...</div>
+                                <div class="airline-meta-row">
+                                    <span id="airlineIcaoCode" class="meta-item">---</span>
+                                    <span class="meta-dot">•</span>
+                                    <span id="airlineCallsignText" class="meta-item">---</span>
+                                    <span id="airlineBadgeContainer"></span>
+                                </div>
+                            </div>
 
                             <p class="v-label" style="margin-top:14px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
@@ -532,6 +541,42 @@ if data:
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
+
+                /* CUSTOM CARD CONTAINER INSPIRED BY IMAGE_7AF55A.PNG */
+                .airline-premium-box {
+                    background-color: #141724;
+                    border: 1px solid #1e293b;
+                    padding: 12px 16px;
+                    border-radius: 6px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .airline-title-text {
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+                .airline-meta-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 13px;
+                    color: #94a3b8;
+                }
+                .meta-dot {
+                    color: #475569;
+                    font-weight: bold;
+                }
+                .airline-badge-blue {
+                    background-color: #2563eb;
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 2px 8px;
+                    border-radius: 4px;
+                    margin-left: 4px;
+                }
 
                 #sync-notification {
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
@@ -633,32 +678,47 @@ if data:
                 }
 
                 async function fetchAirlineCompany(callsign) {
-                    const airlineField = document.getElementById("popAirline");
-                    airlineField.innerText = "Fetching Airline Data...";
+                    const mainNameField = document.getElementById("airlineMainName");
+                    const icaoField = document.getElementById("airlineIcaoCode");
+                    const callsignField = document.getElementById("airlineCallsignText");
+                    const badgeContainer = document.getElementById("airlineBadgeContainer");
                     
-                    if (!callsign || callsign.length < 3) {
-                        airlineField.innerText = "Unknown / General Aviation";
-                        return;
-                    }
+                    // Default placeholders
+                    mainNameField.innerText = "General Aviation / Private Flight";
+                    icaoField.innerText = "---";
+                    callsignField.innerText = "---";
+                    badgeContainer.innerHTML = "";
+
+                    if (!callsign || callsign.length < 3) return;
                     
-                    // Extract ICAO airline code (First 3 alphabetical chars)
+                    // Extract potential ICAO prefix (First 3 alphabet characters)
                     const matches = callsign.match(/^[A-Z]{3}/i);
-                    if (!matches) {
-                        airlineField.innerText = "Private Flight / GA";
-                        return;
-                    }
+                    if (!matches) return;
                     const icaoAirline = matches[0].toUpperCase();
+                    
+                    icaoField.innerText = icaoAirline;
                     
                     try {
                         const response = await fetch(`${vatsimAirlinesUrl}/${icaoAirline}`);
                         if (response.ok) {
                             const airlineData = await response.json();
-                            airlineField.innerText = airlineData.name || airlineData.airline || `${icaoAirline} Airline`;
+                            
+                            // 1. Set Company Full Name
+                            mainNameField.innerText = airlineData.name || airlineData.airline || (icaoAirline + " Fleet");
+                            
+                            // 2. Set Telemetry Callsign Voice Phrase
+                            callsignField.innerText = airlineData.callsign || "UNKNOWN";
+                            
+                            // 3. Render 'Virtual Airline' Badge dynamically if applicable
+                            if (airlineData.is_virtual || airlineData.virtual || callsign.includes("VA")) {
+                                badgeContainer.innerHTML = '<span class="meta-dot">•</span><span class="airline-badge-blue">Virtual Airline</span>';
+                            }
                         } else {
-                            airlineField.innerText = `${icaoAirline} Flight Fleet`;
+                            mainNameField.innerText = icaoAirline + " Fleet Track";
+                            callsignField.innerText = "CHARTER";
                         }
                     } catch(e) {
-                        airlineField.innerText = `${icaoAirline} Fleet`;
+                        mainNameField.innerText = icaoAirline + " Air Transport";
                     }
                 }
 
