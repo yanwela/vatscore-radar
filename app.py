@@ -224,7 +224,6 @@ def classify_aircraft(ac_type, callsign):
         
     return "✈️ Commercial"
 
-# --- DEĞİŞİKLİK: REFRESH BUTONUNDA YERİ KORUMA MEKANİZMASI ---
 if "active_navigation_tab" not in st.session_state:
     st.session_state.active_navigation_tab = "🏆 Leaderboard"
 
@@ -247,7 +246,7 @@ if data:
             fetch_vatsim_data.clear()
             load_global_fir_dictionary.clear()
             log_activity("Manual Data Refresh Triggered")
-            st.rerun()  # State tab tabanlı korunduğu için artık ilk sekmeye atmayacak!
+            st.rerun()
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -277,7 +276,6 @@ if data:
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # --- DEVREYE ALINAN STATE KORUMALI NAVİGASYON SİSTEMİ ---
     nav_options = ["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"]
     
     selected_tab = st.radio(
@@ -350,7 +348,6 @@ if data:
         if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
         if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
 
-    # --- SEKMELERİ RENDER ETME ALANI ---
     if selected_tab == "🏆 Leaderboard":
         st.subheader("Current Flight Records")
         leader_data = []
@@ -384,6 +381,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
+            # --- DEĞİŞİKLİK: POPUP HALİHAZIRDA AÇIKSA KAPANMASINI ENGELLEYEN JAVASCRIPT RE-ENGINEERING ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -493,6 +491,7 @@ if data:
 
             <script>
                 let globalDossiers = {};
+                let currentlyOpenCallsign = null; // Şu an ekranda açık olan popapın callsign'ını saklar
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
 
@@ -568,9 +567,20 @@ if data:
                             tbody.appendChild(tr);
                         }
                     });
+
+                    // KRİTİK ALAN: Eğer yenileme öncesi bir popup açıksa ve uçak hala havadaysa verilerini canlı güncelle ama popupı kapatma!
+                    if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
+                        updateOpenDossierData(currentlyOpenCallsign);
+                    }
                 }
 
                 function openDossier(callsign) {
+                    currentlyOpenCallsign = callsign;
+                    updateOpenDossierData(callsign);
+                    document.getElementById("dossierModal").style.display = "block";
+                }
+
+                function updateOpenDossierData(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
@@ -584,10 +594,12 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
-                    document.getElementById("dossierModal").style.display = "block";
                 }
 
-                function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
+                function closeModal() { 
+                    document.getElementById("dossierModal").style.display = "none"; 
+                    currentlyOpenCallsign = null; // Kapatılınca sıfırla
+                }
                 
                 window.onclick = function(e) { 
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
