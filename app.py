@@ -386,7 +386,7 @@ if data:
             # Üst taraftaki dinamik bilgilendirme barı
             st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
-            # --- PYLANCE SAFE - ZERO FLICKER HTML ENGINE ---
+            # --- ZERO FLICKER HTML ENGINE v2 — Auto-Refresh Fixed ---
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
             raw_html_template = """
@@ -460,7 +460,7 @@ if data:
                 }
 
                 .v-modal { display: none; position: fixed; z-index: 9999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); }
-                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%; -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
+                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
                 .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
@@ -473,25 +473,38 @@ if data:
             </style>
 
             <script>
+                // ============================================================
+                // VATSCORE ZERO-FLICKER ENGINE v2 — Auto-Refresh Fixed
+                // ============================================================
+
                 let globalDossiers = {};
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
 
+                // --- INTERVAL GUARD: Streamlit re-inject'te duplicate timer önle ---
+                if (window._vatscoreIntervalId) {
+                    clearInterval(window._vatscoreIntervalId);
+                    window._vatscoreIntervalId = null;
+                }
+
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
                     callsign = String(callsign).toUpperCase().trim();
-                    const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
+                    const milTypes = ["F16","F18","F15","F22","F35","F4","F5","EFAF","C17","A400","C130"];
                     if (milTypes.includes(acType)) return "⚔️ Military";
                     if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
-                    const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
+                    const gaTypes = ["C172","C152","PA28","DA40","DA42"];
                     if (gaTypes.includes(acType)) return "🛩️ General Aviation";
                     return "✈️ Commercial";
                 }
 
                 function buildTable(pilotsList) {
                     const tbody = document.getElementById("table-body");
-                    tbody.innerHTML = "";
-                    globalDossiers = {};
+                    if (!tbody) return;
+
+                    // Yeni satırları hesapla
+                    const newRows = [];
+                    const newDossiers = {};
 
                     pilotsList.forEach(p => {
                         const callsign = p.callsign || "N/A";
@@ -500,55 +513,96 @@ if data:
                         const arr = fplan.arrival || "";
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
-                        
+
                         const matchesPlan = dep.startsWith(targetPrefix) || arr.startsWith(targetPrefix);
                         let isPhysHere = false;
-                        if (targetPrefix === "LT" && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
+                        if (targetPrefix === "LT" &&
+                            p.latitude >= 36.5 && p.latitude <= 42.0 &&
+                            p.longitude >= 27.0 && p.longitude <= 44.5) {
                             isPhysHere = true;
                         }
 
-                        if (matchesPlan || isPhysHere) {
-                            const rowData = {
-                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
-                                "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude,
-                                "Speed (KT)": p.groundspeed, "Squawk": p.transponder || "0000"
-                            };
+                        if (!matchesPlan && !isPhysHere) return;
 
-                            let onlineMins = "Unknown";
-                            if (p.logon_time) {
-                                const logDt = new Date(p.logon_time);
-                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
-                            }
+                        const rowData = {
+                            "Callsign": callsign,
+                            "Origin": dep || "⚠️ NO FPL",
+                            "Destination": arr || "⚠️ NO FPL",
+                            "Aircraft": acType,
+                            "Category": category,
+                            "Altitude (FT)": p.altitude,
+                            "Speed (KT)": p.groundspeed,
+                            "Squawk": p.transponder || "0000"
+                        };
 
-                            globalDossiers[callsign] = {
-                                name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                rating: "P1 (Licensed)", online: onlineMins,
-                                voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
-                                squawk: p.transponder || "0000", origin: rowData.Origin,
-                                destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed."
-                            };
+                        let onlineMins = "Unknown";
+                        if (p.logon_time) {
+                            onlineMins = Math.floor((new Date() - new Date(p.logon_time)) / 60000) + " Mins";
+                        }
 
+                        const ratingMap = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
+                        newDossiers[callsign] = {
+                            name: p.name || "Anonymous",
+                            cid: p.cid || "N/A",
+                            rating: ratingMap[p.pilot_rating] || "P1",
+                            online: onlineMins,
+                            voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
+                            squawk: p.transponder || "0000",
+                            origin: rowData.Origin,
+                            destination: rowData.Destination,
+                            airframe: acType,
+                            route: fplan.route || "No FPL Filed."
+                        };
+                        newRows.push({ rowData, callsign });
+                    });
+
+                    // --- DIFF UPDATE: Satır sayısı aynıysa sadece değişen hücreleri güncelle ---
+                    const existingRows = tbody.querySelectorAll("tr");
+
+                    if (existingRows.length === newRows.length) {
+                        newRows.forEach(({ rowData, callsign }, i) => {
+                            const tds = existingRows[i].querySelectorAll("td");
+                            activeColumns.forEach((col, j) => {
+                                const val = String(rowData[col]);
+                                if (tds[j] && tds[j].dataset.val !== val) {
+                                    tds[j].dataset.val = val;
+                                    if (col === "Callsign") {
+                                        tds[j].innerHTML = '<b style="color:#3b82f6;cursor:pointer;">' + val + '</b>';
+                                    } else {
+                                        tds[j].innerText = val;
+                                    }
+                                }
+                            });
+                            existingRows[i].onclick = () => openDossier(callsign);
+                        });
+                    } else {
+                        // Satır sayısı değişti → full rebuild
+                        tbody.innerHTML = "";
+                        newRows.forEach(({ rowData, callsign }) => {
                             const tr = document.createElement("tr");
                             tr.onclick = () => openDossier(callsign);
-                            
                             activeColumns.forEach(col => {
                                 const td = document.createElement("td");
+                                const val = String(rowData[col]);
+                                td.dataset.val = val;
                                 if (col === "Callsign") {
-                                    td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
+                                    td.innerHTML = '<b style="color:#3b82f6;cursor:pointer;">' + val + '</b>';
                                 } else {
-                                    td.innerText = rowData[col];
+                                    td.innerText = val;
                                 }
                                 tr.appendChild(td);
                             });
                             tbody.appendChild(tr);
-                        }
-                    });
+                        });
+                    }
+
+                    globalDossiers = newDossiers;
                 }
 
                 function openDossier(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
-                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                    document.getElementById("popCallsign").innerText = "🎯 Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popRating").innerText = p.rating;
@@ -563,33 +617,46 @@ if data:
                 }
 
                 function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
-                window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
+                window.onclick = function(e) {
+                    if (e.target === document.getElementById("dossierModal")) closeModal();
+                }
 
                 async function updateData() {
                     const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "block";
+                    if (notifier) notifier.style.display = "block";
                     try {
-                        const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
+                        const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
                         const data = await res.json();
-                        if (data && data.pilots) {
-                            buildTable(data.pilots);
-                        }
-                    } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
+                        if (data && data.pilots) buildTable(data.pilots);
+                    } catch(e) {
+                        console.warn("VatScore fetch error:", e);
+                    }
+                    if (notifier) setTimeout(() => { notifier.style.display = "none"; }, 2000);
                 }
 
+                // --- VISIBILITY API: Sekme arkaplanda → öne gelince hemen refresh + interval yenile ---
+                document.addEventListener("visibilitychange", () => {
+                    if (document.visibilityState === "visible") {
+                        updateData();
+                        if (window._vatscoreIntervalId) clearInterval(window._vatscoreIntervalId);
+                        window._vatscoreIntervalId = setInterval(updateData, 30000);
+                    }
+                });
+
+                // --- İLK YÜKLEME ---
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
-                setInterval(updateData, 30000);
+
+                // Interval'i window scope'a kaydet (duplicate spawn önlenir)
+                window._vatscoreIntervalId = setInterval(updateData, 30000);
             </script>
             """
             
-            # Değişken enjeksiyonunu f-string kullanmadan güvenle yapıyoruz
+            # Değişken enjeksiyonunu güvenle yapıyoruz
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
