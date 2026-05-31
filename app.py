@@ -63,6 +63,27 @@ st.markdown("""
         background: none !important; border: none !important; font-size: 24px !important;
         padding: 0px !important; cursor: pointer; line-height: 1;
     }
+    
+    /* Üst Bar JS Eleman Alanları */
+    .top-bar-js-container {
+        display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 25px;
+    }
+    .js-only-refresh-icon-btn {
+        background: none !important; border: none !important; font-size: 24px !important;
+        padding: 0px !important; cursor: pointer; line-height: 1; transition: transform 0.2s ease;
+    }
+    .js-only-refresh-icon-btn:hover { transform: scale(1.15); }
+    
+    #sync-notification-top {
+        background-color: #1e293b; color: #22c55e; padding: 4px 10px; border-radius: 20px; 
+        border: 1px solid #22c55e40; font-size: 11px; font-weight: bold; font-family: monospace;
+        display: none; animation: pulse-green 1.5s infinite ease-in-out;
+    }
+    @keyframes pulse-green {
+        0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
+        70% { opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -225,8 +246,18 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    title_col, settings_col = st.columns([0.94, 0.06])
+    # Üst Kontrol Paneli Yerleşimi
+    title_col, ctrl_col, settings_col = st.columns([0.88, 0.06, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
+    
+    with ctrl_col:
+        # Pürüzsüz Asenkron Yenileme Butonu ve Durum Işığı Ayarların Yanına Enjekte Edildi
+        st.markdown("""
+            <div class="top-bar-js-container">
+                <span id="sync-notification-top">🛰️ SYNC</span>
+                <button class="js-only-refresh-icon-btn" onclick="triggerGlobalJSUpdate()" title="Force Background Telemetry Sync">🔄</button>
+            </div>
+        """, unsafe_allow_html=True)
     
     with settings_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -357,20 +388,13 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            
-            # Üst Bar Başlığı ve Bilgilendirme Alanı
             st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- NET ASENKRON MIMARI HTML & JAVASCRIPT TEMPLATE ---
+            # --- ASENKRON MIMARI HTML & JAVASCRIPT MOTORU ---
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <div class="control-header-bar">
-                    <button id="js-manual-refresh-btn" class="nav-js-btn" onclick="updateData()">🔄 Refresh Live Data</button>
-                    <div id="sync-notification">🛰️ Telemetry Stream Synchronized</div>
-                </div>
-
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
@@ -417,32 +441,12 @@ if data:
 
             <style>
                 #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                
-                .control-header-bar { display: flex; align-items: center; gap: 15px; margin-bottom: 12px; }
-                .nav-js-btn {
-                    background-color: #1e293b; color: #3b82f6; border: 1px solid #3b82f650;
-                    padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 13px;
-                    cursor: pointer; transition: all 0.2s ease-in-out;
-                }
-                .nav-js-btn:hover { background-color: #3b82f620; border-color: #3b82f6; color: #ffffff; }
-                
                 .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
                 .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
-                
-                #sync-notification {
-                    background-color: #1e293b; color: #22c55e; padding: 7px 14px; border-radius: 30px; 
-                    border: 1px solid #22c55e40; font-size: 12px; font-weight: bold; font-family: monospace;
-                    display: none; animation: pulse-green 1.5s infinite ease-in-out;
-                }
-                @keyframes pulse-green {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
-                    70% { opacity: 1; box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-                }
 
                 .v-modal { 
                     display: none; 
@@ -482,7 +486,7 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentOpenCallsign = null; // O an açık olan popup uçağını hafızada tutar
+                let currentOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
 
@@ -559,7 +563,6 @@ if data:
                         }
                     });
 
-                    // KRİTİK ADIM: Eğer arka planda veri yenilendiğinde bir uçağın popup'ı açıksa, verilerini kapatmadan güncelle!
                     if (currentOpenCallsign && globalDossiers[currentOpenCallsign]) {
                         refreshPopupData(currentOpenCallsign);
                     }
@@ -571,7 +574,6 @@ if data:
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
-                // Popup açıkken içindeki telemetriyi pürüzsüzce güncelleyen fonksiyon
                 function refreshPopupData(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
@@ -597,26 +599,30 @@ if data:
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
                 }
 
-                // ASENKRON BACKGROUND FETCH MOTORU: Sayfayı yenilemeden verileri çeker
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "inline-block";
+                // Global Üst Bar Tetikleyicisi
+                window.parent.triggerGlobalJSUpdate = async function() {
+                    const topNotifier = window.parent.document.getElementById("sync-notification-top");
+                    if(topNotifier) topNotifier.style.display = "inline-block";
+                    
                     try {
                         const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
                         }
-                    } catch(e) { console.log("Stream Sync Error:", e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 1800);
+                    } catch(e) { console.log("Background Error:", e); }
+                    
+                    setTimeout(() => { 
+                        if(topNotifier) topNotifier.style.display = "none"; 
+                    }, 1500);
                 }
 
-                // İlk yükleme
+                // İlk veri kurulumu
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
-                // 30 Saniyede bir otomatik arka plan senkronizasyonu (GUI asla oynamaz)
-                setInterval(updateData, 30000);
+                // 30 saniyede bir otomatik arkada pürüzsüz çalışma
+                setInterval(window.parent.triggerGlobalJSUpdate, 30000);
             </script>
             """
             
