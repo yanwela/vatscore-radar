@@ -460,7 +460,7 @@ if data:
                 }
 
                 .v-modal { display: none; position: fixed; z-index: 9999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); }
-                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
+                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%; -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
                 .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
@@ -589,7 +589,7 @@ if data:
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("VATSIM_DATA_URL_PLACEHOLDER", str(VATSIM_DATA_URL))\
+                .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
