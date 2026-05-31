@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
+from pyairports.airport import Airports 
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -197,6 +198,50 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
+# --- 🛰️ DYNAMIC PYAIRPORTS COORD GENERATOR ---
+def get_coordinates_from_library(pilots_list):
+    """Dynamically extracts and builds coordinate map for active flights using pyairports."""
+    coords_map = {}
+    try:
+        airport_db = Airports()
+        for p in pilots_list:
+            fplan = p.get("flight_plan") or {}
+            dep = str(fplan.get("departure", "")).strip().upper()
+            arr = str(fplan.get("arrival", "")).strip().upper()
+            
+            # Extract Departure Coords
+            if dep and len(dep) == 4 and dep not in coords_map:
+                try:
+                    info = airport_db.lookup(dep)
+                    if info:
+                        coords_map[dep] = {"latitude_deg": float(info.lat), "longitude_deg": float(info.lon)}
+                except: pass
+                
+            # Extract Arrival Coords
+            if arr and len(arr) == 4 and arr not in coords_map:
+                try:
+                    info = airport_db.lookup(arr)
+                    if info:
+                        coords_map[arr] = {"latitude_deg": float(info.lat), "longitude_deg": float(info.lon)}
+                except: pass
+    except:
+        pass
+        
+    # Hardcoded premium operational fallbacks safely injected
+    fallback = {
+        "LTBA": {"latitude_deg": 40.9769, "longitude_deg": 28.8146},
+        "LTFM": {"latitude_deg": 41.2753, "longitude_deg": 28.7519},
+        "LTAC": {"latitude_deg": 40.1281, "longitude_deg": 32.9950},
+        "LTAI": {"latitude_deg": 36.9003, "longitude_deg": 30.7928},
+        "EGLL": {"latitude_deg": 51.4700, "longitude_deg": -0.4543},
+        "GMMN": {"latitude_deg": 33.3675, "longitude_deg": -7.5899},
+        "KJFK": {"latitude_deg": 40.6398, "longitude_deg": -73.7789}
+    }
+    for k, v in fallback.items():
+        if k not in coords_map: coords_map[k] = v
+        
+    return coords_map
+
 def classify_aircraft(ac_type, callsign):
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
@@ -224,6 +269,9 @@ global_fir_map = load_global_fir_dictionary()
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
+    
+    # Generate coordinates dynamically from library for current online flights
+    airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
@@ -275,7 +323,6 @@ if data:
 
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     
-    # --- 🗺️ PERSISTENT FIR SELECTION LOGIC ---
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
     
@@ -285,7 +332,6 @@ if data:
     matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
     calculated_index = matched_indices[0] if matched_indices else 0
 
-    # --- 🛰️ POPUP MEMORY MANAGEMENT ---
     if "selected_callsign" in st.query_params:
         st.session_state.active_popup = st.query_params["selected_callsign"]
     if "active_popup" not in st.session_state:
@@ -312,7 +358,6 @@ if data:
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
 
-        # Loop through pilots and parse datasets safely
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -321,8 +366,8 @@ if data:
             lon = p.get("longitude", 0.0)
             logon = p.get("logon_time", "")
             fplan = p.get("flight_plan") or {}
-            dep = fplan.get("departure", "")
-            arr = fplan.get("arrival", "")
+            dep = fplan.get("departure", "").strip().upper()
+            arr = fplan.get("arrival", "").strip().upper()
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
 
             if dep: dep_airports.append(dep)
@@ -335,7 +380,7 @@ if data:
             if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
             if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
 
-            matches_flight_plan = str(dep).upper().startswith(selected_fir_prefix) or str(arr).upper().startswith(selected_fir_prefix)
+            matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             is_physically_here = False
             if selected_fir_prefix == "LT" and lat and lon and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5): 
                 is_physically_here = True
@@ -379,7 +424,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE WITH NATIVE PROGRESS BAR ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -404,7 +449,7 @@ if data:
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
                             <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:12px; color:#64748b; font-family:monospace;">
-                                <span id="progressCalculatedText">Distance calculated via Haversine Formula</span>
+                                <span id="progressCalculatedText">Distance calculated via Geodesic Haversine Equation</span>
                                 <span id="progressPercentageText">0% Completed</span>
                             </div>
 
@@ -452,7 +497,6 @@ if data:
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
                 
-                /* Progress Bar Architecture */
                 .progress-wrapper { display: flex; align-items: center; background-color: #0a0c14; padding: 10px 14px; border-radius: 6px; border: 1px solid #1e293b; gap: 12px; }
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
@@ -473,29 +517,12 @@ if data:
                 }
 
                 .v-modal { 
-                    display: none; 
-                    position: fixed; 
-                    z-index: 99999999; 
-                    left: 0; 
-                    top: 0; 
-                    width: 100vw; 
-                    height: 100vh; 
-                    background-color: rgba(0, 0, 0, 0.65); 
-                    backdrop-filter: blur(4px);
-                    -webkit-backdrop-filter: blur(4px);
+                    display: none; position: fixed; z-index: 99999999; left: 0; top: 0; width: 100vw; height: 100vh; 
+                    background-color: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
                 }
                 .v-modal-content { 
-                    background-color: #11131f; 
-                    position: fixed; 
-                    top: 50%; 
-                    left: 50%; 
-                    transform: translate(-50%, -50%); 
-                    width: 75%; 
-                    max-width: 950px;
-                    border: 1px solid #3b82f640; 
-                    border-radius: 12px; 
-                    box-shadow: 0 20px 50px rgba(0,0,0,0.7); 
-                    box-sizing: border-box; 
+                    background-color: #11131f; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                    width: 75%; max-width: 950px; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.7); box-sizing: border-box; 
                 }
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
@@ -513,13 +540,24 @@ if data:
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
+                const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
 
-                // Haversine calculation to verify progress parameters locally
-                function calculateHaversineProgress(lat1, lon1, lat2, lon2, currentLat, currentLon) {
-                    if (!lat1 || !lon1 || !lat2 || !lon2 || !currentLat || !currentLon) return 50; // default middle fallback
+                // 📐 TRUE HAVERSINE GEODESIC ENGINE
+                function calculateHaversineProgress(depIcao, arrIcao, currentLat, currentLon) {
+                    if (!depIcao || !arrIcao || !currentLat || !currentLon) return 0;
+                    
+                    const depPoint = airportsDatabase[depIcao.toUpperCase()];
+                    const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
+                    
+                    if (!depPoint || !arrPoint) return 50; 
+                    
+                    const lat1 = depPoint.latitude_deg;
+                    const lon1 = depPoint.longitude_deg;
+                    const lat2 = arrPoint.latitude_deg;
+                    const lon2 = arrPoint.longitude_deg;
                     
                     function toRad(v) { return v * Math.PI / 180; }
-                    function dist(la1, lo1, la2, lo2) {
+                    function getDistance(la1, lo1, la2, lo2) {
                         let R = 6371;
                         let dLat = toRad(la2 - la1);
                         let dLon = toRad(lo2 - lo1);
@@ -527,12 +565,16 @@ if data:
                         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
                     }
                     
-                    let totalDistance = dist(lat1, lon1, lat2, lon2);
-                    let distanceToTarget = dist(currentLat, currentLon, lat2, lon2);
+                    let totalFlightDistance = getDistance(lat1, lon1, lat2, lon2);
+                    let distanceRemainingToTarget = getDistance(currentLat, currentLon, lat2, lon2);
+                    let distanceFlownFromOrigin = getDistance(lat1, lon1, currentLat, currentLon);
                     
-                    if (totalDistance === 0) return 100;
-                    let progress = ((totalDistance - distanceToTarget) / totalDistance) * 100;
-                    return Math.max(0, Math.min(100, Math.round(progress)));
+                    if (totalFlightDistance <= 5) return 100;
+                    if (distanceRemainingToTarget < 2.5) return 100;
+                    if (distanceFlownFromOrigin < 1.5) return 0;
+                    
+                    let progressPercentage = ((totalFlightDistance - distanceRemainingToTarget) / totalFlightDistance) * 100;
+                    return Math.max(0, Math.min(100, Math.round(progressPercentage)));
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
@@ -554,12 +596,12 @@ if data:
                     pilotsList.forEach(p => {
                         const callsign = p.callsign || "N/A";
                         const fplan = p.flight_plan || {};
-                        const dep = fplan.departure || "";
-                        const arr = fplan.arrival || "";
+                        const dep = (fplan.departure || "").trim().toUpperCase();
+                        const arr = (fplan.arrival || "").trim().toUpperCase();
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
                         
-                        const matchesPlan = String(dep).toUpperCase().startsWith(targetPrefix) || String(arr).toUpperCase().startsWith(targetPrefix);
+                        const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         let isPhysHere = false;
                         if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
                             isPhysHere = true;
@@ -584,7 +626,6 @@ if data:
                             const pRatingText = pRatings[p.pilot_rating] || "P1";
                             const aRatingText = aRatings[p.rating] || "OBS";
 
-                            // Generate and store full parameters inside the tracker
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
                                 combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
@@ -631,23 +672,13 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
 
-                    // Update Progress Engine Badges
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
 
-                    // Compute dynamic haversine calculations (using mock coordinates if FPL endpoints are blank)
-                    let computedProgress = 45; 
-                    if (p.origin !== "⚠️ NO FPL" && p.destination !== "⚠️ NO FPL") {
-                        // Safe estimation logic based on network parameters
-                        computedProgress = Math.min(95, Math.max(5, Math.floor(Math.random() * 40) + 30));
-                    } else {
-                        computedProgress = 100;
-                    }
+                    let computedProgress = calculateHaversineProgress(p.origin, p.destination, p.lat, p.lon);
 
-                    // Dynamically set properties and force ucağın gidiş yonunu rightward (0 degrees or normal rotation)
                     document.getElementById("progressBarFill").style.width = computedProgress + "%";
                     document.getElementById("progressPlaneIcon").style.left = computedProgress + "%";
-                    document.getElementById("progressPlaneIcon").style.transform = "translate(-50%, -50%) rotate(0deg)"; // Fixed rightward path orientation
                     document.getElementById("progressPercentageText").innerText = computedProgress + "% Completed";
 
                     document.getElementById("dossierModal").style.display = "block";
@@ -681,9 +712,7 @@ if data:
                 buildTable(initialData);
 
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
-                    setTimeout(() => {
-                        openDossier(autoOpenCallsign);
-                    }, 250);
+                    setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
 
                 setInterval(updateData, 30000);
@@ -696,6 +725,7 @@ if data:
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
+                .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
@@ -747,22 +777,7 @@ with tab5:
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">I successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. I achieved this by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal that locks perfectly to the center of the screen upon click. I fixed dashboard viewports by engineering background asynchronous fetch routines for a zero-flicker experience.</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown("""
-    <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
-        <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
-        <div class="roadmap-desc">
-            My development focus area for deep telemetry sorting and production deployment adjustments:
-            <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
-                <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
-                <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
-                <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
-                <li><b>Custom Domain Deployment:</b> Migrating my infrastructure under a dedicated brand domain name.</li>
-            </ul>
-        </div>
+        <div class="roadmap-desc">I successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. I achieved this by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal.</div>
     </div>
     """, unsafe_allow_html=True)
 
