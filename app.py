@@ -86,7 +86,7 @@ def log_activity(action):
         browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
         
         if user_agent.is_mobile: device_type = "📱 Mobile"
-        elif user_agent.is_tablet: device_type = "平板 Tablet"
+        elif user_agent.is_tablet: device_type = "Tablet"
         elif user_agent.is_pc: device_type = "💻 PC / Laptop"
         else: device_type = "🤖 Bot/Unknown"
         
@@ -177,7 +177,7 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-@st.cache_data(ttl=86400) # Günde 1 kere çekilmesi yeterli, statik veri
+@st.cache_data(ttl=86400) 
 def load_vatsim_radar_airlines():
     try:
         r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
@@ -301,6 +301,7 @@ if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
 if data:
+    print("[VatScore] Data synchronized successfully.")
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
@@ -504,8 +505,8 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- SADECE TELEPHONY YAZAN MINIMAL ALAN -->
-                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony (Telsiz Çağrı Adı)</p>
+                            <!-- COMPLETELY ENGLISHD TELEPHONY TITLE -->
+                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony / Callsign</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
@@ -543,7 +544,6 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* Yenilenmiş Minimal Telephony Kutusu */
                 .telephony-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -593,6 +593,22 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
+
+                // Built-in dictionary fallback mechanism to translate raw code prefixes into their absolute telephony words.
+                const fallbackAirlinesMap = {
+                    "THY": "TURKISH",
+                    "PGT": "SUNTURK",
+                    "SXS": "SUNEXPRESS",
+                    "BAW": "SPEEDBIRD",
+                    "EZY": "EASY",
+                    "DLH": "LUFTHANSA",
+                    "AFR": "AIRFRANS",
+                    "AAL": "AMERICAN",
+                    "UAL": "UNITED",
+                    "UAE": "EMIRATES",
+                    "QTR": "QATARI",
+                    "RYR": "RYANAIR"
+                };
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -652,11 +668,8 @@ if data:
                     return "✈️ Commercial";
                 }
 
-                // Sadece Telephony Ayıklayan Fonksiyon
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
-                    
-                    // Varsayılan değer
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
@@ -666,11 +679,16 @@ if data:
                     
                     if (cleanPrefix.length < 2) return;
 
+                    // 1. Check local custom fallback system to solve empty fields instantly
+                    if (fallbackAirlinesMap[cleanPrefix]) {
+                        callsignField.innerText = fallbackAirlinesMap[cleanPrefix];
+                        return;
+                    }
+
+                    // 2. Query against external dataset
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
-                    
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        // Eğer api'de 'callsign' (telsiz okunuşu) varsa onu yaz, yoksa temiz prefix'i bırak
                         callsignField.innerText = airlineData.callsign || cleanPrefix;
                     } else {
                         callsignField.innerText = cleanPrefix;
@@ -813,7 +831,6 @@ if data:
             </script>
             """
             
-            # Havayolu verisini Python ile çekip JSON'a döküyoruz
             airlines_db = load_vatsim_radar_airlines()
             
             html_table_and_modal_code = raw_html_template\
@@ -879,8 +896,8 @@ with tab5:
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📢 Official Telephony / Telsiz Okunuşu Eşleştirici</div>
-        <div class="roadmap-desc">Kullanıcının callsign yapısı VATSIM Radar'ın regex mimarisiyle filtrelenerek API üzerinden Telephony (Örn: TURKISH, PEGASUS) eşleşmesi kusursuz tasarımla sisteme entegre edildi.</div>
+        <div class="roadmap-title">📢 Official Telephony Matcher Engine</div>
+        <div class="roadmap-desc">The user's callsign prefix structure is extracted, filtered through an enhanced regular expression architecture, and automatically linked to verified Telephony callsigns via both local fallback dictionary matrices and external real-time data syncs. Completely tailored to match international standard English formats.</div>
     </div>
     """, unsafe_allow_html=True)
 
