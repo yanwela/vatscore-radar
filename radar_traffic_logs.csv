@@ -1,1 +1,6 @@
-Timestamp,OS,Browser,Device_Type
+Timestamp,OS,Browser,Device_Type,Session_ID,Last_Action
+2026-05-31 16:12:47,Windows 10,Opera 131.0.0,💻 PC / Laptop,unknown,Radar Data Requested
+2026-05-31 16:13:27,Windows 10,Chrome 148.0.0,💻 PC / Laptop,unknown,Radar Data Requested
+2026-05-31 16:13:39,Windows 10,Opera 131.0.0,💻 PC / Laptop,unknown,Radar Data Requested
+2026-05-31 16:13:45,Windows 10,Chrome 148.0.0,💻 PC / Laptop,unknown,Radar Data Requested
+2026-05-31 16:14:17,Windows 10,Chrome 148.0.0,💻 PC / Laptop,unknown,Radar Data Requested
