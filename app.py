@@ -10,7 +10,7 @@ import json
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
-CSV_FILE_PATH = "airports.csv"  # 📌 Senin bulduğun CSV dosyası
+CSV_FILE_PATH = "airports.csv"  # CSV file for airports
 
 # Page Configuration
 st.set_page_config(
@@ -304,7 +304,7 @@ if data:
     airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
-    with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
+    with title_col: st.title("⚡ VATSCORE // Premium Score Radar")
     
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
