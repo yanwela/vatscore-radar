@@ -19,26 +19,37 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 🔄 30 Saniyede Bir Otomatik Yenileme (Auto-Refresh)
+# 🔄 GÜVENLİ VE OTOMATİK ÇALIŞAN AUTO-REFRESH ENGINE (Butona basmadan tetiklenir)
 st.components.v1.html(
     """
     <script>
-        window.parent.document.addEventListener('DOMContentLoaded', function() {
-            if (!window.parent.__vatsim_refresh_interval) {
-                window.parent.__vatsim_refresh_interval = setInterval(function() {
-                    const buttons = window.parent.document.querySelectorAll("button");
-                    const rerunButton = Array.from(buttons).find(el => el.textContent.includes("Rerun") || el.innerText.includes("Rerun"));
-                    if (rerunButton) {
-                        rerunButton.click();
-                    } else {
-                        const streamlitDoc = window.parent.document.querySelector('.stApp');
-                        if(streamlitDoc) {
-                            window.parent.location.reload();
+        (function() {
+            function startRefresher() {
+                if (!window.parent.__vatsim_refresh_active) {
+                    window.parent.__vatsim_refresh_active = true;
+                    setInterval(function() {
+                        // Streamlit'in gizli yenileme/rerun butonlarını bulup tetikler
+                        const buttons = window.parent.document.querySelectorAll("button");
+                        const rerunButton = Array.from(buttons).find(el => el.textContent.includes("Rerun") || el.innerText.includes("Rerun"));
+                        if (rerunButton) {
+                            rerunButton.click();
+                        } else {
+                            // Yedek plan: Buton bulunamazsa pencereyi doğrudan yeniler
+                            const streamlitDoc = window.parent.document.querySelector('.stApp');
+                            if(streamlitDoc) {
+                                window.parent.location.reload();
+                            }
                         }
-                    }
-                }, 30000); // 30 saniye
+                    }, 30000); // 30 Saniye
+                }
             }
-        });
+            // Sayfa DOM yapısı hazır olduğunda veya yükleme bittiğinde direkt çalıştır
+            if (window.parent.document.readyState === "complete" || window.parent.document.readyState === "interactive") {
+                startRefresher();
+            } else {
+                window.parent.document.addEventListener('DOMContentLoaded', startRefresher);
+            }
+        })();
     </script>
     """,
     height=0,
@@ -76,10 +87,13 @@ st.markdown("""
         border-radius: 6px;
         margin-bottom: 15px;
     }
+    .roadmap-card.in-progress {
+        border-left: 5px solid #f59e0b;
+    }
     .roadmap-title { color: #f8fafc; font-weight: bold; font-size: 16px; margin-bottom: 5px; }
     .roadmap-desc { color: #94a3b8; font-size: 14px; line-height: 1.5; }
     .roadmap-badge {
-        background-color: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px;
+        color: white; padding: 2px 8px; border-radius: 4px;
         font-size: 11px; font-weight: bold; text-transform: uppercase; display: inline-block; margin-bottom: 8px;
     }
     .top-emoji-btn button {
@@ -400,7 +414,7 @@ if data:
         st.subheader("✈️ Regional Airspace Monitor")
         selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
-        # 📊 EXACT GREEN LINE LOCATION: Bölge seçiminin hemen altındaki açılır grafik kutusu
+        # Açılır Grafik Kutusu
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
@@ -421,7 +435,7 @@ if data:
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
             raw_rows_json = df_fir[active_cols].to_dict(orient="records")
             
-            # HTML Tablo ve Kusursuz Fixed Modal Enjeksiyonu
+            # HTML Tablo ve Fixed Modal Enjeksiyonu
             html_table_and_modal_code = f"""
             <div id="vatscore-custom-container">
                 <div id="dossierModal" class="v-modal">
@@ -523,8 +537,6 @@ if data:
                     padding: 12px 16px;
                     color: #e2e8f0;
                 }}
-                
-                /* 🚀 KAPATINCA VEYA SCROLL EDİNCE ASLA KAYMAYAN TAM EKRAN ORTALI POPUP CSS */
                 .v-modal {{
                     display: none; 
                     position: fixed; 
@@ -539,7 +551,7 @@ if data:
                     background-color: #151824;
                     position: absolute;
                     top: 50%; left: 50%;
-                    transform: translate(-50%, -50%); /* Sayfayı kaydırsan bile tam merkezde kilitler */
+                    transform: translate(-50%, -50%);
                     width: 65%;
                     border: 1px solid #3b82f640;
                     border-radius: 12px;
@@ -672,11 +684,30 @@ if data:
 
     with tab5:
         st.subheader("🚀 VatScore Strategic Development Roadmap")
+        
+        # 🟢 PHASE 1: COMPLETED & TARİH
         st.markdown("""
         <div class="roadmap-card">
-            <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Completed</div>
+            <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
             <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Fixed Modal View</div>
             <div class="roadmap-desc">Successfully migrated from native Streamlit dataframes to a premium HTML/JS grid engine, completely bypassing Python 3.14 selection bugs. Features a responsive layout with smooth hover animations and a native Javascript telemetry modal that locks perfectly to the center of the screen upon click.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 🟡 PHASE 2: IN PROGRESS & GELECEK ÖZELLİKLER
+        st.markdown("""
+        <div class="roadmap-card in-progress">
+            <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+            <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
+            <div class="roadmap-desc">
+                This phase focuses on deep telemetry sorting and production deployment adjustments:
+                <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
+                    <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
+                    <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
+                    <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
+                    <li><b>Custom Domain Deployment:</b> Migrating infrastructure under a dedicated brand domain name.</li>
+                </ul>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
