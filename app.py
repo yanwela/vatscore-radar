@@ -275,7 +275,6 @@ if data:
 
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     
-    # --- 🗺️ PERSISTENT FIR SELECTION MANTIĞI ---
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
     
@@ -285,7 +284,6 @@ if data:
     matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
     calculated_index = matched_indices[0] if matched_indices else 0
 
-    # --- 🛰️ POPUP HAFIZA YÖNETİMİ ---
     if "selected_callsign" in st.query_params:
         st.session_state.active_popup = st.query_params["selected_callsign"]
     if "active_popup" not in st.session_state:
@@ -345,7 +343,8 @@ if data:
                 fir_pilots.append({
                     "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
                     "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
-                    "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
+                    "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
+                    "Lat": lat, "Lon": lon, "Logon": logon
                 })
 
             if alt > max_alt: max_alt = alt; highest_p = p
@@ -377,7 +376,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- MODAL DÜZENİ: HARAKETLİ UÇAK İKONLU FLIGHT PROGRESS BAR ENGINE ---
+            # --- MODAL DÜZENİ & HAVERSINE MATEMATİK MOTORU ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -411,7 +410,7 @@ if data:
 
                             <div class="progress-section" style="margin-top: 25px; margin-bottom: 14px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                    <span class="v-label" style="margin: 0;">✈️ Flight Track Progress</span>
+                                    <span class="v-label" style="margin: 0;">✈️ Geodesic Flight Progress (Haversine Engine)</span>
                                     <span id="popProgressPercent" style="color: #3b82f6; font-size: 13px; font-weight: bold; font-family: monospace;">0%</span>
                                 </div>
                                 <div class="progress-container-wrapper">
@@ -497,11 +496,10 @@ if data:
                 .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
                 
-                /* 🏁 TRACK BAR PRECISE ALIGNMENT DESIGNS */
                 .progress-container-wrapper {
                     position: relative;
                     width: 100%;
-                    height: 24px; /* Uçağın taşmaması için dikey alan genişletildi */
+                    height: 24px;
                     display: flex;
                     align-items: center;
                 }
@@ -523,7 +521,7 @@ if data:
                     position: absolute;
                     top: 50%;
                     left: 0%;
-                    transform: translate(-50%, -50%) rotate(90deg); /* Sağa doğru uçması için 90 derece döndürüldü */
+                    transform: translate(-50%, -50%) rotate(90deg);
                     font-size: 18px;
                     line-height: 1;
                     z-index: 10;
@@ -539,14 +537,37 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
 
+                // Global Havalimanı Koordinat Veritabanı (Küresel Haversine Sistemi İçin)
+                const AIRPORT_DB = {
+                    "LTFM": {lat: 41.275, lon: 28.751}, "LTBA": {lat: 40.976, lon: 28.814},
+                    "LTAC": {lat: 40.128, lon: 32.994}, "LTAI": {lat: 36.900, lon: 30.792},
+                    "LTFJ": {lat: 40.898, lon: 29.309}, "LTBJ": {lat: 38.289, lon: 27.155},
+                    "KJFK": {lat: 40.639, lon: -73.778}, "EGLL": {lat: 51.470, lon: -0.461},
+                    "EDDF": {lat: 50.033, lon: 8.570}, "LFPG": {lat: 49.009, lon: 2.547},
+                    "OMDB": {lat: 25.252, lon: 55.364}, "EHAM": {lat: 52.308, lon: 4.764},
+                    "LIRF": {lat: 41.800, lon: 12.238}, "LSZH": {lat: 47.464, lon: 8.549},
+                    "LEMD": {lat: 40.471, lon: -3.560}, "OTHH": {lat: 25.273, lon: 51.608},
+                    "VHHH": {lat: 22.308, lon: 113.914}, "RJTT": {lat: 35.552, lon: 139.781}
+                };
+
+                // Yer Küre Üzerinde İki Koordinat Arasındaki Gerçek Kuş Uçuşu Mesafe Formülü
+                function getHaversineDistance(lat1, lon1, lat2, lon2) {
+                    const R = 6371; // Dünya yarıçapı (km)
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLon = (lon2 - lon1) * Math.PI / 180;
+                    const a = 
+                        Math.sin(dLat/2) * Math.sin(dLat/2) +
+                        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    return R * c;
+                }
+
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
                     callsign = String(callsign).toUpperCase().trim();
                     const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
                     if (milTypes.includes(acType)) return "⚔️ Military";
-                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
-                    const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
-                    if (gaTypes.includes(acType)) return "🛩️ General Aviation";
+                    if (callsign.startswith("TUR") || callsign.startswith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
                     return "✈️ Commercial";
                 }
 
@@ -577,31 +598,40 @@ if data:
                             };
 
                             let onlineMins = 0;
-                            let onlineText = "Unknown";
                             if (p.logon_time) {
                                 const logDt = new Date(p.logon_time);
                                 onlineMins = Math.floor((new Date() - logDt) / 60000);
-                                onlineText = onlineMins + " Mins";
                             }
 
-                            // Dinamik Uçuş Süresi Tamamlama Simülatörü
+                            // --- 📡 GERÇEK MATEMATİKSEL KONUM HESAPLAMA ---
                             let progressPercent = 0;
-                            if (onlineMins > 0) {
-                                if (onlineMins < 45) progressPercent = Math.min(Math.floor(onlineMins * 1.3), 48);
-                                else if (onlineMins < 120) progressPercent = Math.min(48 + Math.floor((onlineMins - 45) * 0.4), 78);
-                                else progressPercent = Math.min(78 + Math.floor((onlineMins - 120) * 0.1), 96);
+                            if (dep && arr && AIRPORT_DB[dep] && AIRPORT_DB[arr]) {
+                                const start = AIRPORT_DB[dep];
+                                const end = AIRPORT_DB[arr];
+                                
+                                const totalDist = getHaversineDistance(start.lat, start.lon, end.lat, end.lon);
+                                const distToArr = getHaversineDistance(p.latitude, p.longitude, end.lat, end.lon);
+                                
+                                if (totalDist > 0) {
+                                    let calcPercent = Math.round(((totalDist - distToArr) / totalDist) * 100);
+                                    progressPercent = Math.max(0, Math.min(calcPercent, 99)); // Emniyet kilidi %99
+                                }
+                            } else {
+                                // Fallback: Eğer meydan veritabanımızda yoksa zaman bazlı akıllı illüzyona dön
+                                if (onlineMins > 0) {
+                                    if (onlineMins < 45) progressPercent = Math.min(Math.floor(onlineMins * 1.3), 48);
+                                    else if (onlineMins < 120) progressPercent = Math.min(48 + Math.floor((onlineMins - 45) * 0.4), 78);
+                                    else progressPercent = Math.min(78 + Math.floor((onlineMins - 120) * 0.1), 95);
+                                }
                             }
-                            if (!dep || !arr) progressPercent = 0;
 
                             const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
                             const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
-                            
-                            const pRatingText = pRatings[p.pilot_rating] || "P1";
-                            const aRatingText = aRatings[p.rating] || "OBS";
 
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineText,
+                                combined_rating: "P: " + (pRatings[p.pilot_rating] || "P1") + " / ATC: " + (aRatings[p.rating] || "OBS"),
+                                online: onlineMins + " Mins",
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
@@ -645,7 +675,6 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
                     
-                    // Bar Genişliği ve Kayar Uçak İkonu Senkronizasyonu
                     document.getElementById("popProgressPercent").innerText = p.progress + "%";
                     document.getElementById("popProgressBar").style.width = p.progress + "%";
                     document.getElementById("popAirplaneIcon").style.left = p.progress + "%";
@@ -760,7 +789,7 @@ with tab5:
                 <li><b>Dynamic Fleet and Airline Intelligence:</b> Expand standard FIR filters to support global ICAO airline codes, giving users the ability to explicitly isolate fleets (e.g., tracking only THY, PGT, or BAW callsigns) paired with automated IFR and VFR telemetry tags.</li>
                 <li><b>Real-Time Route & Distance Engine:</b> Replacing time-based estimations with an advanced co-ordinate system based on the Haversine formula. It computes actual distances between origin and destination airports against live telemetry ($Latitude/Longitude$) to display pixel-perfect progress percentages.</li>
                 <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across active radar sessions.</li>
-                <li><b>Custom Domain Deployment:</b> Migrating global infrastructure under a dedicated premium brand domain name.</li>
+                <li><b>Custom Domain Deployment:</b> Migrating infrastructure under a dedicated brand domain name.</li>
             </ul>
         </div>
     </div>
