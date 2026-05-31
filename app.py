@@ -68,7 +68,12 @@ st.markdown("""
 
 # --- 🛰️ SESSİZ LOGLAMA VE ADMİN SİSTEMİ ---
 LOG_FILE = "radar_traffic_logs.csv"
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+
+# Lokal testlerde patlamasın diye secrets kontrolü
+if "ADMIN_PASSWORD" in st.secrets:
+    ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+else:
+    ADMIN_PASSWORD = "admin123" # Eğer .streamlit/secrets.toml yoksa fallback şifre
 
 def init_log_file():
     if not os.path.exists(LOG_FILE):
@@ -438,8 +443,8 @@ if data:
             </div>
 
             <style>
-                #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
+                #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; padding-bottom: 60px; }
+                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; margin-bottom: 20px; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
                 .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
@@ -459,17 +464,24 @@ if data:
                     100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
                 }
 
-                .v-modal { display: none; position: fixed; z-index: 9999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); }
-                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%; -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
+                /* MODAL MODİFİKASYONLARI - IFRAME İÇİNDE TAM ORTALAMA VE TAŞMAMA AYARI */
+                .v-modal { display: none; position: absolute; z-index: 999999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); }
+                .v-modal-content { background-color: #151824; position: absolute; top: 100px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 750px; border: 1px solid #3b82f650; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); box-sizing: border-box; margin-bottom: 50px; }
                 .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 20px; }
-                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+                
+                /* Mobil ve dar pencereler için grid'i tek sütuna düşür */
+                @media (max-width: 600px) {
+                    .v-grid { grid-template-columns: 1fr; }
+                }
+                
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 2px 0; }
-                .v-val { color: #f1f5f9; font-size: 14px; background-color: #1e293b40; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
-                .v-textarea { width: 100%; height: 65px; background-color: #1e293b40; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
+                .v-val { color: #f1f5f9; font-size: 14px; background-color: #1e293b40; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .v-textarea { width: 100%; height: 75px; background-color: #1e293b40; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
             </style>
 
             <script>
@@ -559,11 +571,19 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
+                    
+                    // Modalı kaydırma durumuna göre görünür alana çekmek için absolute konumlandırma tetiklemesi
+                    const container = document.getElementById("vatscore-custom-container");
                     document.getElementById("dossierModal").style.display = "block";
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                 }
 
                 function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
-                window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
+                
+                // Modal dışına tıklayınca kapanma filtresi
+                document.getElementById("dossierModal").onclick = function(e) {
+                    if (e.target === this) closeModal();
+                }
 
                 async function updateData() {
                     const notifier = document.getElementById("sync-notification");
@@ -592,7 +612,8 @@ if data:
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
-            st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
+            # BURASI KRİTİK: Yüksekliği 750px yaptık ki açılan modal penceresi iframe sınırına çarpıp kesilmesin!
+            st.components.v1.html(html_table_and_modal_code, height=750, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
