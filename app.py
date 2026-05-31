@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
+# Auto-refresh logic and Pop-up system have some bug.
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
