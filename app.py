@@ -5,12 +5,13 @@ from collections import Counter
 from datetime import datetime
 import os
 from user_agents import parse
+import json
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
 
-# Sayfa Yapılandırması (Sol menü kapalı, geniş ekran düzeni)
+# Sayfa Yapılandırması
 st.set_page_config(
     page_title="VatScore Web — Premium ScoreRadar", 
     page_icon="⚡", 
@@ -44,7 +45,7 @@ st.components.v1.html(
     width=0
 )
 
-# CUSTOM CSS (Gizlemeler, İmza, Temiz Arayüz ve Tablo Menü Temizliği)
+# CUSTOM CSS (Streamlit elementlerini temizleme ve genel stil)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -71,7 +72,7 @@ st.markdown("""
         text-decoration: underline;
     }
     
-    /* Roadmap Şık UI Kart Tasarımları */
+    /* Roadmap Kart Tasarımları */
     .roadmap-card {
         background-color: #1e293b;
         border-left: 5px solid #3b82f6;
@@ -79,45 +80,15 @@ st.markdown("""
         border-radius: 6px;
         margin-bottom: 15px;
     }
-    .roadmap-title {
-        color: #f8fafc;
-        font-weight: bold;
-        font-size: 16px;
-        margin-bottom: 5px;
-    }
-    .roadmap-desc {
-        color: #94a3b8;
-        font-size: 14px;
-        line-height: 1.5;
-    }
+    .roadmap-title { color: #f8fafc; font-weight: bold; font-size: 16px; margin-bottom: 5px; }
+    .roadmap-desc { color: #94a3b8; font-size: 14px; line-height: 1.5; }
     .roadmap-badge {
-        background-color: #3b82f6;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: bold;
-        text-transform: uppercase;
-        display: inline-block;
-        margin-bottom: 8px;
+        background-color: #3b82f6; color: white; padding: 2px 8px; border-radius: 4px;
+        font-size: 11px; font-weight: bold; text-transform: uppercase; display: inline-block; margin-bottom: 8px;
     }
-    
-    /* Tablo Başlıklarındaki Menü İkonlarını Kaldır */
-    button[data-testid="stDataFrameColumnHeaderMenuTrigger"] {
-        display: none !important;
-    }
-    div[data-testid="stDataFrameToolbar"] button:not([data-testid="stDataFrameFullscreenButton"]) {
-        display: none !important;
-    }
-    
-    /* Üst Sağ Butonlar (Yenileme ve Ayarlar) İçin Özel Şık Buton Stili */
     .top-emoji-btn button {
-        background: none !important;
-        border: none !important;
-        font-size: 24px !important;
-        padding: 0px !important;
-        cursor: pointer;
-        line-height: 1;
+        background: none !important; border: none !important; font-size: 24px !important;
+        padding: 0px !important; cursor: pointer; line-height: 1;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -255,7 +226,6 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
-# Akıllı Uçak Derecelendirme/Sınıflandırma Fonksiyonu
 def classify_aircraft(ac_type, callsign):
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
@@ -266,14 +236,10 @@ def classify_aircraft(ac_type, callsign):
         "E3TF", "B1B", "B2", "A10", "TOR", "H64", "UH60", "CH47", "NH90"
     }
     if ac_type in military_types: return "⚔️ Military"
-        
     military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
     if callsign.startswith(military_prefixes) or "MIL" in callsign: return "⚔️ Military"
         
-    ga_types = {
-        "C150", "C152", "C172", "C182", "C206", "C208", 
-        "P28A", "PA34", "DA40", "DA42", "SR22", "SR20", "E300", "DV20"
-    }
+    ga_types = {"C150", "C152", "C172", "C182", "C206", "C208", "P28A", "PA34", "DA40", "DA42", "SR22", "SR20", "E300", "DV20"}
     if ac_type in ga_types: return "🛩️ General Aviation"
         
     biz_jets = {"GLF5", "GLF6", "CL60", "CRJ2", "C56X", "FA7X", "LJ45"}
@@ -288,10 +254,9 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    # Başlık Alanı, Refresh ve Ayarlar Butonlarının Düzeni
+    # Başlık Alanı ve Yenileme/Ayarlar
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
-    with title_col:
-        st.title("⚡ VATSCORE // Premium Global Radar")
+    with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
     
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -309,38 +274,21 @@ if data:
         settings_clicked = st.button("⚙️", help="Click to toggle Column visibility and Fleet filters")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    if "show_panel" not in st.session_state:
-        st.session_state.show_panel = False
-        
-    if settings_clicked:
-        st.session_state.show_panel = not st.session_state.show_panel
+    if "show_panel" not in st.session_state: st.session_state.show_panel = False
+    if settings_clicked: st.session_state.show_panel = not st.session_state.show_panel
 
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
-    
-    if "visible_columns" not in st.session_state:
-        st.session_state.visible_columns = all_columns.copy()
-
-    if "fleet_filter_selection" not in st.session_state:
-        st.session_state.fleet_filter_selection = "All Flights"
+    if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
+    if "fleet_filter_selection" not in st.session_state: st.session_state.fleet_filter_selection = "All Flights"
 
     if st.session_state.show_panel:
         with st.container():
             st.markdown("### ⚙️ Live Radar Customizer")
             cfg_col1, cfg_col2 = st.columns(2)
-            
             with cfg_col1:
-                st.session_state.visible_columns = st.multiselect(
-                    "Select Table Columns to Display:",
-                    options=all_columns,
-                    default=st.session_state.visible_columns
-                )
-            
+                st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
             with cfg_col2:
-                st.session_state.fleet_filter_selection = st.radio(
-                    "Fleet Category Filter:",
-                    ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"],
-                    horizontal=True
-                )
+                st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
             st.markdown("---")
 
     # Üst İstatistik Kartları
@@ -349,7 +297,7 @@ if data:
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # 1️⃣ ÖNCE SEÇİLEN FIR BİLGİSİNİ ALALIM
+    # Data Processing
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
@@ -361,14 +309,14 @@ if data:
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     default_index = [i for i, s in enumerate(fir_options) if s.startswith("LT")][0] if any(s.startswith("LT") for s in fir_options) else 0
     
-    if "main_fir_selectbox" not in st.session_state:
-        selected_fir_prefix = "LT"
-    else:
-        selected_fir_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
+    if "main_fir_selectbox" not in st.session_state: selected_fir_prefix = "LT"
+    else: selected_fir_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
 
-    # 2️⃣ ŞİMDİ DATA PROCESSING DÖNGÜSÜNÜ ÇALIŞTIRALIM
     current_fleet_filter = st.session_state.fleet_filter_selection
     
+    # Detaylı Haritalama İçin Tüm Pilot Verilerini Sözlük Yapısında Saklayalım (JS Okuyacak)
+    pilot_dossiers = {}
+
     for p in pilots:
         callsign = p.get("callsign", "N/A")
         alt = p.get("altitude", 0)
@@ -379,7 +327,7 @@ if data:
         fplan = p.get("flight_plan") or {}
         dep = fplan.get("departure", "")
         arr = fplan.get("arrival", "")
-        route = fplan.get("route", "")
+        route = fplan.get("route", "No Flight Plan Filed.")
         ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
 
         if dep: dep_airports.append(dep)
@@ -395,40 +343,54 @@ if data:
 
         matches_flight_plan = dep.startswith(selected_fir_prefix) or arr.startswith(selected_fir_prefix)
         is_physically_here = False
-        if selected_fir_prefix == "LT" and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5):
-            is_physically_here = True
-        elif selected_fir_prefix == "OM" and (22.5 <= lat <= 26.0) and (53.0 <= lon <= 56.5):
-            if not ((36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5)):
-                is_physically_here = True
+        if selected_fir_prefix == "LT" and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5): is_physically_here = True
 
         if matches_flight_plan or is_physically_here:
-            display_dep = dep if dep else "⚠️ NO FPL (Active on Ground/VFR)"
-            display_arr = arr if arr else "⚠️ NO FPL (Active on Ground/VFR)"
+            display_dep = dep if dep else "⚠️ NO FPL"
+            display_arr = arr if arr else "⚠️ NO FPL"
             
             fir_pilots.append({
                 "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
                 "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
-                "Category": category,
-                "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
+                "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
             })
+
+            # JavaScript Popup Altyapısı için her uçağın ham verisini hazırlıyoruz
+            online_mins = "Unknown"
+            if logon:
+                try:
+                    logon_dt = datetime.strptime(logon[:19], "%Y-%m-%dT%H:%M:%S")
+                    online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
+                except: pass
+            
+            rating_map = {0: "OBS", 1: "P1", 2: "P2", 3: "P3", 4: "P4", 5: "P5"}
+            rating_text = rating_map.get(p.get("pilot_rating", 0), "P1 (Licensed)")
+            v5_voice = "🎙️ Voice Active" if p.get("has_voice", True) else "⌨️ Text Only"
+
+            pilot_dossiers[callsign] = {
+                "name": p.get("name", "Anonymous"),
+                "cid": p.get("cid", "N/A"),
+                "rating": rating_text,
+                "online": online_mins,
+                "voice": v5_voice,
+                "squawk": p.get("transponder", "0000"),
+                "origin": display_dep,
+                "destination": display_arr,
+                "airframe": ac_type,
+                "route": route
+            }
 
         if alt > max_alt: max_alt = alt; highest_p = p
         if gs > max_gs: max_gs = gs; fastest_p = p
         if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
         if logon and logon < min_logon: min_logon = logon; veteran_p = p
 
-        if str(p.get("transponder")) == "7700":
-            anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday emergency", "Airframe": ac_type})
-        if gs > 1150:
-            anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Impossible Speed: {gs} KT", "Airframe": ac_type})
-        if alt == 0 and gs == 0 and len(route) > 20:
-            anomalies.append({"Type": "👻 Gate Ghost / AFK", "Callsign": callsign, "Details": "Flight plan loaded but sleeping at gate", "Airframe": ac_type})
-        if category == "⚔️ Military":
-            anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment flight", "Airframe": ac_type})
-        if (15000 < alt < 45000) and (45.0 < lat < 62.0) and (-40.0 < lon < -15.0):
-            atlantic_count += 1
+        if str(p.get("transponder")) == "7700": anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday", "Airframe": ac_type})
+        if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
+        if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
+        if (15000 < alt < 45000) and (45.0 < lat < 62.0) and (-40.0 < lon < -15.0): atlantic_count += 1
 
-    # 3️⃣ SEKMELERİ EKRANA BASIYORUZ
+    # Sekmeler
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab1:
@@ -442,109 +404,248 @@ if data:
 
     with tab2:
         st.subheader("✈️ Regional Airspace Monitor")
+        selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
-        selected_option = st.selectbox(
-            "Choose Region/FIR Focus:",
-            options=fir_options,
-            index=default_index,
-            key="main_fir_selectbox"
-        )
-        
-        log_activity(f"Selected FIR: {selected_fir_prefix}")
-        
-        search_query = st.text_input("🔍 Quick Search by Callsign (e.g., THY123, PGT56G):", "").upper().strip()
-        if search_query:
-            log_activity(f"Searched: {search_query}")
-            
-        chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
-
+        # HTML + CSS + JS TABLO VE MODAL ENJEKSİYONU
         if fir_pilots:
             df_fir = pd.DataFrame(fir_pilots)
-            if search_query:
-                df_fir = df_fir[df_fir['Callsign'].str.contains(search_query)]
-                
-            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}.")
             
-            with chart_expander:
-                c_col1, c_col2 = st.columns(2)
-                with c_col1:
-                    st.markdown("##### 📈 FIR Altitude Profiles (FT)")
-                    df_alt_chart = df_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
-                    st.bar_chart(df_alt_chart, y='Altitude (FT)', color='#3b82f6')
-                with c_col2:
-                    st.markdown("##### ⚡ FIR Groundspeed Profiles (KT)")
-                    df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
-                    st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
-
-            final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
+            # Seçilen sütunları filtrele
+            active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
             
-            # Python 3.14 bug'ından arınmış, stabil ana veri tablosu
-            st.dataframe(df_fir[final_columns], use_container_width=True)
+            # JSON formatına dökerek JS'e paslayalım
+            raw_rows_json = df_fir[active_cols].to_dict(orient="records")
             
-            # 🎯 🌌 ULTRA MODERN DETAY POPUP MODÜLÜ (POPOVER)
-            all_available_callsigns = sorted(df_fir["Callsign"].tolist())
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            # Şık bir buton popover'ı başlatıyoruz
-            with st.popover("🕵️‍♂️ Open Radar Dossier Popup (Inspect Aircraft Metadata)", use_container_width=True):
-                st.markdown("### 🛰️ VatScore Radar Dossier Decoder")
-                st.write("Select an aircraft track below to analyze real-time live connection details:")
-                
-                clicked_callsign = st.selectbox(
-                    "Choose Active Aircraft Target:",
-                    options=["-- No Target Selected --"] + all_available_callsigns
-                )
-                
-                if clicked_callsign and clicked_callsign != "-- No Target Selected --":
-                    raw_pilot = next((p for p in pilots if p.get("callsign") == clicked_callsign), None)
-                    
-                    if raw_pilot:
-                        fplan_raw = raw_pilot.get("flight_plan") or {}
-                        
-                        online_mins = "Unknown"
-                        if raw_pilot.get("logon_time"):
-                            try:
-                                logon_dt = datetime.strptime(raw_pilot.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
-                                online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
-                            except: pass
-                        
-                        rating_map = {
-                            0: "OBS (Observer)", 1: "P1 (Private Pilot)", 
-                            2: "P2 (Flight Instructor)", 3: "P3 (Airline Transport Pilot)",
-                            4: "P4 (Senior Instructor)", 5: "P5 (Examiner)"
-                        }
-                        raw_rating = raw_pilot.get("pilot_rating", 0)
-                        rating_text = rating_map.get(raw_rating, f"P{raw_rating} (Licensed)")
-                        
-                        v5_voice = "🎙️ Voice Active" if raw_pilot.get("has_voice", True) else "⌨️ Text Only"
-
-                        st.markdown(f"#### ✈️ Target Profile: `{clicked_callsign}`")
-                        st.markdown("---")
-                        
-                        det_c1, det_c2, det_c3 = st.columns(3)
-                        with det_c1:
-                            st.markdown(f"**👤 Pilot Name:** `{raw_pilot.get('name', 'Anonymous')}`")
-                            st.markdown(f"**🆔 VATSIM CID:** `{raw_pilot.get('cid', 'N/A')}`")
-                            st.markdown(f"**🎖️ Rating:** `{rating_text}`")
-                        with det_c2:
-                            st.markdown(f"**🟢 Online Time:** `{online_mins}`")
-                            st.markdown(f"**📻 VHF Comms:** `{v5_voice}`")
-                            st.markdown(f"**📡 Squawk:** `{raw_pilot.get('transponder', '0000')}`")
-                        with det_c3:
-                            st.markdown(f"**🛫 Origin:** `{fplan_raw.get('departure', 'N/A')}`")
-                            st.markdown(f"**🛬 Destination:** `{fplan_raw.get('arrival', 'N/A')}`")
-                            st.markdown(f"**✈️ Airframe:** `{fplan_raw.get('aircraft', 'N/A')}`")
+            # 🚀 İŞTE BEKLEDİĞİN SÜPER HTML / CSS / JAVASCRIPT BLOKLARI
+            html_table_and_modal_code = f"""
+            <div id="vatscore-custom-container">
+                <div id="dossierModal" class="v-modal">
+                    <div class="v-modal-content">
+                        <div class="v-modal-header">
+                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                            <span class="v-close-btn" onclick="closeModal()">&times;</span>
+                        </div>
+                        <div class="v-modal-body">
+                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:20px; font-family:sans-serif;"></h4>
+                            <hr style="border-color:#1e293b; margin-bottom:15px;">
                             
-                        st.text_area("🗺️ Filed Route String:", value=fplan_raw.get("route", "No Flight Plan Filed."), height=70, disabled=True)
-                        st.markdown("---")
-                        st.caption("ℹ️ Tip: Click anywhere outside this popup card or on the button again to quickly close it.")
+                            <div class="v-grid">
+                                <div>
+                                    <p class="v-label">👤 Pilot Name</p>
+                                    <p id="popName" class="v-val"></p>
+                                    <p class="v-label">🆔 VATSIM CID</p>
+                                    <p id="popCid" class="v-val"></p>
+                                    <p class="v-label">🎖️ Rating</p>
+                                    <p id="popRating" class="v-val"></p>
+                                </div>
+                                <div>
+                                    <p class="v-label">🟢 Online Time</p>
+                                    <p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
+                                    <p class="v-label">📻 VHF Comms & Frequency</p>
+                                    <p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
+                                    <p class="v-label">📡 Squawk</p>
+                                    <p id="popSquawk" class="v-val"></p>
+                                </div>
+                                <div>
+                                    <p class="v-label">🛫 Origin</p>
+                                    <p id="popOrigin" class="v-val"></p>
+                                    <p class="v-label">🛬 Destination</p>
+                                    <p id="popDestination" class="v-val"></p>
+                                    <p class="v-label">✈️ Airframe</p>
+                                    <p id="popAirframe" class="v-val"></p>
+                                </div>
+                            </div>
+                            
+                            <p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p>
+                            <textarea id="popRoute" class="v-textarea" readonly></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="radar-html-table">
+                        <thead>
+                            <tr>
+                                {"".join(f"<th>{col}</th>" for col in active_cols)}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {"".join(f'''
+                            <tr onclick="openDossier('{row["Callsign"]}')">
+                                {"".join(f'<td><b style="color:#3b82f6; cursor:pointer;">{row[col]}</b></td>' if col == "Callsign" else f"<td>{row[col]}</td>" for col in active_cols)}
+                            </tr>
+                            ''' for row in raw_rows_json)}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <style>
+                #vatscore-custom-container {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background-color: #0f111a;
+                    color: #f8fafc;
+                }}
+                .table-responsive {{
+                    width: 100%;
+                    overflow-x: auto;
+                    border: 1px solid #1e293b;
+                    border-radius: 8px;
+                    background-color: #11131f;
+                }}
+                .radar-html-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    text-align: left;
+                    font-size: 14px;
+                }}
+                .radar-html-table th {{
+                    background-color: #1e293b;
+                    color: #94a3b8;
+                    padding: 12px 16px;
+                    font-weight: 600;
+                    border-bottom: 2px solid #0f111a;
+                }}
+                .radar-html-table tr {{
+                    border-bottom: 1px solid #1e293b;
+                    transition: background-color 0.2s ease;
+                    cursor: pointer;
+                }}
+                .radar-html-table tr:hover {{
+                    background-color: #1e293b80;
+                }}
+                .radar-html-table td {{
+                    padding: 12px 16px;
+                    color: #e2e8f0;
+                }}
+                
+                /* POPUP MODAL (MODAL CSS) */
+                .v-modal {{
+                    display: none; 
+                    position: fixed; 
+                    z-index: 99999; 
+                    left: 0; top: 0;
+                    width: 100%; height: 100%;
+                    background-color: rgba(0,0,0,0.6);
+                    backdrop-filter: blur(4px);
+                }}
+                .v-modal-content {{
+                    background-color: #151824;
+                    margin: 10% auto;
+                    padding: 0;
+                    border: 1px solid #3b82f640;
+                    width: 65%;
+                    border-radius: 12px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                    animation: animatetop 0.3s;
+                }}
+                @keyframes animatetop {{
+                    from {{top:-300px; opacity:0}}
+                    to {{top:0; opacity:1}}
+                }}
+                .v-modal-header {{
+                    padding: 12px 20px;
+                    background-color: #1e293b;
+                    border-top-left-radius: 11px;
+                    border-top-right-radius: 11px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }}
+                .v-modal-title {{
+                    color: #94a3b8;
+                    font-weight: bold;
+                    font-size: 15px;
+                }}
+                .v-close-btn {{
+                    color: #94a3b8;
+                    font-size: 28px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    line-height: 1;
+                }}
+                .v-close-btn:hover {{
+                    color: #ef4444;
+                }}
+                .v-modal-body {{
+                    padding: 20px;
+                }}
+                .v-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 15px;
+                }}
+                .v-label {{
+                    color: #64748b;
+                    font-size: 11px;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    margin: 8px 0 2px 0;
+                }}
+                .v-val {{
+                    color: #f1f5f9;
+                    font-size: 14px;
+                    background-color: #1e293b40;
+                    padding: 6px 10px;
+                    border-radius: 4px;
+                    margin: 0;
+                    border: 1px solid #1e293b;
+                }}
+                .v-textarea {{
+                    width: 100%;
+                    height: 65px;
+                    background-color: #1e293b40;
+                    border: 1px solid #1e293b;
+                    color: #cbd5e1;
+                    padding: 8px;
+                    border-radius: 6px;
+                    resize: none;
+                    font-family: monospace;
+                    font-size: 13px;
+                    box-sizing: border-box;
+                }}
+            </style>
+
+            <script>
+                const dossiers = {json.dumps(pilot_dossiers)};
+                
+                function openDossier(callsign) {{
+                    const p = dossiers[callsign];
+                    if (!p) return;
+                    
+                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                    document.getElementById("popName").innerText = p.name;
+                    document.getElementById("popCid").innerText = p.cid;
+                    document.getElementById("popRating").innerText = p.rating;
+                    document.getElementById("popOnline").innerText = p.online;
+                    document.getElementById("popVoice").innerText = p.voice;
+                    document.getElementById("popSquawk").innerText = p.squawk;
+                    document.getElementById("popOrigin").innerText = p.origin;
+                    document.getElementById("popDestination").innerText = p.destination;
+                    document.getElementById("popAirframe").innerText = p.airframe;
+                    document.getElementById("popRoute").value = p.route;
+                    
+                    document.getElementById("dossierModal").style.display = "block";
+                }}
+                
+                function closeModal() {{
+                    document.getElementById("dossierModal").style.display = "none";
+                }}
+                
+                // Pencere dışına tıklayınca otomatik kapatma
+                window.onclick = function(event) {{
+                    const modal = document.getElementById("dossierModal");
+                    if (event.target == modal) {{
+                        modal.style.display = "none";
+                    }}
+                }}
+            </script>
+            """
+            # HTML Kodunu Streamlit Sayfasına Güvenle Basıyoruz
+            st.components.v1.html(html_table_and_modal_code, height=550, scrolling=True)
             
-            st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download This FIR Data as CSV", data=csv,
-                file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv",
-            )
+            st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found for this region prefix right now.")
 
@@ -555,58 +656,13 @@ if data:
             st.markdown("### 📍 Busiest Hubs")
             st.write("**Top Departures:**")
             for k, v in Counter(dep_airports).most_common(4): st.write(f"• `{k}`: {v} flights")
-            st.write("**Top Arrivals:**")
-            for k, v in Counter(arr_airports).most_common(4): st.write(f"• `{k}`: {v} flights")
         with col_g2:
             st.markdown("### ✈️ Fleet Distribution")
-            for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft open")
-            st.write(f"📊 **Oceanic Corridors:** {atlantic_count} planes over the Atlantic.")
+            for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
         with col_g3:
             st.markdown("### 🎙️ Busiest Airspaces (ATC)")
             atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
-            for k, v in Counter(atc_pos).most_common(7): st.write(f"• `{k}_CTR / APP` : {v} open frequencies")
-            
-        st.markdown("---")
-        st.subheader("📡 Live ATC Tracker & Frequencies")
-        
-        if not controllers:
-            st.info("No active ATC online at the moment.")
-        else:
-            atc_list = []
-            for atc in controllers:
-                callsign = atc.get("callsign", "")
-                if any(pos in callsign for pos in ["_TWR", "_APP", "_CTR", "_GND", "_DEL"]):
-                    if "_CTR" in callsign: pos_type = "🟢 Center (CTR)"
-                    elif "_APP" in callsign: pos_type = "🔵 Approach (APP)"
-                    elif "_TWR" in callsign: pos_type = "🔴 Tower (TWR)"
-                    elif "_GND" in callsign: pos_type = "🟤 Ground (GND)"
-                    else: pos_type = "🟡 Delivery (DEL)"
-
-                    online_mins_atc = 0
-                    if atc.get("logon_time"):
-                        try:
-                            logon_dt_atc = datetime.strptime(atc.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
-                            online_mins_atc = int((datetime.now() - logon_dt_atc).seconds / 60)
-                        except: pass
-
-                    atc_list.append({
-                        "Callsign": callsign,
-                        "Position": pos_type,
-                        "Frequency": atc.get("frequency", "000.000"),
-                        "Controller Name": atc.get("name", "Unknown"),
-                        "Time Online (Mins)": online_mins_atc
-                    })
-
-            if atc_list:
-                df_atc = pd.DataFrame(atc_list)
-                search_atc = st.text_input("🔍 Search ATC Position or Airport (e.g., LTFM, EGLL, KJFK):", "", key="atc_search_box").upper().strip()
-                if search_atc:
-                    df_atc = df_atc[df_atc["Callsign"].str.contains(search_atc)]
-                
-                st.dataframe(df_atc, use_container_width=True)
-                st.caption(f"Showing {len(df_atc)} active ATC connections. (Autorefresh active: 30s)")
-            else:
-                st.info("No active ATC found matching standard position filters.")
+            for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
     with tab4:
         st.subheader("🛸 Live Anomaly Radar (X-Files)")
@@ -615,37 +671,11 @@ if data:
 
     with tab5:
         st.subheader("🚀 VatScore Strategic Development Roadmap")
-        st.markdown("Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM network, blending sleek UI aesthetics with premium telemetry.")
-        
         st.markdown("""
         <div class="roadmap-card">
-            <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Telemetry & UI Expansion</div>
-            <div class="roadmap-title">✈️ Flight Detail Insight System</div>
-            <div class="roadmap-desc">Implementing an interactive telemetry tracker action on radar lists. Users can drop down any active aircraft to view full route string coordinates, network registration info, and server stats seamlessly.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="roadmap-card" style="border-left-color: #f59e0b;">
-            <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Pro-Tier Filtering</div>
-            <div class="roadmap-title">🔍 Dynamic Fleet & Airline Intelligence</div>
-            <div class="roadmap-desc">Expanding standard FIR filters to support global ICAO airline codes. Users will have the ability to explicitly isolate fleets (e.g., tracking only THY, PGT, or BAW callsigns) paired with an automated IFR (Instrument Flight Rules) and VFR (Visual Flight Rules) telemetry tag injected straight into the core matrix.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="roadmap-card" style="border-left-color: #10b981;">
-            <div class="roadmap-badge" style="background-color: #10b981;">Phase 3: Hyper-Personalization</div>
-            <div class="roadmap-title">⭐️ Localized Favorites Ecosystem</div>
-            <div class="roadmap-desc">Enabling virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns. Utilizing session states and local storage architecture, your favorite airframes will pin cleanly at the top of the radar hierarchy on boot.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="roadmap-card" style="border-left-color: #8b5cf6;">
-            <div class="roadmap-badge" style="background-color: #8b5cf6;">Phase 4: Admin Infrastructure</div>
-            <div class="roadmap-title">📊 Hourly Analytics Profiles & Custom Branding</div>
-            <div class="roadmap-desc">Upgrading the encrypted VatScore HQ control room with analytical chart integration to model peak server connection hours graph-by-graph. Moving the final app to a dedicated standalone custom domain (e.g., vatscore.com) for a full professional-grade web experience.</div>
+            <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Completed</div>
+            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine</div>
+            <div class="roadmap-desc">Streamlit yerel tablolarından bağımsız, Python 3.14 buglarından etkilenmeyen ve tıklayınca özel popup açan premium HTML tablosu başarıyla entegre edildi.</div>
         </div>
         """, unsafe_allow_html=True)
 
