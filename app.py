@@ -10,6 +10,7 @@ import json
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
+VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"  # CSV file for airports
 
 # Page Configuration
@@ -169,7 +170,6 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-# --- FIXED DECORATOR HACK FROM IMAGE_7C659D.PNG ---
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -309,7 +309,6 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
             fetch_vatsim_data.clear()
-            # NO RERUN/SHAKE SHIELD: We increment the signal stamp. The internal watcher catches it and updates silently!
             st.session_state.iframe_signal += 1
     
     with emoji_col:
@@ -450,7 +449,7 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE (SHAKE-FREE & MODAL LOCK ACTIVATED) ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE WITH ITALIC CALLSIGN & AIRLINES API ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -463,7 +462,7 @@ if data:
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px;"></h4>
+                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
                             <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
@@ -497,6 +496,10 @@ if data:
                                     <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
+                            
+                            <p class="v-label" style="margin-top:14px;">✈️ Airline Company</p>
+                            <p id="popAirline" class="v-val" style="color:#3b82f6; font-weight:bold;">Fetching...</p>
+
                             <p class="v-label" style="margin-top:14px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
@@ -555,7 +558,7 @@ if data:
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
-                .v-modal-body { padding: 22px; }
+                .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
                 .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 6px 0 4px 0; }
                 .v-val { color: #f1f5f9; font-size: 14px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
@@ -564,11 +567,12 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentlyOpenCallsign = null; // Track modal status safely across network sync operations
+                let currentlyOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
+                const vatsimAirlinesUrl = "VATSIM_AIRLINES_URL_PLACEHOLDER";
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -626,6 +630,36 @@ if data:
                     const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
                     if (gaTypes.includes(acType)) return "🛩️ General Aviation";
                     return "✈️ Commercial";
+                }
+
+                async function fetchAirlineCompany(callsign) {
+                    const airlineField = document.getElementById("popAirline");
+                    airlineField.innerText = "Fetching Airline Data...";
+                    
+                    if (!callsign || callsign.length < 3) {
+                        airlineField.innerText = "Unknown / General Aviation";
+                        return;
+                    }
+                    
+                    // Extract ICAO airline code (First 3 alphabetical chars)
+                    const matches = callsign.match(/^[A-Z]{3}/i);
+                    if (!matches) {
+                        airlineField.innerText = "Private Flight / GA";
+                        return;
+                    }
+                    const icaoAirline = matches[0].toUpperCase();
+                    
+                    try {
+                        const response = await fetch(`${vatsimAirlinesUrl}/${icaoAirline}`);
+                        if (response.ok) {
+                            const airlineData = await response.json();
+                            airlineField.innerText = airlineData.name || airlineData.airline || `${icaoAirline} Airline`;
+                        } else {
+                            airlineField.innerText = `${icaoAirline} Flight Fleet`;
+                        }
+                    } catch(e) {
+                        airlineField.innerText = `${icaoAirline} Fleet`;
+                    }
                 }
 
                 function buildTable(pilotsList) {
@@ -714,6 +748,7 @@ if data:
                     document.getElementById("progressArrival").innerText = p.destination;
 
                     updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
+                    fetchAirlineCompany(callsign);
 
                     document.getElementById("dossierModal").style.display = "block";
                 }
@@ -735,7 +770,6 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            // MODAL STATE PERSISTENCE: If modal was open, refresh layout values smoothly inside without closing!
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
@@ -752,17 +786,15 @@ if data:
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
 
-                // BRIDGE ANTI-DESTRUCTION GATEWAY: Watch the hidden DOM signal attribute for any manual refreshes
                 setInterval(() => {
                     const el = document.getElementById("signal-receiver");
                     const currentSig = el.getAttribute("data-sig");
                     if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData(); // Sinyal değiştiyse iframe içinden sessizce fetch at, asla destroy etme!
+                        updateData();
                     }
                     window.lastKnownSig = currentSig;
                 }, 500);
 
-                // Seamless Background Auto Sync Timer (Every 30 Seconds)
                 setInterval(updateData, 30000);
             </script>
             """
@@ -775,7 +807,8 @@ if data:
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
-                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))
+                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
+                .replace("VATSIM_AIRLINES_URL_PLACEHOLDER", VATSIM_RADAR_AIRLINES_URL)
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
@@ -811,7 +844,7 @@ with tab3:
         st.markdown("### ✈️ Fleet Distribution")
         for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
     with col_g3:
-        st.markdown("### 🎙️ Busiest Airspaces (ATC)")
+        st.markdown("### 👑 Busiest Airspaces (ATC)")
         atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
         for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
