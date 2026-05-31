@@ -63,19 +63,6 @@ st.markdown("""
         background: none !important; border: none !important; font-size: 24px !important;
         padding: 0px !important; cursor: pointer; line-height: 1;
     }
-    
-    /* Canlı Senkronizasyon Işığı */
-    #sync-notification-iframe-status {
-        background-color: #1e293b; color: #22c55e; padding: 4px 10px; border-radius: 20px; 
-        border: 1px solid #22c55e40; font-size: 11px; font-weight: bold; font-family: monospace;
-        display: none; animation: pulse-green 1.5s infinite ease-in-out;
-        margin-bottom: 10px; float: right;
-    }
-    @keyframes pulse-green {
-        0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
-        70% { opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
-        100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -181,7 +168,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
@@ -238,11 +225,20 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    # Üst Kontrol Paneli Yerleşimi
-    title_col, settings_col = st.columns([0.94, 0.06])
+    title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
     
-    with settings_col:
+    with refresh_col:
+        st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
+        st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
+        refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
+        st.markdown('</div>', unsafe_allow_html=True)
+        if refresh_clicked:
+            fetch_vatsim_data.clear()
+            load_global_fir_dictionary.clear()
+            st.rerun()
+    
+    with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
         st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
         settings_clicked = st.button("⚙️", help="Click to toggle Column visibility and Fleet filters")
@@ -279,10 +275,7 @@ if data:
 
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     
-    # --- 🗺️ PERSISTENT FIR SELECTION MANTIĞI ---
-    if "saved_fir" in st.query_params:
-        st.session_state.current_fir_prefix = st.query_params["saved_fir"]
-    
+    # --- 🗺️ TEMİZ VE KARARLI SEÇİM MANTIĞI ---
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
 
@@ -294,20 +287,15 @@ if data:
     with tab2:
         st.subheader("✈️ Regional Airspace Monitor")
         
-        def on_fir_change():
-            new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
-            st.session_state.current_fir_prefix = new_prefix
-            st.query_params["saved_fir"] = new_prefix
-
         selected_option = st.selectbox(
             "Choose Region/FIR Focus:", 
             options=fir_options, 
             index=calculated_index, 
-            key="main_fir_selectbox",
-            on_change=on_fir_change
+            key="main_fir_selectbox"
         )
         
-        selected_fir_prefix = st.session_state.current_fir_prefix
+        selected_fir_prefix = selected_option.split(" - ")[0]
+        st.session_state.current_fir_prefix = selected_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
 
         for p in pilots:
@@ -375,10 +363,10 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- ASENKRON MİMARİ HTML & JAVASCRIPT MOTORU (STRATEJİ B) ---
+            # --- MODAL DÜZENİ: PROGRESS BAR VE GÖRSEL AYARLAR EKLEMDİ ---
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <span id="sync-notification-iframe-status">🛰️ AUTO-SYNC ACTIVE</span>
+                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
 
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
@@ -406,7 +394,18 @@ if data:
                                     <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
-                            <p class="v-label" style="margin-top:18px;">🗺️ Filed Route String</p>
+
+                            <div class="progress-section" style="margin-top: 22px; margin-bottom: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                    <span class="v-label" style="margin: 0;">✈️ Flight Progress Profile</span>
+                                    <span id="popProgressPercent" style="color: #3b82f6; font-size: 12px; font-weight: bold; font-family: monospace;">0%</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div id="popProgressBar" class="progress-bar-fill"></div>
+                                </div>
+                            </div>
+
+                            <p class="v-label" style="margin-top:10px;">🗺️ Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -426,23 +425,24 @@ if data:
 
             <style>
                 #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; clear: both; }
+                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
                 .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
-
-                #sync-notification-iframe-status {
-                    background-color: #1e293b; color: #22c55e; padding: 4px 10px; border-radius: 20px; 
-                    border: 1px solid #22c55e40; font-size: 11px; font-weight: bold; font-family: monospace;
-                    display: none; animation: pulse-green 1.5s infinite ease-in-out;
-                    margin-bottom: 10px; float: right;
+                
+                #sync-notification {
+                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
+                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
+                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
+                    animation: pulse-blue 1.5s infinite ease-in-out;
                 }
-                @keyframes pulse-green {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
-                    70% { opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+                @keyframes pulse-blue {
+                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
                 }
 
                 .v-modal { 
@@ -479,11 +479,26 @@ if data:
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 4px 0; }
                 .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
+                
+                /* 🏁 PROGRESS BAR PREMIUM CSS STYLES */
+                .progress-bar-bg {
+                    width: 100%;
+                    height: 6px;
+                    background-color: #1e293b;
+                    border-radius: 10px;
+                    overflow: hidden;
+                }
+                .progress-bar-fill {
+                    height: 100%;
+                    width: 0%;
+                    background: linear-gradient(90deg, #3b82f6, #22c55e);
+                    border-radius: 10px;
+                    transition: width 0.5s ease-out;
+                }
             </style>
 
             <script>
                 let globalDossiers = {};
-                let currentOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
 
@@ -524,11 +539,22 @@ if data:
                                 "Speed (KT)": p.groundspeed, "Squawk": p.transponder || "0000"
                             };
 
-                            let onlineMins = "Unknown";
+                            let onlineMins = 0;
+                            let onlineText = "Unknown";
                             if (p.logon_time) {
                                 const logDt = new Date(p.logon_time);
-                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
+                                onlineMins = Math.floor((new Date() - logDt) / 60000);
+                                onlineText = onlineMins + " Mins";
                             }
+
+                            // Dinamik Havada Kalış Oranı Hesaplama Dengesi (Mesafe simülasyonu)
+                            let progressPercent = 0;
+                            if (onlineMins > 0) {
+                                if (onlineMins < 45) progressPercent = Math.min(Math.floor(onlineMins * 1.3), 48);
+                                else if (onlineMins < 120) progressPercent = Math.min(48 + Math.floor((onlineMins - 45) * 0.4), 78);
+                                else progressPercent = Math.min(78 + Math.floor((onlineMins - 120) * 0.1), 96);
+                            }
+                            if (!dep || !arr) progressPercent = 0; // Plan yoksa sıfırda kalsın
 
                             const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
                             const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
@@ -538,10 +564,11 @@ if data:
 
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
+                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineText,
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
-                                destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed."
+                                destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
+                                progress: progressPercent
                             };
 
                             const tr = document.createElement("tr");
@@ -559,21 +586,12 @@ if data:
                             tbody.appendChild(tr);
                         }
                     });
-
-                    if (currentOpenCallsign && globalDossiers[currentOpenCallsign]) {
-                        refreshPopupData(currentOpenCallsign);
-                    }
                 }
 
                 function openDossier(callsign) {
-                    currentOpenCallsign = callsign;
-                    refreshPopupData(callsign);
-                    document.getElementById("dossierModal").style.display = "block";
-                }
-
-                function refreshPopupData(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
+
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -585,44 +603,39 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
+                    
+                    // Bar Tetikleme ve Güncelleme İşlemi
+                    document.getElementById("popProgressPercent").innerText = p.progress + "%";
+                    document.getElementById("popProgressBar").style.width = p.progress + "%";
+
+                    document.getElementById("dossierModal").style.display = "block";
                 }
 
                 function closeModal() { 
                     document.getElementById("dossierModal").style.display = "none"; 
-                    currentOpenCallsign = null;
                 }
                 
                 window.onclick = function(e) { 
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
                 }
 
-                // --- STRATEJİ B: BAĞIMSIZ ARKA PLAN AUTOMATIC REFRESH MANTIĞI ---
-                async function autoRefreshTableOnly() {
-                    const statusBadge = document.getElementById("sync-notification-iframe-status");
-                    if (statusBadge) statusBadge.style.display = "inline-block";
-                    
+                async function updateData() {
+                    const notifier = document.getElementById("sync-notification");
+                    notifier.style.display = "block";
                     try {
                         const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
-                        const freshData = await res.json();
-                        if (freshData && freshData.pilots) {
-                            buildTable(freshData.pilots);
-                            console.log("VatScore Telemetry Auto-Synced Successfully.");
+                        const data = await res.json();
+                        if (data && data.pilots) {
+                            buildTable(data.pilots);
                         }
-                    } catch(e) { 
-                        console.log("Auto-Sync Network Interrupted:", e); 
-                    }
-                    
-                    setTimeout(() => { 
-                        if (statusBadge) statusBadge.style.display = "none"; 
-                    }, 2000);
+                    } catch(e) { console.log(e); }
+                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
                 }
 
-                // İlk veri kurulumu
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
-                // CROSS-ORIGIN HATASINA DÜŞMEDEN 30 SANİYEDE BİR KENDİ İÇİNDE PÜRÜZSÜZ GÜNCELLEME
-                setInterval(autoRefreshTableOnly, 30000);
+                setInterval(updateData, 30000);
             </script>
             """
             
@@ -633,7 +646,7 @@ if data:
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
-            st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
