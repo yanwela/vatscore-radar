@@ -361,7 +361,6 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- MODAL DÜZENİ: TEK RATING BOX + SQUAWK BOX AYRIMI + BÜYÜTÜLMÜŞ BOYUTLAR ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -465,7 +464,6 @@ if data:
                 .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 4px 0; }
                 
-                /* DEĞİŞİKLİK: Kutular biraz daha büyütüldü (Padding 8px 12px, font-size 15px yapıldı) */
                 .v-val { color: #f1f5f9; font-size: 15px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 90px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box; line-height: 1.4; }
             </style>
@@ -611,8 +609,26 @@ if data:
         col_g1, col_g2, col_g3 = st.columns(3)
         with col_g1:
             st.markdown("### 📍 Busiest Hubs")
-            st.write("**Top Departures:**")
-            for k, v in Counter(dep_airports).most_common(4): st.write(f"• `{k}`: {v} flights")
+            
+            # --- YATAY SLIDEBAR / SWITCH MANTIĞI ---
+            hub_view = st.radio(
+                "Select Focus:",
+                ["🛫 Top Departures", "🛬 Top Arrivals"],
+                horizontal=True,
+                label_visibility="collapsed"
+            )
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if "Departures" in hub_view:
+                st.write("**Top Flight Departures Currently:**")
+                for k, v in Counter(dep_airports).most_common(5): 
+                    st.write(f"• `{k}`: {v} flights")
+            else:
+                st.write("**Top Flight Arrivals Currently:**")
+                for k, v in Counter(arr_airports).most_common(5): 
+                    st.write(f"• `{k}`: {v} flights")
+                    
         with col_g2:
             st.markdown("### ✈️ Fleet Distribution")
             for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
