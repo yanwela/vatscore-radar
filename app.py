@@ -86,7 +86,7 @@ def log_activity(action):
         browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
         
         if user_agent.is_mobile: device_type = "📱 Mobile"
-        elif user_agent.is_tablet: device_type = "Tablet"
+        elif user_agent.is_tablet: device_type = "平板 Tablet"
         elif user_agent.is_pc: device_type = "💻 PC / Laptop"
         else: device_type = "🤖 Bot/Unknown"
         
@@ -177,7 +177,7 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-@st.cache_data(ttl=86400) 
+@st.cache_data(ttl=86400) # Günde 1 kere çekilmesi yeterli, statik veri
 def load_vatsim_radar_airlines():
     try:
         r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
@@ -301,7 +301,6 @@ if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
 if data:
-    print("[VatScore] Data synchronized successfully.")
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
@@ -505,8 +504,8 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- COMPLETELY ENGLISHD TELEPHONY TITLE -->
-                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony / Callsign</p>
+                            <!-- SADECE TELEPHONY YAZAN MINIMAL ALAN -->
+                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony (Telsiz Çağrı Adı)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
@@ -544,6 +543,7 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
+                /* Yenilenmiş Minimal Telephony Kutusu */
                 .telephony-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -593,22 +593,6 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
-
-                // Built-in dictionary fallback mechanism to translate raw code prefixes into their absolute telephony words.
-                const fallbackAirlinesMap = {
-                    "THY": "TURKISH",
-                    "PGT": "SUNTURK",
-                    "SXS": "SUNEXPRESS",
-                    "BAW": "SPEEDBIRD",
-                    "EZY": "EASY",
-                    "DLH": "LUFTHANSA",
-                    "AFR": "AIRFRANS",
-                    "AAL": "AMERICAN",
-                    "UAL": "UNITED",
-                    "UAE": "EMIRATES",
-                    "QTR": "QATARI",
-                    "RYR": "RYANAIR"
-                };
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -668,8 +652,11 @@ if data:
                     return "✈️ Commercial";
                 }
 
+                // Sadece Telephony Ayıklayan Fonksiyon
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
+                    
+                    // Varsayılan değer
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
@@ -679,16 +666,11 @@ if data:
                     
                     if (cleanPrefix.length < 2) return;
 
-                    // 1. Check local custom fallback system to solve empty fields instantly
-                    if (fallbackAirlinesMap[cleanPrefix]) {
-                        callsignField.innerText = fallbackAirlinesMap[cleanPrefix];
-                        return;
-                    }
-
-                    // 2. Query against external dataset
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
+                    
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
+                        // Eğer api'de 'callsign' (telsiz okunuşu) varsa onu yaz, yoksa temiz prefix'i bırak
                         callsignField.innerText = airlineData.callsign || cleanPrefix;
                     } else {
                         callsignField.innerText = cleanPrefix;
@@ -831,6 +813,7 @@ if data:
             </script>
             """
             
+            # Havayolu verisini Python ile çekip JSON'a döküyoruz
             airlines_db = load_vatsim_radar_airlines()
             
             html_table_and_modal_code = raw_html_template\
@@ -885,22 +868,26 @@ with tab4:
     st.subheader("🛸 Live Anomaly Radar (X-Files)")
     if anomalies: st.dataframe(anomalies, use_container_width=True)
     else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
-
 with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">Interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Completed — May 31, 2026<br>
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+        </div>
     </div>
     <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📢 Official Telephony Matcher Engine</div>
-        <div class="roadmap-desc">The user's callsign prefix structure is extracted, filtered through an enhanced regular expression architecture, and automatically linked to verified Telephony callsigns via both local fallback dictionary matrices and external real-time data syncs. Completely tailored to match international standard English formats.</div>
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+        <div class="roadmap-title">📢 Automated Live API Telephony Matcher Engine</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Development Started — May 31, 2026<br>
+            Transitioning from static dictionary datasets to a fully dynamic, asynchronous API-driven architecture. The engine is currently being engineered to fetch global airline telemetry directly from the production network, ensuring real-time mapping of ICAO prefixes to standardized telephony callsigns.
+        </div>
     </div>
     """, unsafe_allow_html=True)
-
 if data:
     st.markdown("""
     <div class="signature-container">
