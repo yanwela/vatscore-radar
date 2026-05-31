@@ -12,7 +12,7 @@ VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-dat
 
 # Sayfa Yapılandırması (Sol menü kapalı, geniş ekran düzeni)
 st.set_page_config(
-    page_title="VatScore — Premium ScoreRadar", 
+    page_title="VatScore Web — Premium ScoreRadar", 
     page_icon="⚡", 
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -69,6 +69,37 @@ st.markdown("""
     }
     .signature-link:hover {
         text-decoration: underline;
+    }
+    
+    /* Roadmap Şık UI Kart Tasarımları */
+    .roadmap-card {
+        background-color: #1e293b;
+        border-left: 5px solid #3b82f6;
+        padding: 15px 20px;
+        border-radius: 6px;
+        margin-bottom: 15px;
+    }
+    .roadmap-title {
+        color: #f8fafc;
+        font-weight: bold;
+        font-size: 16px;
+        margin-bottom: 5px;
+    }
+    .roadmap-desc {
+        color: #94a3b8;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+    .roadmap-badge {
+        background-color: #3b82f6;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+        text-transform: uppercase;
+        display: inline-block;
+        margin-bottom: 8px;
     }
     
     /* Tablo Başlıklarındaki Menü İkonlarını Kaldır */
@@ -260,7 +291,7 @@ if data:
     # Başlık Alanı, Refresh ve Ayarlar Butonlarının Düzeni
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
     with title_col:
-        st.title("⚡ VATSCORE // Premium Stats Radar")
+        st.title("⚡ VATSCORE // Premium Global Radar")
     
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -268,7 +299,6 @@ if data:
         refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
-            # Önbellekteki fonksiyon verilerini sıfırla ve yeniden yükle
             fetch_vatsim_data.clear()
             load_global_fir_dictionary.clear()
             st.rerun()
@@ -319,9 +349,8 @@ if data:
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
 
-    # --- TABS ---
-    tab1, tab2, tab3, tab4 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar"])
-
+    # 1️⃣ ÖNCE SEÇİLEN FIR BİLGİSİNİ ALALIM (Döngüde filtreleme yapabilmek için)
+    fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
     atlantic_count = 0
@@ -329,29 +358,15 @@ if data:
     max_alt, max_gs, min_gs = -1, -1, 9999
     min_logon = "9999-12-31"
 
-    # --- TAB 2: SELECTED FIR FOCUS ---
-    with tab2:
-        st.subheader("✈️ Regional Airspace Monitor")
-        
-        fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
-        selected_option = st.selectbox(
-            "Choose Region/FIR Focus:",
-            options=fir_options,
-            index=[i for i, s in enumerate(fir_options) if s.startswith("LT")][0] if any(s.startswith("LT") for s in fir_options) else 0,
-            key="main_fir_selectbox"
-        )
-        selected_fir_prefix = selected_option.split(" - ")[0]
-        
-        log_activity(f"Selected FIR: {selected_fir_prefix}")
-        
-        search_query = st.text_input("🔍 Quick Search by Callsign (e.g., THY123, PGT56G):", "").upper().strip()
-        if search_query:
-            log_activity(f"Searched: {search_query}")
-            
-        chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
+    fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
+    default_index = [i for i, s in enumerate(fir_options) if s.startswith("LT")][0] if any(s.startswith("LT") for s in fir_options) else 0
+    
+    if "main_fir_selectbox" not in st.session_state:
+        selected_fir_prefix = "LT"
+    else:
+        selected_fir_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
 
-    # --- DATA PROCESSING DÖNGÜSÜ ---
-    fir_pilots = []
+    # 2️⃣ ŞİMDİ DATA PROCESSING DÖNGÜSÜNÜ ÇALIŞTIRALIM
     current_fleet_filter = st.session_state.fleet_filter_selection
     
     for p in pilots:
@@ -413,7 +428,9 @@ if data:
         if (15000 < alt < 45000) and (45.0 < lat < 62.0) and (-40.0 < lon < -15.0):
             atlantic_count += 1
 
-    # --- TAB IÇERIKLERI ---
+    # 3️⃣ EN SON SEKMELERİ ÇİZİYORUZ (Hatasız ve Pürüzsüz)
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
+
     with tab1:
         st.subheader("Current Flight Records")
         leader_data = []
@@ -424,12 +441,29 @@ if data:
         st.table(leader_data)
 
     with tab2:
+        st.subheader("✈️ Regional Airspace Monitor")
+        
+        selected_option = st.selectbox(
+            "Choose Region/FIR Focus:",
+            options=fir_options,
+            index=default_index,
+            key="main_fir_selectbox"
+        )
+        
+        log_activity(f"Selected FIR: {selected_fir_prefix}")
+        
+        search_query = st.text_input("🔍 Quick Search by Callsign (e.g., THY123, PGT56G):", "").upper().strip()
+        if search_query:
+            log_activity(f"Searched: {search_query}")
+            
+        chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
+
         if fir_pilots:
             df_fir = pd.DataFrame(fir_pilots)
             if search_query:
                 df_fir = df_fir[df_fir['Callsign'].str.contains(search_query)]
                 
-            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}.")
+            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
             with chart_expander:
                 c_col1, c_col2 = st.columns(2)
@@ -443,7 +477,63 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
-            st.dataframe(df_fir[final_columns], use_container_width=True)
+            
+            # 🎯 Satır seçimini dinleyen interaktif tablo
+            event = st.dataframe(
+                df_fir[final_columns], 
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="single_row",
+                key="fir_table_selection"
+            )
+            
+            # 🕵️‍♂️ Satır tıklanma kontrolü ve Detay Paneli (Dossier)
+            selected_rows = event.get("selection", {}).get("rows", [])
+            if selected_rows:
+                selected_index = selected_rows[0]
+                clicked_callsign = df_fir.iloc[selected_index]["Callsign"]
+                
+                raw_pilot = next((p for p in pilots if p.get("callsign") == clicked_callsign), None)
+                
+                if raw_pilot:
+                    fplan_raw = raw_pilot.get("flight_plan") or {}
+                    
+                    online_mins = "Unknown"
+                    if raw_pilot.get("logon_time"):
+                        try:
+                            logon_dt = datetime.strptime(raw_pilot.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
+                            online_mins = f"{int((datetime.now() - logon_dt).seconds / 60)} Mins"
+                        except: pass
+                    
+                    rating_map = {
+                        0: "OBS (Observer)", 1: "P1 (Private Pilot License)", 
+                        2: "P2 (Flight Instructor / Advanced)", 3: "P3 (Airline Transport Pilot)",
+                        4: "P4 (Senior Flight Instructor)", 5: "P5 (Check Airman / Examiner)"
+                    }
+                    raw_rating = raw_pilot.get("pilot_rating", 0)
+                    rating_text = rating_map.get(raw_rating, f"P{raw_rating} (Licensed)")
+                    
+                    v5_voice = "🎙️ Voice (VHF Active)" if raw_pilot.get("has_voice", True) else "⌨️ Text Only"
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(f"### 🛰️ Telemetry Dossier: `{clicked_callsign}`")
+                    
+                    det_c1, det_c2, det_c3 = st.columns(3)
+                    with det_c1:
+                        st.markdown(f"**👤 Pilot Name:** `{raw_pilot.get('name', 'Anonymous')}`")
+                        st.markdown(f"**🆔 VATSIM CID:** `{raw_pilot.get('cid', 'N/A')}`")
+                        st.markdown(f"**🎖️ Pilot Rating:** `{rating_text}`")
+                    with det_c2:
+                        st.markdown(f"**⏳ Session Duration:** `{online_mins}`")
+                        st.markdown(f"**📻 VHF Comms:** `{v5_voice}`")
+                        st.markdown(f"**📡 Transponder:** `{raw_pilot.get('transponder', '0000')}`")
+                    with det_c3:
+                        st.markdown(f"**🛫 Assigned Dep:** `{fplan_raw.get('departure', 'N/A')}`")
+                        st.markdown(f"**🛬 Assigned Arr:** `{fplan_raw.get('arrival', 'N/A')}`")
+                        st.markdown(f"**✈️ Airframe Type:** `{fplan_raw.get('aircraft', 'N/A')}`")
+                        
+                    st.text_area("🗺️ Filed Route String:", value=fplan_raw.get("route", "No Flight Plan Filed."), height=70, disabled=True)
+                    st.markdown("---")
             
             csv = df_fir.to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -471,7 +561,6 @@ if data:
             atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
             for k, v in Counter(atc_pos).most_common(7): st.write(f"• `{k}_CTR / APP` : {v} open frequencies")
             
-        # 📡 DİNAMİK LIVE ATC TRACKER PANELDEN EKLEME ALANI
         st.markdown("---")
         st.subheader("📡 Live ATC Tracker & Frequencies")
         
@@ -488,11 +577,11 @@ if data:
                     elif "_GND" in callsign: pos_type = "🟤 Ground (GND)"
                     else: pos_type = "🟡 Delivery (DEL)"
 
-                    online_mins = 0
+                    online_mins_atc = 0
                     if atc.get("logon_time"):
                         try:
-                            logon_dt = datetime.strptime(atc.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
-                            online_mins = int((datetime.now() - logon_dt).seconds / 60)
+                            logon_dt_atc = datetime.strptime(atc.get("logon_time")[:19], "%Y-%m-%dT%H:%M:%S")
+                            online_mins_atc = int((datetime.now() - logon_dt_atc).seconds / 60)
                         except: pass
 
                     atc_list.append({
@@ -500,7 +589,7 @@ if data:
                         "Position": pos_type,
                         "Frequency": atc.get("frequency", "000.000"),
                         "Controller Name": atc.get("name", "Unknown"),
-                        "Time Online (Mins)": online_mins
+                        "Time Online (Mins)": online_mins_atc
                     })
 
             if atc_list:
@@ -525,6 +614,42 @@ if data:
         st.subheader("🛸 Live Anomaly Radar (X-Files)")
         if anomalies: st.dataframe(anomalies, use_container_width=True)
         else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+
+    with tab5:
+        st.subheader("🚀 VatScore Strategic Development Roadmap")
+        st.markdown("Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM network, blending sleek UI aesthetics with premium telemetry.")
+        
+        st.markdown("""
+        <div class="roadmap-card">
+            <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Telemetry & UI Expansion</div>
+            <div class="roadmap-title">✈️ Flight Detail Insight System</div>
+            <div class="roadmap-desc">Implementing an interactive row-click action on dataframe tables. Users will be able to expand any active flight track to view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the page.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="roadmap-card" style="border-left-color: #f59e0b;">
+            <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Pro-Tier Filtering</div>
+            <div class="roadmap-title">🔍 Dynamic Fleet & Airline Intelligence</div>
+            <div class="roadmap-desc">Expanding standard FIR filters to support global ICAO airline codes. Users will have the ability to explicitly isolate fleets (e.g., tracking only THY, PGT, or BAW callsigns) paired with an automated IFR (Instrument Flight Rules) and VFR (Visual Flight Rules) telemetry tag injected straight into the core matrix.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="roadmap-card" style="border-left-color: #10b981;">
+            <div class="roadmap-badge" style="background-color: #10b981;">Phase 3: Hyper-Personalization</div>
+            <div class="roadmap-title">⭐️ Localized Favorites Ecosystem</div>
+            <div class="roadmap-desc">Enabling virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns. Utilizing session states and local storage architecture, your favorite airframes will pin cleanly at the top of the radar hierarchy on boot.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="roadmap-card" style="border-left-color: #8b5cf6;">
+            <div class="roadmap-badge" style="background-color: #8b5cf6;">Phase 4: Admin Infrastructure</div>
+            <div class="roadmap-title">📊 Hourly Analytics Profiles & Custom Branding</div>
+            <div class="roadmap-desc">Upgrading the encrypted VatScore HQ control room with analytical chart integration to model peak server connection hours graph-by-graph. Moving the final app to a dedicated standalone custom domain (e.g., vatscore.com) for a full professional-grade web experience.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # --- BRANDING SIGNATURE ---
     st.markdown("""
