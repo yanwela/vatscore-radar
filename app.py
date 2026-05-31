@@ -373,300 +373,201 @@ if data:
                 c_col1, c_col2 = st.columns(2)
                 with c_col1:
                     st.markdown("##### 📈 FIR Altitude Profiles (FT)")
-                    df_alt_chart = df_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
-                    st.bar_chart(df_alt_chart, y='Altitude (FT)', color='#3b82f6')
+                    df_alt_chart = df_fir[["Callsign", "Altitude (FT)"]].copy().set_index("Callsign")
+                    st.bar_chart(df_alt_chart, y="Altitude (FT)", color="#3b82f6")
                 with c_col2:
                     st.markdown("##### ⚡ FIR Groundspeed Profiles (KT)")
-                    df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
-                    st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
+                    df_spd_chart = df_fir[["Callsign", "Speed (KT)"]].copy().set_index("Callsign")
+                    st.bar_chart(df_spd_chart, y="Speed (KT)", color="#22c55e")
 
-            # Tablo Sütun Filtrelemesi
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            
-            # Üst taraftaki dinamik bilgilendirme barı
             st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
-            
-            # --- ZERO FLICKER HTML ENGINE v2 — Auto-Refresh Fixed ---
-            th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
-            
-            raw_html_template = """
-            <div id="vatscore-custom-container">
-                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
 
-                <div id="dossierModal" class="v-modal">
-                    <div class="v-modal-content">
-                        <div class="v-modal-header">
-                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
-                            <span class="v-close-btn" onclick="closeModal()">&times;</span>
-                        </div>
-                        <div class="v-modal-body">
-                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:20px; font-family:sans-serif;"></h4>
-                            <hr style="border-color:#1e293b; margin-bottom:15px;">
-                            <div class="v-grid">
-                                <div>
-                                    <p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>
-                                    <p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>
-                                    <p class="v-label">🎖️ Rating</p><p id="popRating" class="v-val"></p>
-                                </div>
-                                <div>
-                                    <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
-                                    <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
-                                    <p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p>
-                                </div>
-                                <div>
-                                    <p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>
-                                    <p class="v-label">🛬 Destination</p><p id="popDestination" class="v-val"></p>
-                                    <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
-                                </div>
-                            </div>
-                            <p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p>
-                            <textarea id="popRoute" class="v-textarea" readonly></textarea>
-                        </div>
-                    </div>
-                </div>
+            # ================================================================
+            # @st.fragment — HTML engine Streamlit rerun'dan TAMAMEN izole
+            # Kullanıcı selectbox/button/tab değiştirince bu blok yeniden
+            # render EDİLMEZ → iframe yaşar → setInterval ölmez → auto-refresh
+            # ================================================================
+            @st.fragment
+            def render_live_engine(_active_cols, _selected_fir_prefix, _pilots):
+                _th = "".join([f"<th>{col}</th>" for col in _active_cols])
+                _html = (
+                    """<div id="vatscore-custom-container">"""
+                    """<div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>"""
+                    """<div id="dossierModal" class="v-modal">"""
+                    """<div class="v-modal-content">"""
+                    """<div class="v-modal-header">"""
+                    """<span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>"""
+                    """<span class="v-close-btn" onclick="closeModal()">&times;</span>"""
+                    """</div><div class="v-modal-body">"""
+                    """<h4 id="popCallsign" style="color:#3b82f6;margin-top:0;font-size:20px;font-family:sans-serif;"></h4>"""
+                    """<hr style="border-color:#1e293b;margin-bottom:15px;">"""
+                    """<div class="v-grid">"""
+                    """<div>"""
+                    """<p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>"""
+                    """<p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>"""
+                    """<p class="v-label">🎖️ Rating</p><p id="popRating" class="v-val"></p>"""
+                    """</div><div>"""
+                    """<p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e;font-weight:bold;"></p>"""
+                    """<p class="v-label">📻 VHF Comms</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>"""
+                    """<p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p>"""
+                    """</div><div>"""
+                    """<p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>"""
+                    """<p class="v-label">🛬 Destination</p><p id="popDestination" class="v-val"></p>"""
+                    """<p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>"""
+                    """</div></div>"""
+                    """<p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p>"""
+                    """<textarea id="popRoute" class="v-textarea" readonly></textarea>"""
+                    """</div></div></div>"""
+                    """<div class="table-responsive">"""
+                    """<table class="radar-html-table">"""
+                    """<thead><tr id="table-headers">HEADERS_PH</tr></thead>"""
+                    """<tbody id="table-body"></tbody>"""
+                    """</table></div></div>"""
+                    """<style>"""
+                    """#vatscore-custom-container{font-family:'Segoe UI',sans-serif;background-color:#0f111a;color:#f8fafc;}"""
+                    """.table-responsive{width:100%;overflow-x:auto;border:1px solid #1e293b;border-radius:8px;background-color:#11131f;}"""
+                    """.radar-html-table{width:100%;border-collapse:collapse;text-align:left;font-size:14px;}"""
+                    """.radar-html-table th{background-color:#1e293b;color:#94a3b8;padding:12px 16px;font-weight:600;}"""
+                    """.radar-html-table tr{border-bottom:1px solid #1e293b;transition:background-color 0.2s ease;cursor:pointer;}"""
+                    """.radar-html-table tr:hover{background-color:#1e293b80;}"""
+                    """.radar-html-table td{padding:12px 16px;color:#e2e8f0;}"""
+                    """#sync-notification{position:fixed;bottom:20px;left:20px;background-color:#1e293b;color:#3b82f6;"""
+                    """padding:10px 16px;border-radius:30px;border:1px solid #3b82f650;font-size:12px;font-weight:bold;"""
+                    """font-family:monospace;z-index:999999;box-shadow:0 4px 15px rgba(0,0,0,0.5);display:none;"""
+                    """animation:pulse-blue 1.5s infinite ease-in-out;}"""
+                    """@keyframes pulse-blue{0%{opacity:0.6;box-shadow:0 0 0 0 rgba(59,130,246,0.4);}"""
+                    """70%{opacity:1;box-shadow:0 0 0 10px rgba(59,130,246,0);}"""
+                    """100%{opacity:0.6;box-shadow:0 0 0 0 rgba(59,130,246,0);}}"""
+                    """.v-modal{display:none;position:fixed;z-index:9999999;left:0;top:0;width:100vw;height:100vh;"""
+                    """background-color:rgba(0,0,0,0.7);backdrop-filter:blur(5px);}"""
+                    """.v-modal-content{background-color:#151824;position:absolute;top:50%;left:50%;"""
+                    """transform:translate(-50%,-50%);width:65%;border:1px solid #3b82f640;border-radius:12px;"""
+                    """box-shadow:0 20px 50px rgba(0,0,0,0.6);box-sizing:border-box;}"""
+                    """.v-modal-header{padding:14px 20px;background-color:#1e293b;border-top-left-radius:11px;"""
+                    """border-top-right-radius:11px;display:flex;justify-content:space-between;align-items:center;}"""
+                    """.v-modal-title{color:#94a3b8;font-weight:bold;font-size:15px;}"""
+                    """.v-close-btn{color:#94a3b8;font-size:28px;font-weight:bold;cursor:pointer;line-height:1;}"""
+                    """.v-close-btn:hover{color:#ef4444;}"""
+                    """.v-modal-body{padding:20px;}"""
+                    """.v-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;}"""
+                    """.v-label{color:#64748b;font-size:11px;font-weight:bold;text-transform:uppercase;margin:8px 0 2px 0;}"""
+                    """.v-val{color:#f1f5f9;font-size:14px;background-color:#1e293b40;padding:6px 10px;"""
+                    """border-radius:4px;margin:0;border:1px solid #1e293b;}"""
+                    """.v-textarea{width:100%;height:65px;background-color:#1e293b40;border:1px solid #1e293b;"""
+                    """color:#cbd5e1;padding:8px;border-radius:6px;resize:none;font-family:monospace;"""
+                    """font-size:13px;box-sizing:border-box;}"""
+                    """</style>"""
+                    """<script>"""
+                    """let globalDossiers={};"""
+                    """const targetPrefix="PREFIX_PH";"""
+                    """const activeColumns=COLS_PH;"""
+                    """function classifyAircraftLocal(t,c){"""
+                    """t=String(t).toUpperCase().trim();c=String(c).toUpperCase().trim();"""
+                    """const m=["F16","F18","F15","F22","F35","F4","F5","EFAF","C17","A400","C130"];"""
+                    """if(m.includes(t))return"⚔️ Military";"""
+                    """if(c.startsWith("TUR")||c.startsWith("RCH")||c.includes("MIL"))return"⚔️ Military";"""
+                    """const g=["C172","C152","PA28","DA40","DA42"];"""
+                    """if(g.includes(t))return"🛩️ General Aviation";"""
+                    """return"✈️ Commercial";}"""
+                    """function buildTable(list){"""
+                    """const tbody=document.getElementById("table-body");"""
+                    """if(!tbody)return;"""
+                    """const newRows=[];const newDossiers={};"""
+                    """list.forEach(p=>{"""
+                    """const cs=p.callsign||"N/A";"""
+                    """const fp=p.flight_plan||{};"""
+                    """const dep=fp.departure||"";"""
+                    """const arr=fp.arrival||"";"""
+                    """const ac=(fp.aircraft||"").split("/")[0]||"N/A";"""
+                    """const cat=classifyAircraftLocal(ac,cs);"""
+                    """const mp=dep.startsWith(targetPrefix)||arr.startsWith(targetPrefix);"""
+                    """let ph=false;"""
+                    """if(targetPrefix==="LT"&&p.latitude>=36.5&&p.latitude<=42.0&&p.longitude>=27.0&&p.longitude<=44.5)ph=true;"""
+                    """if(!mp&&!ph)return;"""
+                    """const rd={"Callsign":cs,"Origin":dep||"⚠️ NO FPL","Destination":arr||"⚠️ NO FPL","""
+                    """"Aircraft":ac,"Category":cat,"Altitude (FT)":p.altitude,"Speed (KT)":p.groundspeed,"Squawk":p.transponder||"0000"};"""
+                    """let om="Unknown";"""
+                    """if(p.logon_time)om=Math.floor((new Date()-new Date(p.logon_time))/60000)+" Mins";"""
+                    """const rm={0:"OBS",1:"P1",2:"P2",3:"P3",4:"P4",5:"P5"};"""
+                    """newDossiers[cs]={name:p.name||"Anonymous",cid:p.cid||"N/A",rating:rm[p.pilot_rating]||"P1","""
+                    """online:om,voice:p.has_voice?"🎙️ Voice Active":"⌨️ Text Only","""
+                    """squawk:p.transponder||"0000",origin:rd.Origin,destination:rd.Destination,"""
+                    """airframe:ac,route:fp.route||"No FPL Filed."};"""
+                    """newRows.push({rd,cs});});"""
+                    """const er=tbody.querySelectorAll("tr");"""
+                    """if(er.length===newRows.length){"""
+                    """newRows.forEach(({rd,cs},i)=>{"""
+                    """const tds=er[i].querySelectorAll("td");"""
+                    """activeColumns.forEach((col,j)=>{"""
+                    """const v=String(rd[col]);"""
+                    """if(tds[j]&&tds[j].dataset.val!==v){"""
+                    """tds[j].dataset.val=v;"""
+                    """if(col==="Callsign")tds[j].innerHTML='<b style="color:#3b82f6;cursor:pointer;">'+v+'</b>';"""
+                    """else tds[j].innerText=v;}});"""
+                    """er[i].onclick=()=>openDossier(cs);});}"""
+                    """else{tbody.innerHTML="";"""
+                    """newRows.forEach(({rd,cs})=>{"""
+                    """const tr=document.createElement("tr");"""
+                    """tr.onclick=()=>openDossier(cs);"""
+                    """activeColumns.forEach(col=>{"""
+                    """const td=document.createElement("td");"""
+                    """const v=String(rd[col]);"""
+                    """td.dataset.val=v;"""
+                    """if(col==="Callsign")td.innerHTML='<b style="color:#3b82f6;cursor:pointer;">'+v+'</b>';"""
+                    """else td.innerText=v;"""
+                    """tr.appendChild(td);});"""
+                    """tbody.appendChild(tr);});}"""
+                    """globalDossiers=newDossiers;}"""
+                    """function openDossier(cs){"""
+                    """const p=globalDossiers[cs];if(!p)return;"""
+                    """document.getElementById("popCallsign").innerText="🎯 Target: "+cs;"""
+                    """document.getElementById("popName").innerText=p.name;"""
+                    """document.getElementById("popCid").innerText=p.cid;"""
+                    """document.getElementById("popRating").innerText=p.rating;"""
+                    """document.getElementById("popOnline").innerText=p.online;"""
+                    """document.getElementById("popVoice").innerText=p.voice;"""
+                    """document.getElementById("popSquawk").innerText=p.squawk;"""
+                    """document.getElementById("popOrigin").innerText=p.origin;"""
+                    """document.getElementById("popDestination").innerText=p.destination;"""
+                    """document.getElementById("popAirframe").innerText=p.airframe;"""
+                    """document.getElementById("popRoute").value=p.route;"""
+                    """document.getElementById("dossierModal").style.display="block";}"""
+                    """function closeModal(){document.getElementById("dossierModal").style.display="none";}"""
+                    """window.onclick=function(e){if(e.target===document.getElementById("dossierModal"))closeModal();}"""
+                    """async function updateData(){"""
+                    """const n=document.getElementById("sync-notification");"""
+                    """if(n)n.style.display="block";"""
+                    """try{const r=await fetch("https://data.vatsim.net/v3/vatsim-data.json");"""
+                    """const d=await r.json();"""
+                    """if(d&&d.pilots)buildTable(d.pilots);}"""
+                    """catch(e){console.warn("VatScore:",e);}"""
+                    """if(n)setTimeout(()=>{n.style.display="none";},2000);}"""
+                    """document.addEventListener("visibilitychange",()=>{"""
+                    """if(document.visibilityState==="visible"){"""
+                    """updateData();"""
+                    """if(window._vsIv)clearInterval(window._vsIv);"""
+                    """window._vsIv=setInterval(updateData,30000);}});"""
+                    """const initialData=INIT_PH;"""
+                    """buildTable(initialData);"""
+                    """if(window._vsIv)clearInterval(window._vsIv);"""
+                    """window._vsIv=setInterval(updateData,30000);"""
+                    """</script>"""
+                )
+                import json as _json
+                _html = _html.replace("HEADERS_PH", _th)
+                _html = _html.replace('"PREFIX_PH"', _json.dumps(_selected_fir_prefix))
+                _html = _html.replace("COLS_PH", _json.dumps(_active_cols))
+                _html = _html.replace("INIT_PH", _json.dumps(_pilots))
+                st.components.v1.html(_html, height=580, scrolling=True)
 
-                <div class="table-responsive">
-                    <table class="radar-html-table">
-                        <thead>
-                            <tr id="table-headers">
-                                {HEADERS_PLACEHOLDER}
-                            </tr>
-                        </thead>
-                        <tbody id="table-body"></tbody>
-                    </table>
-                </div>
-            </div>
+            render_live_engine(active_cols, selected_fir_prefix, pilots)
 
-            <style>
-                #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
-                .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
-                .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
-                .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
-                .radar-html-table tr:hover { background-color: #1e293b80; }
-                .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
-                
-                #sync-notification {
-                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
-                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
-                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
-                    animation: pulse-blue 1.5s infinite ease-in-out;
-                }
-                @keyframes pulse-blue {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-                }
-
-                .v-modal { display: none; position: fixed; z-index: 9999999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); }
-                .v-modal-content { background-color: #151824; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; border: 1px solid #3b82f640; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); box-sizing: border-box; }
-                .v-modal-header { padding: 14px 20px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
-                .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
-                .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
-                .v-close-btn:hover { color: #ef4444; }
-                .v-modal-body { padding: 20px; }
-                .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-                .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 8px 0 2px 0; }
-                .v-val { color: #f1f5f9; font-size: 14px; background-color: #1e293b40; padding: 6px 10px; border-radius: 4px; margin: 0; border: 1px solid #1e293b; }
-                .v-textarea { width: 100%; height: 65px; background-color: #1e293b40; border: 1px solid #1e293b; color: #cbd5e1; padding: 8px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; }
-            </style>
-
-            <script>
-                // ============================================================
-                // VATSCORE ZERO-FLICKER ENGINE v2 — Auto-Refresh Fixed
-                // ============================================================
-
-                let globalDossiers = {};
-                const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
-                const activeColumns = ACTIVE_COLS_PLACEHOLDER;
-
-                // --- INTERVAL GUARD: Streamlit re-inject'te duplicate timer önle ---
-                if (window._vatscoreIntervalId) {
-                    clearInterval(window._vatscoreIntervalId);
-                    window._vatscoreIntervalId = null;
-                }
-
-                function classifyAircraftLocal(acType, callsign) {
-                    acType = String(acType).toUpperCase().trim();
-                    callsign = String(callsign).toUpperCase().trim();
-                    const milTypes = ["F16","F18","F15","F22","F35","F4","F5","EFAF","C17","A400","C130"];
-                    if (milTypes.includes(acType)) return "⚔️ Military";
-                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
-                    const gaTypes = ["C172","C152","PA28","DA40","DA42"];
-                    if (gaTypes.includes(acType)) return "🛩️ General Aviation";
-                    return "✈️ Commercial";
-                }
-
-                function buildTable(pilotsList) {
-                    const tbody = document.getElementById("table-body");
-                    if (!tbody) return;
-
-                    // Yeni satırları hesapla
-                    const newRows = [];
-                    const newDossiers = {};
-
-                    pilotsList.forEach(p => {
-                        const callsign = p.callsign || "N/A";
-                        const fplan = p.flight_plan || {};
-                        const dep = fplan.departure || "";
-                        const arr = fplan.arrival || "";
-                        const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
-                        const category = classifyAircraftLocal(acType, callsign);
-
-                        const matchesPlan = dep.startsWith(targetPrefix) || arr.startsWith(targetPrefix);
-                        let isPhysHere = false;
-                        if (targetPrefix === "LT" &&
-                            p.latitude >= 36.5 && p.latitude <= 42.0 &&
-                            p.longitude >= 27.0 && p.longitude <= 44.5) {
-                            isPhysHere = true;
-                        }
-
-                        if (!matchesPlan && !isPhysHere) return;
-
-                        const rowData = {
-                            "Callsign": callsign,
-                            "Origin": dep || "⚠️ NO FPL",
-                            "Destination": arr || "⚠️ NO FPL",
-                            "Aircraft": acType,
-                            "Category": category,
-                            "Altitude (FT)": p.altitude,
-                            "Speed (KT)": p.groundspeed,
-                            "Squawk": p.transponder || "0000"
-                        };
-
-                        let onlineMins = "Unknown";
-                        if (p.logon_time) {
-                            onlineMins = Math.floor((new Date() - new Date(p.logon_time)) / 60000) + " Mins";
-                        }
-
-                        const ratingMap = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
-                        newDossiers[callsign] = {
-                            name: p.name || "Anonymous",
-                            cid: p.cid || "N/A",
-                            rating: ratingMap[p.pilot_rating] || "P1",
-                            online: onlineMins,
-                            voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
-                            squawk: p.transponder || "0000",
-                            origin: rowData.Origin,
-                            destination: rowData.Destination,
-                            airframe: acType,
-                            route: fplan.route || "No FPL Filed."
-                        };
-                        newRows.push({ rowData, callsign });
-                    });
-
-                    // --- DIFF UPDATE: Satır sayısı aynıysa sadece değişen hücreleri güncelle ---
-                    const existingRows = tbody.querySelectorAll("tr");
-
-                    if (existingRows.length === newRows.length) {
-                        newRows.forEach(({ rowData, callsign }, i) => {
-                            const tds = existingRows[i].querySelectorAll("td");
-                            activeColumns.forEach((col, j) => {
-                                const val = String(rowData[col]);
-                                if (tds[j] && tds[j].dataset.val !== val) {
-                                    tds[j].dataset.val = val;
-                                    if (col === "Callsign") {
-                                        tds[j].innerHTML = '<b style="color:#3b82f6;cursor:pointer;">' + val + '</b>';
-                                    } else {
-                                        tds[j].innerText = val;
-                                    }
-                                }
-                            });
-                            existingRows[i].onclick = () => openDossier(callsign);
-                        });
-                    } else {
-                        // Satır sayısı değişti → full rebuild
-                        tbody.innerHTML = "";
-                        newRows.forEach(({ rowData, callsign }) => {
-                            const tr = document.createElement("tr");
-                            tr.onclick = () => openDossier(callsign);
-                            activeColumns.forEach(col => {
-                                const td = document.createElement("td");
-                                const val = String(rowData[col]);
-                                td.dataset.val = val;
-                                if (col === "Callsign") {
-                                    td.innerHTML = '<b style="color:#3b82f6;cursor:pointer;">' + val + '</b>';
-                                } else {
-                                    td.innerText = val;
-                                }
-                                tr.appendChild(td);
-                            });
-                            tbody.appendChild(tr);
-                        });
-                    }
-
-                    globalDossiers = newDossiers;
-                }
-
-                function openDossier(callsign) {
-                    const p = globalDossiers[callsign];
-                    if (!p) return;
-                    document.getElementById("popCallsign").innerText = "🎯 Target Profile: " + callsign;
-                    document.getElementById("popName").innerText = p.name;
-                    document.getElementById("popCid").innerText = p.cid;
-                    document.getElementById("popRating").innerText = p.rating;
-                    document.getElementById("popOnline").innerText = p.online;
-                    document.getElementById("popVoice").innerText = p.voice;
-                    document.getElementById("popSquawk").innerText = p.squawk;
-                    document.getElementById("popOrigin").innerText = p.origin;
-                    document.getElementById("popDestination").innerText = p.destination;
-                    document.getElementById("popAirframe").innerText = p.airframe;
-                    document.getElementById("popRoute").value = p.route;
-                    document.getElementById("dossierModal").style.display = "block";
-                }
-
-                function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
-                window.onclick = function(e) {
-                    if (e.target === document.getElementById("dossierModal")) closeModal();
-                }
-
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    if (notifier) notifier.style.display = "block";
-                    try {
-                        const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
-                        const data = await res.json();
-                        if (data && data.pilots) buildTable(data.pilots);
-                    } catch(e) {
-                        console.warn("VatScore fetch error:", e);
-                    }
-                    if (notifier) setTimeout(() => { notifier.style.display = "none"; }, 2000);
-                }
-
-                // --- VISIBILITY API: Sekme arkaplanda → öne gelince hemen refresh + interval yenile ---
-                document.addEventListener("visibilitychange", () => {
-                    if (document.visibilityState === "visible") {
-                        updateData();
-                        if (window._vatscoreIntervalId) clearInterval(window._vatscoreIntervalId);
-                        window._vatscoreIntervalId = setInterval(updateData, 30000);
-                    }
-                });
-
-                // --- İLK YÜKLEME ---
-                const initialData = INITIAL_DATA_PLACEHOLDER;
-                buildTable(initialData);
-
-                // Interval'i window scope'a kaydet (duplicate spawn önlenir)
-                window._vatscoreIntervalId = setInterval(updateData, 30000);
-            </script>
-            """
-            
-            # Değişken enjeksiyonunu güvenle yapıyoruz
-            html_table_and_modal_code = raw_html_template\
-                .replace("{HEADERS_PLACEHOLDER}", th_elements)\
-                .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
-                .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
-
-            st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
-            
             st.markdown("<br>", unsafe_allow_html=True)
-            csv = df_fir.to_csv(index=False).encode('utf-8')
+            csv = df_fir.to_csv(index=False).encode("utf-8")
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found for this region prefix right now.")
-
     with tab3:
         st.subheader("Global Network Insights")
         col_g1, col_g2, col_g3 = st.columns(3)
