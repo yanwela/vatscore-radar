@@ -686,13 +686,17 @@ with tab5:
         </div>
     </div>
     """, unsafe_allow_html=True)
+# ill look here later
+if data:
+  st.markdown("""
+    <div class="signature-container">
+        ⚡ VatScore Dashboard // Made by alp-1863530 <br>
+        📬 For any questions or requests, contact:
+        <a class="signature-link" href="mailto:alpqwesy1@gmail.com">
+            alpqwesy1@gmail.com
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="signature-container">
-    ⚡ VatScore Dashboard // Made by alp-1863530 <br>
-    📬 For any questions or requests, contact:
-    <a class="signature-link" href="mailto:alpqwesy1@gmail.com">
-        alpqwesy1@gmail.com
-    </a>
-</div>
-""", unsafe_allow_html=True)
+else:
+    st.error("Could not fetch data from VATSIM API. Please reload page.")
