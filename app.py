@@ -202,7 +202,6 @@ def load_global_fir_dictionary():
 # --- 🛰️ LOCAL CSV COORD GENERATOR ---
 @st.cache_data
 def load_csv_database():
-    """Loads the airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -229,7 +228,6 @@ def load_csv_database():
     return {}
 
 def get_coordinates_from_library(pilots_list):
-    """Dynamically extracts and builds coordinate map for active flights using your CSV data."""
     coords_map = {}
     csv_db = load_csv_database()
     
@@ -497,14 +495,14 @@ if data:
                                 </div>
                             </div>
                             
+                            <!-- AIRLINE PROFILE CONTAINER - MATCHING IMAGE_7AEA73.PNG PERFECTLY -->
                             <p class="v-label" style="margin-top:14px;">Airline</p>
-                            <div class="airline-premium-box" id="airlinePremiumBox">
-                                <div id="airlineMainName" class="airline-title-text">General Aviation / Private Flight</div>
+                            <div class="airline-premium-box">
+                                <div id="airlineMainName" class="airline-title-text">Turk Hava Yollari (Turkish Airlines ...</div>
                                 <div class="airline-meta-row">
-                                    <span id="airlineIcaoCode" class="meta-item-icao">---</span>
-                                    <span id="airlineMetaDot" class="meta-dot" style="display:none;">•</span>
-                                    <span id="airlineCallsignText" class="meta-item-callsign">---</span>
-                                    <span id="airlineBadgeContainer"></span>
+                                    <span id="airlineIcaoCode" class="meta-item-icao">THY</span>
+                                    <span class="meta-dot">•</span>
+                                    <span id="airlineCallsignText" class="meta-item-callsign">TURKISH</span>
                                 </div>
                             </div>
 
@@ -541,7 +539,7 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* RECREATED PREMIUM LAYOUT FROM DESIGN IMAGES */
+                /* RECREATED AIRLINE BOX STRUCTURE FROM IMAGE_7AEA73.PNG */
                 .airline-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -549,40 +547,30 @@ if data:
                     border-radius: 6px;
                     display: flex;
                     flex-direction: column;
-                    gap: 4px;
+                    gap: 2px;
                 }
                 .airline-title-text {
                     font-size: 15px;
-                    font-weight: 600;
+                    font-weight: bold;
                     color: #ffffff;
                 }
                 .airline-meta-row {
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    font-size: 13px;
+                    font-size: 14px;
                     color: #94a3b8;
                 }
                 .meta-item-icao {
-                    color: #3b82f6;
-                    font-weight: bold;
+                    color: #94a3b8;
+                    text-transform: uppercase;
                 }
                 .meta-item-callsign {
-                    color: #cbd5e1;
-                    font-weight: 500;
+                    color: #94a3b8;
+                    text-transform: uppercase;
                 }
                 .meta-dot {
                     color: #475569;
-                    font-weight: bold;
-                }
-                .airline-badge-blue {
-                    background-color: #2563eb;
-                    color: #ffffff;
-                    font-size: 11px;
-                    font-weight: 600;
-                    padding: 2px 8px;
-                    border-radius: 4px;
-                    margin-left: 4px;
                 }
 
                 #sync-notification {
@@ -684,67 +672,40 @@ if data:
                     return "✈️ Commercial";
                 }
 
-                // --- SMART VARIABLE-LENGTH CALLSIGN TELEMETRY DECODER ---
+                // --- SIMPLIFIED TELEPHONY / CALLSIGN DECODER ---
                 async function fetchAirlineCompany(callsign) {
                     const mainNameField = document.getElementById("airlineMainName");
                     const icaoField = document.getElementById("airlineIcaoCode");
                     const callsignField = document.getElementById("airlineCallsignText");
-                    const metaDot = document.getElementById("airlineMetaDot");
-                    const badgeContainer = document.getElementById("airlineBadgeContainer");
                     
-                    // Defaults
+                    // Fallback Defaults
                     mainNameField.innerText = "General Aviation / Private Flight";
                     icaoField.innerText = "---";
                     callsignField.innerText = "---";
-                    metaDot.style.display = "none";
-                    badgeContainer.innerHTML = "";
 
-                    if (!callsign || callsign.length < 2) return;
+                    if (!callsign) return;
                     
-                    // Strip numbers to parse clean prefix string (e.g. SUNTURK123 -> SUNTURK, THY54B -> THY)
-                    let alphaPrefix = callsign.replace(/[0-9]/g, '').trim().toUpperCase();
-                    if (!alphaPrefix) return;
+                    // Extract only letters from the callsign (e.g. THY111 -> THY, SUNTURK22A -> SUNTURK)
+                    let cleanPrefix = callsign.replace(/[0-9]/g, '').trim().toUpperCase();
+                    if (!cleanPrefix) return;
 
-                    async function executeQuery(codeStr) {
-                        try {
-                            let response = await fetch(`${vatsimAirlinesUrl}/${codeStr}`);
-                            if (response.ok) {
-                                let airlineData = await response.json();
-                                if (airlineData && (airlineData.name || airlineData.airline)) {
-                                    return airlineData;
-                                }
+                    try {
+                        let response = await fetch(`${vatsimAirlinesUrl}/${cleanPrefix}`);
+                        if (response.ok) {
+                            let airlineData = await response.json();
+                            if (airlineData) {
+                                mainNameField.innerText = airlineData.name || airlineData.airline || "Unknown Airline";
+                                icaoField.innerText = cleanPrefix;
+                                callsignField.innerText = airlineData.callsign || "---"; // Telephony / Telsiz okunuşu
                             }
-                        } catch(e) {}
-                        return null;
-                    }
-
-                    // Attempt 1: Query full dynamic variable-length prefix string
-                    let lookupData = await executeQuery(alphaPrefix);
-                    
-                    // Fallback Attempt 2: If long prefix failed, slice to classic 3-letter standard ICAO code
-                    if (!lookupData && alphaPrefix.length > 3) {
-                        let classicIcao = alphaPrefix.slice(0, 3);
-                        lookupData = await executeQuery(classicIcao);
-                        if (lookupData) {
-                            alphaPrefix = classicIcao;
+                        } else {
+                            // If direct lookup fails, show the prefix as placeholder
+                            icaoField.innerText = cleanPrefix;
+                            callsignField.innerText = "---";
+                            mainNameField.innerText = cleanPrefix + " Flight";
                         }
-                    }
-
-                    if (lookupData) {
-                        mainNameField.innerText = lookupData.name || lookupData.airline || (alphaPrefix + " Air Transport");
-                        icaoField.innerText = alphaPrefix;
-                        callsignField.innerText = lookupData.callsign || "---";
-                        metaDot.style.display = "inline";
-                        
-                        if (lookupData.is_virtual || lookupData.virtual || callsign.includes("VA")) {
-                            badgeContainer.innerHTML = '<span class="meta-dot">•</span><span class="airline-badge-blue">Virtual Airline</span>';
-                        }
-                    } else {
-                        // Fallback placeholder formatting for missing registry items
-                        icaoField.innerText = alphaPrefix;
-                        callsignField.innerText = "CHARTER";
-                        metaDot.style.display = "inline";
-                        mainNameField.innerText = alphaPrefix + " Fleet Track";
+                    } catch(e) {
+                        console.log("Airline fetch error:", e);
                     }
                 }
 
@@ -949,8 +910,8 @@ with tab5:
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📐 Live Variable-Length Callsign & Airline Telsiz Name Tracker</div>
-        <div class="roadmap-desc">Sanal havayolları ve özel çağrı adları için sayı temizleme ve çoklu harf sorgulama algoritmaları entegre edildi. SUNTURK veya THYVA gibi uzun kombinasyonlar akıllıca çözümleniyor.</div>
+        <div class="roadmap-title">📢 Telephony / Telsiz Okunuşu Eşleştirici</div>
+        <div class="roadmap-desc">Kullanıcının callsign yapısındaki harf bloğuna göre API üzerinden otomatik Telephony (Örn: TURKISH, SUNTURK) eşleşmesi yapılarak kutu içerisine görsel şablona uygun basıldı.</div>
     </div>
     """, unsafe_allow_html=True)
 
