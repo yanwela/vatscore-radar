@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VatScore Web — Premium ScoreRadar</title>
     <style>
-        /* --- 💻 STREAMLIT CORE LIGHT THEME CLONE --- */
+        /* --- 💻 SAMİMİ STREAMLIT DÜZENİ + PREMİUM KOYU TEMA --- */
         body { 
-            background-color: #FFFFFF; 
-            color: #31333F; 
+            background-color: #0f111a; 
+            color: #f8fafc; 
             font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, Roboto, "Segoe UI", sans-serif; 
             margin: 0; 
             padding: 40px 10%; 
@@ -16,7 +16,7 @@
         
         /* Typography */
         h1 { 
-            color: #31333F; 
+            color: #3b82f6; 
             font-size: 40px; 
             font-weight: 700; 
             margin-top: 0; 
@@ -26,7 +26,7 @@
         }
         
         h3 {
-            color: #31333F;
+            color: #f8fafc;
             font-size: 24px;
             font-weight: 600;
             margin-top: 25px;
@@ -40,11 +40,11 @@
             margin-bottom: 30px; 
         }
         
-        /* Streamlit Standard Square Bordered Buttons */
+        /* Streamlit Kare Buton Tasarımları */
         .top-btn { 
-            background-color: #FFFFFF; 
-            border: 1px solid #E6E6E6; 
-            color: #555555;
+            background-color: #11131f; 
+            border: 1px solid #1e293b; 
+            color: #94a3b8;
             font-size: 16px; 
             cursor: pointer; 
             padding: 8px 12px;
@@ -53,11 +53,11 @@
             margin-left: 8px;
         }
         .top-btn:hover { 
-            border-color: #FF4B4B;
-            color: #FF4B4B;
+            border-color: #ef4444;
+            color: #ef4444;
         }
         
-        /* Streamlit Metrics Formatting */
+        /* Streamlit Metrik Düzeni (Bordürsüz, Saf Yazı) */
         .stats-container { 
             display: grid; 
             grid-template-columns: repeat(3, 1fr); 
@@ -70,28 +70,30 @@
             padding: 0;
         }
         .stat-label { 
-            color: #555555; 
+            color: #94a3b8; 
             font-size: 14px; 
             font-weight: 400; 
             margin-bottom: 4px; 
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .stat-val { 
-            color: #24B064; 
+            color: #22c55e; 
             font-size: 36px; 
             font-weight: 600; 
         }
         
-        /* 🛑 STREAMLIT TAB BAR CLONE (With Red Indicator) */
+        /* 🛑 STREAMLIT TAB BAR CLONE (Koyu Tema + Kırmızı Çizgi) */
         .tabs { 
             display: flex; 
-            border-bottom: 1px solid #E6E6E6; 
+            border-bottom: 1px solid #1e293b; 
             margin-bottom: 30px; 
             gap: 5px; 
         }
         .tab-btn { 
             background: none; 
             border: none; 
-            color: #555555; 
+            color: #94a3b8; 
             padding: 10px 14px; 
             font-size: 15px; 
             font-weight: 400; 
@@ -100,21 +102,21 @@
             border-bottom: 2px solid transparent;
         }
         .tab-btn:hover { 
-            color: #FF4B4B; 
+            color: #ef4444; 
         }
         .tab-btn.active { 
-            color: #FF4B4B; 
+            color: #ef4444; 
             font-weight: 600; 
-            border-bottom: 2px solid #FF4B4B; 
+            border-bottom: 2px solid #ef4444; 
         }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         
-        /* Collapsible Options Container */
+        /* Customizer Paneli */
         .customizer-panel { 
             display: none; 
-            background-color: #F8F9FA; 
-            border: 1px solid #E6E6E6; 
+            background-color: #11131f; 
+            border: 1px solid #1e293b; 
             padding: 20px; 
             border-radius: 6px; 
             margin-bottom: 25px; 
@@ -125,16 +127,16 @@
             gap: 25px; 
         }
         
-        /* Charts Expander Block */
+        /* Grafik Alanı */
         .charts-expander { 
-            background-color: #F8F9FA; 
-            border: 1px solid #E6E6E6; 
+            background-color: #11131f; 
+            border: 1px solid #1e293b; 
             border-radius: 6px; 
             margin-bottom: 25px; 
             padding: 15px; 
         }
         .charts-title { 
-            color: #31333F; 
+            color: #cbd5e1; 
             font-weight: 500; 
             cursor: pointer; 
             font-size: 14px; 
@@ -148,8 +150,8 @@
             margin-top: 15px; 
         }
         .chart-box { 
-            background-color: #FFFFFF; 
-            border: 1px solid #E6E6E6; 
+            background-color: #0f111a; 
+            border: 1px solid #1e293b; 
             height: 160px; 
             border-radius: 4px; 
             display: flex; 
@@ -159,36 +161,37 @@
             box-sizing: border-box; 
         }
         .chart-bar { 
-            background-color: #29B5E8; 
+            background-color: #3b82f6; 
             flex: 1; 
             border-radius: 2px 2px 0 0; 
             transition: height 0.4s ease; 
             position: relative; 
             cursor: pointer; 
         }
-        .chart-bar:hover { background-color: #FF4B4B; }
+        .chart-bar:hover { background-color: #ef4444; }
         .chart-bar:hover::after { 
             content: attr(data-label); 
             position: absolute; 
             top: -30px; 
             left: 50%; 
             transform: translateX(-50%); 
-            background: #31333F; 
-            color: #FFF; 
+            background: #1e293b; 
+            color: #fff; 
             padding: 4px 8px; 
             border-radius: 4px; 
             font-size: 11px; 
             white-space: nowrap; 
             z-index: 99; 
+            box-shadow: 0 10px 15px rgba(0,0,0,0.5);
         }
 
-        /* Clean Streamlit Dataframe Tables */
+        /* Streamlit Tipi Tablolar (Koyu Versiyon) */
         .table-responsive { 
             width: 100%; 
             overflow-x: auto; 
-            border: 1px solid #E6E6E6; 
+            border: 1px solid #1e293b; 
             border-radius: 4px; 
-            background-color: #FFFFFF; 
+            background-color: #11131f; 
         }
         .radar-html-table { 
             width: 100%; 
@@ -197,29 +200,29 @@
             font-size: 14px; 
         }
         .radar-html-table th { 
-            background-color: #F8F9FA; 
-            color: #555555; 
+            background-color: #1e293b; 
+            color: #94a3b8; 
             padding: 10px 15px; 
             font-weight: 500; 
-            border-bottom: 1px solid #E6E6E6; 
+            border-bottom: 1px solid #1e293b; 
         }
         .radar-html-table tr { 
-            border-bottom: 1px solid #F1F1F1; 
+            border-bottom: 1px solid #1e293b80; 
             transition: background-color 0.1s; 
             cursor: pointer; 
         }
         .radar-html-table tr:hover { 
-            background-color: #F8F9FA; 
+            background-color: #1e293b60; 
         }
         .radar-html-table td { 
             padding: 10px 15px; 
-            color: #31333F; 
+            color: #e2e8f0; 
         }
 
         select, input { 
-            background-color: #FFFFFF; 
-            color: #31333F; 
-            border: 1px solid #E6E6E6; 
+            background-color: #11131f; 
+            color: white; 
+            border: 1px solid #1e293b; 
             padding: 8px 12px; 
             border-radius: 4px; 
             font-size: 14px; 
@@ -228,43 +231,43 @@
             max-width: 300px; 
             box-sizing: border-box; 
         }
-        select:focus, input:focus { border-color: #FF4B4B; }
+        select:focus, input:focus { border-color: #ef4444; }
         .info-bar { 
-            background-color: #F0F2F6; 
+            background-color: #1e293b50; 
             border: none; 
-            color: #31333F; 
+            color: #cbd5e1; 
             padding: 12px 15px; 
             border-radius: 4px; 
             margin-bottom: 20px; 
             font-size: 14px; 
         }
 
-        /* Modal Inspector Dossier */
-        .v-modal { display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.4); }
-        .v-modal-content { background-color: #FFFFFF; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; max-width: 850px; border: 1px solid #E6E6E6; border-radius: 8px; padding: 25px; box-sizing: border-box; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .v-modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #E6E6E6; padding-bottom: 12px; margin-bottom: 15px; }
-        .v-close-btn { color: #888888; font-size: 24px; font-weight: bold; cursor: pointer; }
-        .v-close-btn:hover { color: #FF4B4B; }
+        /* 📡 DETAYLI DOSSIER INSPECTOR MODAL PANELİ */
+        .v-modal { display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        .v-modal-content { background-color: #11131f; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; max-width: 850px; border: 1px solid #1e293b; border-radius: 8px; padding: 25px; box-sizing: border-box; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .v-modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 15px; }
+        .v-close-btn { color: #94a3b8; font-size: 24px; font-weight: bold; cursor: pointer; }
+        .v-close-btn:hover { color: #ef4444; }
         .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-        .v-label { color: #777777; font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0; }
-        .v-val { color: #31333F; font-size: 14px; background-color: #F8F9FA; padding: 8px 12px; border-radius: 4px; margin: 0 0 12px 0; border: 1px solid #E6E6E6; }
-        .v-textarea { width: 100%; height: 75px; background-color: #F8F9FA; border: 1px solid #E6E6E6; color: #31333F; padding: 10px; border-radius: 4px; resize: none; box-sizing: border-box; font-family: monospace; }
+        .v-label { color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 0 0 4px 0; letter-spacing: 0.5px; }
+        .v-val { color: #f1f5f9; font-size: 14px; background-color: #0f111a; padding: 8px 12px; border-radius: 4px; margin: 0 0 12px 0; border: 1px solid #1e293b; }
+        .v-textarea { width: 100%; height: 75px; background-color: #0f111a; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 4px; resize: none; box-sizing: border-box; font-family: monospace; }
 
-        /* Roadmap Cards */
-        .roadmap-card { background-color: #F8F9FA; border: 1px solid #E6E6E6; border-left: 5px solid #29B5E8; padding: 20px; border-radius: 4px; margin-bottom: 15px; }
-        .roadmap-card.in-progress { border-left: 5px solid #FF4B4B; }
+        /* Roadmap */
+        .roadmap-card { background-color: #11131f; border: 1px solid #1e293b; border-left: 5px solid #3b82f6; padding: 20px; border-radius: 4px; margin-bottom: 15px; }
+        .roadmap-card.in-progress { border-left: 5px solid #ef4444; }
         .roadmap-badge { color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; display: inline-block; margin-bottom: 10px; }
-        .roadmap-title { color: #31333F; font-weight: 600; font-size: 18px; margin-bottom: 5px; }
-        .roadmap-desc { color: #555555; font-size: 14px; line-height: 1.5; }
+        .roadmap-title { color: #f8fafc; font-weight: 600; font-size: 18px; margin-bottom: 5px; }
+        .roadmap-desc { color: #94a3b8; font-size: 14px; line-height: 1.5; }
         
-        /* 👑 SIGNATURE CONTAINER MATCHING THE PROMPT DETAILS */
-        .signature-container { text-align: right; font-family: monospace; color: #888888; font-size: 13px; padding-top: 25px; border-top: 1px solid #E6E6E6; margin-top: 50px; line-height: 1.6; }
-        .signature-link { color: #FF4B4B; text-decoration: none; font-weight: bold; }
+        /* 👑 ORİJİNAL İMZA ALANI */
+        .signature-container { text-align: right; font-family: monospace; color: #475569; font-size: 13px; padding-top: 25px; border-top: 1px solid #1e293b; margin-top: 50px; line-height: 1.6; }
+        .signature-link { color: #3b82f6; text-decoration: none; font-weight: bold; }
         .signature-link:hover { text-decoration: underline; }
 
-        #sync-notification { position: fixed; bottom: 25px; left: 25px; background-color: #31333F; color: #FFFFFF; padding: 10px 18px; border-radius: 4px; display: none; font-size: 12px; font-weight: 500; z-index: 9999; }
-        .filter-btn { background-color: #F8F9FA; color: #31333F; border: 1px solid #E6E6E6; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }
-        .filter-btn:hover { border-color: #FF4B4B; color: #FF4B4B; }
+        #sync-notification { position: fixed; bottom: 25px; left: 25px; background-color: #1e293b; color: #ffffff; padding: 10px 18px; border-radius: 4px; display: none; font-size: 12px; font-weight: 500; z-index: 9999; }
+        .filter-btn { background-color: #11131f; color: #f8fafc; border: 1px solid #1e293b; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .filter-btn:hover { border-color: #ef4444; color: #ef4444; }
     </style>
 </head>
 <body>
@@ -277,26 +280,23 @@
         </div>
     </div>
 
-    <!-- Stats Panel -->
     <div class="stats-container">
         <div class="stat-card"><div class="stat-label">Total Live Pilots Worldwide</div><div id="stat-pilots" class="stat-val">0</div></div>
-        <div class="stat-card"><div class="stat-label">Total Active ATCs</div><div id="stat-atcs" class="stat-val" style="color:#29B5E8;">0</div></div>
-        <div class="stat-card"><div class="stat-label">Last Network Sync</div><div id="stat-sync" class="stat-val" style="color:#31333F; font-size:24px; font-weight: 400;">00:00:00 UTC</div></div>
+        <div class="stat-card"><div class="stat-label">Total Active ATCs</div><div id="stat-atcs" class="stat-val" style="color:#3b82f6;">0</div></div>
+        <div class="stat-card"><div class="stat-label">Last Network Sync</div><div id="stat-sync" class="stat-val" style="color:#f8fafc; font-size:24px; font-weight: 400;">00:00:00 UTC</div></div>
     </div>
 
-    <!-- Tabs Menu -->
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab(event, 'tab-leaderboard')">🏆 Leaderboard</button>
         <button class="tab-btn" onclick="switchTab(event, 'tab-radar')">✈️ Selected FIR Focus</button>
         <button class="tab-btn" onclick="switchTab(event, 'tab-global')">🌐 Global Stats & ATC</button>
         <button class="tab-btn" onclick="switchTab(event, 'tab-anomalies')">🛸 Anomaly Radar</button>
         <button class="tab-btn" onclick="switchTab(event, 'tab-roadmap')">🚀 Project Roadmap</button>
-        <button class="tab-btn" style="margin-left: auto; color: #888888;" onclick="switchTab(event, 'tab-admin')">🛡️ Admin HQ</button>
+        <button class="tab-btn" style="margin-left: auto; color: #475569;" onclick="switchTab(event, 'tab-admin')">🛡️ Admin HQ</button>
     </div>
 
-    <!-- Customizer Panel -->
     <div id="customizer" class="customizer-panel">
-        <h3 style="margin-top:0; color:#31333F;">⚙️ Live Radar Customizer</h3>
+        <h3 style="margin-top:0; color:#3b82f6;">⚙️ Live Radar Customizer</h3>
         <div class="panel-grid">
             <div>
                 <p class="v-label">Fleet Category Filter</p>
@@ -310,7 +310,7 @@
             </div>
             <div>
                 <p class="v-label">Toggle Column Visibility</p>
-                <div style="font-size: 14px; margin-top: 8px; color:#555555;">
+                <div style="font-size: 14px; margin-top: 8px; color:#94a3b8;">
                     <input type="checkbox" id="col-origin" checked onchange="toggleColumn(1)"> Origin &nbsp;&nbsp;
                     <input type="checkbox" id="col-dest" checked onchange="toggleColumn(2)"> Destination &nbsp;&nbsp;
                     <input type="checkbox" id="col-aircraft" checked onchange="toggleColumn(3)"> Aircraft &nbsp;&nbsp;
@@ -320,13 +320,11 @@
         </div>
     </div>
 
-    <!-- TAB 1: LEADERBOARD -->
     <div id="tab-leaderboard" class="tab-content active">
         <h3>Current Flight Records</h3>
         <div class="table-responsive"><table class="radar-html-table"><thead><tr><th>Record Category</th><th>Callsign</th><th>Value</th><th>Pilot</th></tr></thead><tbody id="leaderboard-body"></tbody></table></div>
     </div>
 
-    <!-- TAB 2: RADAR -->
     <div id="tab-radar" class="tab-content">
         <div style="margin-bottom: 16px;">
             <select id="fir-dropdown" onchange="filterData()">
@@ -342,8 +340,8 @@
         <div class="charts-expander">
             <div class="charts-title" onclick="toggleCharts()"><span>📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)</span><span>▼</span></div>
             <div id="charts-container" class="charts-body">
-                <div><h5 style="margin-top:0; margin-bottom:8px; color:#555555;">📈 FIR Altitude Profiles (FT)</h5><div id="alt-chart" class="chart-box"></div></div>
-                <div><h5 style="margin-top:0; margin-bottom:8px; color:#555555;">⚡ FIR Groundspeed Profiles (KT)</h5><div id="spd-chart" class="chart-box"></div></div>
+                <div><h5 style="margin-top:0; margin-bottom:8px; color:#94a3b8;">📈 FIR Altitude Profiles (FT)</h5><div id="alt-chart" class="chart-box"></div></div>
+                <div><h5 style="margin-top:0; margin-bottom:8px; color:#94a3b8;">⚡ FIR Groundspeed Profiles (KT)</h5><div id="spd-chart" class="chart-box"></div></div>
             </div>
         </div>
 
@@ -359,36 +357,33 @@
         </div>
     </div>
 
-    <!-- TAB 3: GLOBAL INSIGHTS -->
     <div id="tab-global" class="tab-content">
         <div class="panel-grid">
-            <div><h3>📍 Busiest Hubs (Departures)</h3><ul id="global-deps" style="line-height:2; color:#31333F;"></ul></div>
-            <div><h3>✈️ Fleet Distribution</h3><ul id="global-fleet" style="line-height:2; color:#31333F;"></ul></div>
+            <div><h3>📍 Busiest Hubs (Departures)</h3><ul id="global-deps" style="line-height:2; color:#e2e8f0;"></ul></div>
+            <div><h3>✈️ Fleet Distribution</h3><ul id="global-fleet" style="line-height:2; color:#e2e8f0;"></ul></div>
         </div>
         <div class="panel-grid" style="margin-top:24px;">
-            <div><h3>🎙️ Busiest Airspaces (ATC)</h3><ul id="global-atc" style="line-height:2; color:#31333F;"></ul></div>
+            <div><h3>🎙️ Busiest Airspaces (ATC)</h3><ul id="global-atc" style="line-height:2; color:#e2e8f0;"></ul></div>
         </div>
     </div>
 
-    <!-- TAB 4: ANOMALIES -->
     <div id="tab-anomalies" class="tab-content">
-        <h3 style="color:#FF4B4B;">🛸 Live Anomaly Radar (X-Files)</h3>
+        <h3 style="color:#ef4444;">🛸 Live Anomaly Radar (X-Files)</h3>
         <div class="table-responsive"><table class="radar-html-table"><thead><tr><th>Type</th><th>Callsign</th><th>Details</th><th>Airframe</th></tr></thead><tbody id="anomaly-body"></tbody></table></div>
     </div>
 
-    <!-- TAB 5: ROADMAP -->
     <div id="tab-roadmap" class="tab-content">
         <div class="roadmap-card">
-            <div class="roadmap-badge" style="background-color: #24B064;">Phase 1.5: Completed</div>
+            <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1.5: Completed</div>
             <div class="roadmap-title">🌐 Hybrid Architecture Split</div>
             <div class="roadmap-desc">Streamlit UI has been successfully decoupled. Frontend is now completely run by a zero-flicker native JavaScript runtime connected to FastAPI backend service.</div>
         </div>
         <div class="roadmap-card in-progress">
-            <div class="roadmap-badge" style="background-color: #FF4B4B;">Phase 2: In Progress</div>
+            <div class="roadmap-badge" style="background-color: #ef4444;">Phase 2: In Progress</div>
             <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
             <div class="roadmap-desc">
                 This phase focuses on deep telemetry sorting and production deployment adjustments:
-                <ul style="margin-top: 5px; padding-left: 20px; color: #555555;">
+                <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
                     <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
                     <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
                     <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
@@ -398,39 +393,35 @@
         </div>
     </div>
 
-    <!-- TAB 6: ADMIN HQ -->
     <div id="tab-admin" class="tab-content">
         <h3>🛡️ VatScore HQ Security Login</h3>
         <div id="admin-auth-box">
             <input type="password" id="admin-password" placeholder="Enter Master Admin Password..." style="max-width:400px; margin-right:10px;">
-            <button class="filter-btn" style="background:#FF4B4B; color:white; border:none; padding:10px 20px; border-radius:4px; cursor:pointer;" onclick="authAdmin()">Authorize Connection</button>
+            <button class="filter-btn" style="background:#ef4444; color:white; border:none; padding:10px 20px; border-radius:4px; cursor:pointer;" onclick="authAdmin()">Authorize Connection</button>
         </div>
         <div id="admin-dashboard" style="display:none; margin-top:20px;">
             <div class="stats-container">
                 <div class="stat-card"><div class="stat-label">🟢 Active Users (Last 5 Mins)</div><div id="adm-active" class="stat-val">0</div></div>
-                <div class="stat-card"><div class="stat-label">👥 Total Unique Connections</div><div id="adm-total" class="stat-val" style="color:#29B5E8;">0</div></div>
-                <div class="stat-card"><div class="stat-label">📊 Dominant Hardware</div><div id="adm-hw" class="stat-val" style="color:#31333F;">N/A</div></div>
+                <div class="stat-card"><div class="stat-label">👥 Total Unique Connections</div><div id="adm-total" class="stat-val" style="color:#3b82f6;">0</div></div>
+                <div class="stat-card"><div class="stat-label">📊 Dominant Hardware</div><div id="adm-hw" class="stat-val" style="color:#e2e8f0;">N/A</div></div>
             </div>
-            <button class="filter-btn" style="background:#FF4B4B; color:white; border:none; margin-bottom:15px; padding:10px 20px; cursor:pointer; border-radius:4px;" onclick="wipeLogs()">🗑️ Wipe Logs</button>
+            <button class="filter-btn" style="background:#ef4444; color:white; border:none; margin-bottom:15px; padding:10px 20px; cursor:pointer; border-radius:4px;" onclick="wipeLogs()">🗑️ Wipe Logs</button>
             <div class="table-responsive"><table class="radar-html-table"><thead><tr><th>Timestamp</th><th>Device Type</th><th>OS</th><th>Browser</th><th>Last Action</th></tr></thead><tbody id="admin-logs-body"></tbody></table></div>
         </div>
     </div>
 
-    <!-- MODAL & NOTIFIER -->
-    <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
     <div id="dossierModal" class="v-modal">
         <div class="v-modal-content">
-            <div class="v-modal-header"><h3 id="popCallsign" style="color:#FF4B4B; margin:0;"></h3><span class="v-close-btn" onclick="closeModal()">&times;</span></div>
+            <div class="v-modal-header"><h3 id="popCallsign" style="color:#3b82f6; margin:0;"></h3><span class="v-close-btn" onclick="closeModal()">&times;</span></div>
             <div class="v-grid">
                 <div><p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p><p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p><p class="v-label">🎖️ Rating</p><p id="popRating" class="v-val"></p></div>
-                <div><p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#24B064;"></p><p class="v-label">📻 VHF Comms</p><p id="popVoice" class="v-val" style="color:#FF4B4B;"></p><p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p></div>
+                <div><p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e;"></p><p class="v-label">📻 VHF Comms</p><p id="popVoice" class="v-val" style="color:#ef4444;"></p><p class="v-label">📡 Squawk</p><p id="popSquawk" class="v-val"></p></div>
                 <div><p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p><p class="v-label">🛬 Destination</p><p id="popDestination" class="v-val"></p><p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p></div>
             </div>
             <p class="v-label" style="margin-top:15px;">🗺️ Filed Route String</p><textarea id="popRoute" class="v-textarea" readonly></textarea>
         </div>
     </div>
 
-    <!-- 👑 SIGNATURE BRANDING -->
     <div class="signature-container">
         ⚡ VatScore Dashboard // Made by alp-1863530 <br>
         📬 For any questions or requests, contact: <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
