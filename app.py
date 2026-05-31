@@ -504,14 +504,10 @@ if data:
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">Airline</p>
-                            <div class="airline-premium-box">
-                                <div id="airlineMainName" class="airline-title-text">General Aviation / Private Flight</div>
-                                <div class="airline-meta-row">
-                                    <span id="airlineIcaoCode" class="meta-item-icao">---</span>
-                                    <span class="meta-dot">•</span>
-                                    <span id="airlineCallsignText" class="meta-item-callsign">---</span>
-                                </div>
+                            <!-- SADECE TELEPHONY YAZAN MINIMAL ALAN -->
+                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony (Telsiz Çağrı Adı)</p>
+                            <div class="telephony-premium-box">
+                                <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
 
                             <p class="v-label" style="margin-top:14px;">🗺️ Filed Route String</p>
@@ -547,20 +543,16 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                .airline-premium-box {
+                /* Yenilenmiş Minimal Telephony Kutusu */
+                .telephony-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
                     padding: 12px 16px;
                     border-radius: 6px;
                     display: flex;
-                    flex-direction: column;
-                    gap: 2px;
+                    align-items: center;
                 }
-                .airline-title-text { font-size: 15px; font-weight: bold; color: #ffffff; }
-                .airline-meta-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #94a3b8; }
-                .meta-item-icao { color: #3b82f6; font-weight: bold; text-transform: uppercase; }
-                .meta-item-callsign { color: #22c55e; font-weight: bold; text-transform: uppercase; }
-                .meta-dot { color: #475569; }
+                .telephony-text { font-size: 16px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
 
                 #sync-notification {
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
@@ -660,14 +652,12 @@ if data:
                     return "✈️ Commercial";
                 }
 
+                // Sadece Telephony Ayıklayan Fonksiyon
                 function fetchAirlineCompany(callsign) {
-                    const mainNameField = document.getElementById("airlineMainName");
-                    const icaoField = document.getElementById("airlineIcaoCode");
                     const callsignField = document.getElementById("airlineCallsignText");
                     
-                    mainNameField.innerText = "General Aviation / Private Flight";
-                    icaoField.innerText = "---";
-                    callsignField.innerText = "---";
+                    // Varsayılan değer
+                    callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
                     
@@ -676,17 +666,14 @@ if data:
                     
                     if (cleanPrefix.length < 2) return;
 
-                    // Python'dan tam veritabanı akıtılacak
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        mainNameField.innerText = airlineData.name || airlineData.airline || cleanPrefix + " Flight";
-                        icaoField.innerText = cleanPrefix;
-                        callsignField.innerText = airlineData.callsign || "---";
+                        // Eğer api'de 'callsign' (telsiz okunuşu) varsa onu yaz, yoksa temiz prefix'i bırak
+                        callsignField.innerText = airlineData.callsign || cleanPrefix;
                     } else {
-                        icaoField.innerText = cleanPrefix;
-                        mainNameField.innerText = cleanPrefix + " Flight";
+                        callsignField.innerText = cleanPrefix;
                     }
                 }
 
@@ -837,7 +824,7 @@ if data:
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
-                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db)) # JSON formatında gömdük
+                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
