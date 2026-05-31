@@ -879,14 +879,18 @@ with tab5:
             Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
-    <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
-        <div class="roadmap-title">📢 Automated Live API Telephony Matcher Engine</div>
-        <div class="roadmap-desc">
-            <strong>Status:</strong> Development Started — May 31, 2026<br>
-            Transitioning from static dictionary datasets to a fully dynamic, asynchronous API-driven architecture. The engine is currently being engineered to fetch global airline telemetry directly from the production network, ensuring real-time mapping of ICAO prefixes to standardized telephony callsigns.
-        </div>
+   <div class="roadmap-card in-progress">
+    <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+    <div class="roadmap-title">📢 Automated API Telephony Integration & Trajectory Tracking</div>
+    <div class="roadmap-desc">
+        <strong>Status:</strong> Development Started — May 31, 2026<br>
+        Transitioning to a fully dynamic, asynchronous architecture. Current development focuses on two core pillars:
+        <ul>
+            <li><strong>Live Trajectory Progress Bar:</strong> Implementation of a high-precision coordinate tracking engine utilizing the Haversine Formula to visualize real-time flight progress.</li>
+            <li><strong>Telephony Matcher Engine:</strong> Engineering an API-driven solution to fetch global airline telemetry from production networks, enabling instantaneous mapping of ICAO prefixes to standardized airline callsigns.</li>
+        </ul>
     </div>
+</div>
     """, unsafe_allow_html=True)
 if data:
     st.markdown("""
