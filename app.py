@@ -10,7 +10,6 @@ import json
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
-VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"  # CSV file for airports
 
 # Page Configuration
@@ -177,6 +176,16 @@ def fetch_vatsim_data():
         if r.status_code == 200: return r.json()
     except: pass
     return None
+
+@st.cache_data(ttl=86400) # Günde 1 kere çekilmesi yeterli, statik veri
+def load_vatsim_radar_airlines():
+    try:
+        r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
+        if r.status_code == 200: 
+            return r.json()
+    except: 
+        pass
+    return {}
 
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
@@ -538,7 +547,6 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* RECREATED AIRLINE BOX STRUCTURE FROM IMAGE_7AEA73.PNG */
                 .airline-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -548,29 +556,11 @@ if data:
                     flex-direction: column;
                     gap: 2px;
                 }
-                .airline-title-text {
-                    font-size: 15px;
-                    font-weight: bold;
-                    color: #ffffff;
-                }
-                .airline-meta-row {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    font-size: 14px;
-                    color: #94a3b8;
-                }
-                .meta-item-icao {
-                    color: #94a3b8;
-                    text-transform: uppercase;
-                }
-                .meta-item-callsign {
-                    color: #94a3b8;
-                    text-transform: uppercase;
-                }
-                .meta-dot {
-                    color: #475569;
-                }
+                .airline-title-text { font-size: 15px; font-weight: bold; color: #ffffff; }
+                .airline-meta-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #94a3b8; }
+                .meta-item-icao { color: #3b82f6; font-weight: bold; text-transform: uppercase; }
+                .meta-item-callsign { color: #22c55e; font-weight: bold; text-transform: uppercase; }
+                .meta-dot { color: #475569; }
 
                 #sync-notification {
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
@@ -611,7 +601,6 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
-                const vatsimAirlinesUrl = "VATSIM_AIRLINES_URL_PLACEHOLDER";
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -671,42 +660,33 @@ if data:
                     return "✈️ Commercial";
                 }
 
-                // --- OFFICIAL VATSIM-RADAR ALGORITHM INTEGRATED HERE ---
-                async function fetchAirlineCompany(callsign) {
+                function fetchAirlineCompany(callsign) {
                     const mainNameField = document.getElementById("airlineMainName");
                     const icaoField = document.getElementById("airlineIcaoCode");
                     const callsignField = document.getElementById("airlineCallsignText");
                     
-                    // Fallback Default State
                     mainNameField.innerText = "General Aviation / Private Flight";
                     icaoField.innerText = "---";
                     callsignField.innerText = "---";
 
                     if (!callsign) return;
                     
-                    // VATSIM-Radar Core Filter: Extract only the leading letters (e.g., THY112A -> THY, PGT442 -> PGT)
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
-                    if (!cleanPrefix || cleanPrefix.length < 2) return;
+                    if (cleanPrefix.length < 2) return;
 
-                    try {
-                        let response = await fetch(`${vatsimAirlinesUrl}/${cleanPrefix}`);
-                        if (response.ok) {
-                            let airlineData = await response.json();
-                            if (airlineData) {
-                                mainNameField.innerText = airlineData.name || airlineData.airline || cleanPrefix + " Flight";
-                                icaoField.innerText = cleanPrefix;
-                                callsignField.innerText = airlineData.callsign || "---"; // Telephony okunuşu
-                            }
-                        } else {
-                            // If API endpoint specifically fails, fallback cleanly to code structure
-                            icaoField.innerText = cleanPrefix;
-                            callsignField.innerText = "---";
-                            mainNameField.innerText = cleanPrefix + " Flight";
-                        }
-                    } catch(e) {
-                        console.log("Airline parsing pipeline error:", e);
+                    // Python'dan tam veritabanı akıtılacak
+                    const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
+                    
+                    if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
+                        let airlineData = localAirlinesDb[cleanPrefix];
+                        mainNameField.innerText = airlineData.name || airlineData.airline || cleanPrefix + " Flight";
+                        icaoField.innerText = cleanPrefix;
+                        callsignField.innerText = airlineData.callsign || "---";
+                    } else {
+                        icaoField.innerText = cleanPrefix;
+                        mainNameField.innerText = cleanPrefix + " Flight";
                     }
                 }
 
@@ -814,7 +794,7 @@ if data:
                     const notifier = document.getElementById("sync-notification");
                     notifier.style.display = "block";
                     try {
-                        const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
+                        const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
@@ -826,7 +806,6 @@ if data:
                     setTimeout(() => { notifier.style.display = "none"; }, 1500);
                 }
 
-                // Initial load
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
@@ -847,16 +826,18 @@ if data:
             </script>
             """
             
+            # Havayolu verisini Python ile çekip JSON'a döküyoruz
+            airlines_db = load_vatsim_radar_airlines()
+            
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
-                .replace("VATSIM_AIRLINES_URL_PLACEHOLDER", VATSIM_RADAR_AIRLINES_URL)
+                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db)) # JSON formatında gömdük
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
