@@ -169,7 +169,6 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-# --- FIXED DECORATOR HACK FROM IMAGE_7C659D.PNG ---
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -199,10 +198,8 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
-# --- 🛰️ LOCAL CSV COORD GENERATOR ---
 @st.cache_data
 def load_csv_database():
-    """Loads the 3MB airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -229,7 +226,6 @@ def load_csv_database():
     return {}
 
 def get_coordinates_from_library(pilots_list):
-    """Dynamically extracts and builds coordinate map for active flights using your CSV data."""
     coords_map = {}
     csv_db = load_csv_database()
     
@@ -290,43 +286,15 @@ def classify_aircraft(ac_type, callsign):
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
-if "iframe_signal" not in st.session_state:
-    st.session_state.iframe_signal = 0
-
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
     airports_coords_map = get_coordinates_from_library(pilots)
 
-    title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
+    # REFRESH BUTTON REMOVED FROM PYTHON SIDE TO PREVENT STREAMLIT RERUN DESTRUCTION
+    title_col, emoji_col = st.columns([0.94, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Score Radar")
-    
-    with refresh_col:
-        st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
-        
-        # INTERCEPTED BUTTON VIA COMPONENTS TO PREVENT RERUN FLICKER
-        refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
-        
-        # JavaScript hack injection to bridge button click straight into the silent iframe updater
-        st.components.v1.html("""
-            <script>
-                window.parent.document.querySelectorAll('.top-emoji-btn button')[0].addEventListener('click', function(e) {
-                    // Prevent default streamlit reload behavior by executing custom logic silently
-                    const el = window.parent.document.getElementById('signal-receiver');
-                    if(el) {
-                        let sig = parseInt(el.getAttribute('data-sig') || '0');
-                        el.setAttribute('data-sig', (sig + 1).toString());
-                    }
-                });
-            </script>
-        """, height=0, width=0)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        if refresh_clicked:
-            fetch_vatsim_data.clear()
-            st.session_state.iframe_signal += 1
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -466,11 +434,14 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE (SHAKE-FREE & MODAL LOCK ACTIVATED) ---
+            # --- 🔄 REFRESH BUTTON MOVED INSIDE THE IFRAME DESIGN ---
             raw_html_template = """
             <div id="vatscore-custom-container">
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                    <button class="iframe-refresh-btn" onclick="updateData()" title="Force Manual Refresh Now">🔄</button>
+                </div>
+
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
-                <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
@@ -540,6 +511,12 @@ if data:
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
                 
+                .iframe-refresh-btn {
+                    background: none !important; border: none !important; font-size: 24px !important;
+                    cursor: pointer; line-height: 1; padding: 0px !important; transition: transform 0.2s ease;
+                }
+                .iframe-refresh-btn:hover { transform: scale(1.15); }
+                
                 .progress-wrapper { display: flex; align-items: center; background-color: #0a0c14; padding: 10px 14px; border-radius: 6px; border: 1px solid #1e293b; gap: 12px; }
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
@@ -580,7 +557,7 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentlyOpenCallsign = null; // Track modal status safely across network sync operations
+                let currentlyOpenCallsign = null; 
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
@@ -618,8 +595,8 @@ if data:
                         return (R * c) * 0.539957; 
                     }
                     
-                    let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
-                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
+                    let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lo2));
+                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lo2));
                     let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
                     
                     if (flownNM > totalNM) flownNM = totalNM;
@@ -751,16 +728,15 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            // MODAL STATE PERSISTENCE: If modal was open, refresh layout values smoothly inside without closing!
+                            // IF MODAL IS OPEN: Refresh its metrics smoothly inside without losing user focus!
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
                         }
                     } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 1500);
+                    setTimeout(() => { notifier.style.display = "none"; }, 1200);
                 }
 
-                // Initial load
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
@@ -768,18 +744,7 @@ if data:
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
 
-                // BRIDGE ANTI-DESTRUCTION GATEWAY: Watch the hidden DOM signal attribute for any manual refreshes
-                setInterval(() => {
-                    const el = document.getElementById("signal-receiver");
-                    if(!el) return;
-                    const currentSig = el.getAttribute("data-sig");
-                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData(); // Sinyal değiştiyse iframe içinden sessizce fetch at, asla destroy etme!
-                    }
-                    window.lastKnownSig = currentSig;
-                }, 250);
-
-                // Seamless Background Auto Sync Timer (Every 30 Seconds)
+                // Smooth Background Auto Sync (Every 30 Seconds)
                 setInterval(updateData, 30000);
             </script>
             """
@@ -791,10 +756,9 @@ if data:
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
-                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))
+                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
-            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=640, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
@@ -841,14 +805,14 @@ with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
-        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed — May 31, 2026</div>
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">I successfully implemented interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view. I achieved this by migrating to a premium HTML/JS grid engine and engineering a native JavaScript telemetry modal.</div>
+        <div class="roadmap-desc">Interactive row-click actions on data tables to view the full flight plan string natively.</div>
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📐 Live Nautical Mile (NM) Haversine Tracker Integrated</div>
-        <div class="roadmap-desc">Switched from old static percentage calculations to a live flight-distance progress telemetry tracking engine. Distance flown and total length are dynamically computed in Nautical Miles (NM) utilizing the local airports geodesic coordinates database.</div>
+        <div class="roadmap-title">📐 Anti-Flicker Manual Refresh Architecture</div>
+        <div class="roadmap-desc">Migrated the manual sync trigger directly inside the sandboxed component engine. Handled state management entirely inside JS client-side arrays to prevent Streamlit layout re-renders on active modals.</div>
     </div>
     """, unsafe_allow_html=True)
 
