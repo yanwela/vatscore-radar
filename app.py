@@ -505,7 +505,7 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- COMPLETELY ENGLISHD TELEPHONY TITLE -->
+                            <!-- COMPLETELY ENGLISHED TELEPHONY TITLE -->
                             <p class="v-label" style="margin-top:14px;">🎙️ Telephony / Callsign</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
@@ -594,22 +594,6 @@ if data:
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
 
-                // Built-in dictionary fallback mechanism to translate raw code prefixes into their absolute telephony words.
-                const fallbackAirlinesMap = {
-                    "THY": "TURKISH",
-                    "PGT": "SUNTURK",
-                    "SXS": "SUNEXPRESS",
-                    "BAW": "SPEEDBIRD",
-                    "EZY": "EASY",
-                    "DLH": "LUFTHANSA",
-                    "AFR": "AIRFRANS",
-                    "AAL": "AMERICAN",
-                    "UAL": "UNITED",
-                    "UAE": "EMIRATES",
-                    "QTR": "QATARI",
-                    "RYR": "RYANAIR"
-                };
-
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
                     const fillBar = document.getElementById("progressBarFill");
@@ -668,29 +652,28 @@ if data:
                     return "✈️ Commercial";
                 }
 
+                // --- PURE DYNAMIC API DETECTOR ---
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
                     
+                    // Extracts the pure alpha character prefix (e.g. "THY" from "THY1823" or "PGT" from "PGT46K")
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
                     if (cleanPrefix.length < 2) return;
 
-                    // 1. Check local custom fallback system to solve empty fields instantly
-                    if (fallbackAirlinesMap[cleanPrefix]) {
-                        callsignField.innerText = fallbackAirlinesMap[cleanPrefix];
-                        return;
-                    }
-
-                    // 2. Query against external dataset
+                    // Directly query the parsed external API object injected from Streamlit
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
+                    
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        callsignField.innerText = airlineData.callsign || cleanPrefix;
+                        // If API has explicit callsign word, use it. Otherwise, cleanPrefix or fallback airline name
+                        callsignField.innerText = airlineData.callsign || airlineData.name || cleanPrefix;
                     } else {
+                        // Fallback fallback if completely custom/unknown code
                         callsignField.innerText = cleanPrefix;
                     }
                 }
@@ -896,8 +879,8 @@ with tab5:
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: Active / Operational</div>
-        <div class="roadmap-title">📢 Official Telephony Matcher Engine</div>
-        <div class="roadmap-desc">The user's callsign prefix structure is extracted, filtered through an enhanced regular expression architecture, and automatically linked to verified Telephony callsigns via both local fallback dictionary matrices and external real-time data syncs. Completely tailored to match international standard English formats.</div>
+        <div class="roadmap-title">📢 Automated Live API Telephony Matcher Engine</div>
+        <div class="roadmap-desc">No more raw hardcoded dictionary lookups. The dashboard processes the live injected global airline database array fetched straight from the production API endpoint. It extracts prefix strings asynchronously inside the client iframe and prints matching official standard telephony codes flawlessly.</div>
     </div>
     """, unsafe_allow_html=True)
 
