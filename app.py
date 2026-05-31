@@ -305,27 +305,11 @@ if data:
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
         st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
-        
-        # INTERCEPTED BUTTON VIA COMPONENTS TO PREVENT RERUN FLICKER
         refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
-        
-        # JavaScript hack injection to bridge button click straight into the silent iframe updater
-        st.components.v1.html("""
-            <script>
-                window.parent.document.querySelectorAll('.top-emoji-btn button')[0].addEventListener('click', function(e) {
-                    // Prevent default streamlit reload behavior by executing custom logic silently
-                    const el = window.parent.document.getElementById('signal-receiver');
-                    if(el) {
-                        let sig = parseInt(el.getAttribute('data-sig') || '0');
-                        el.setAttribute('data-sig', (sig + 1).toString());
-                    }
-                });
-            </script>
-        """, height=0, width=0)
-        
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
             fetch_vatsim_data.clear()
+            # NO RERUN/SHAKE SHIELD: We increment the signal stamp. The internal watcher catches it and updates silently!
             st.session_state.iframe_signal += 1
     
     with emoji_col:
@@ -771,13 +755,12 @@ if data:
                 // BRIDGE ANTI-DESTRUCTION GATEWAY: Watch the hidden DOM signal attribute for any manual refreshes
                 setInterval(() => {
                     const el = document.getElementById("signal-receiver");
-                    if(!el) return;
                     const currentSig = el.getAttribute("data-sig");
                     if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
                         updateData(); // Sinyal değiştiyse iframe içinden sessizce fetch at, asla destroy etme!
                     }
                     window.lastKnownSig = currentSig;
-                }, 250);
+                }, 500);
 
                 // Seamless Background Auto Sync Timer (Every 30 Seconds)
                 setInterval(updateData, 30000);
