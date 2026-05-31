@@ -383,6 +383,9 @@ if data:
             # Tablo Sütun Filtrelemesi
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
             
+            # Üst taraftaki dinamik bilgilendirme barı
+            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            
             # --- PYLANCE SAFE - ZERO FLICKER HTML ENGINE ---
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
@@ -557,7 +560,7 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
                     document.getElementById("dossierModal").style.display = "block";
-                }}
+                }
 
                 function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
                 window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
@@ -581,7 +584,7 @@ if data:
             </script>
             """
             
-            # Değişkenleri f-string olmadan, güvenli replace metoduyla enjekte ediyoruz
+            # Değişken enjeksiyonunu f-string kullanmadan güvenle yapıyoruz
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
@@ -591,6 +594,7 @@ if data:
 
             st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
             
+            st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
