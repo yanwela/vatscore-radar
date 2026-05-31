@@ -30,9 +30,6 @@ st.markdown("""
     div[data-testid="stSidebar"] {display: none !important;}
     .main { background-color: #0f111a; }
     h1 { color: #3b82f6; font-family: 'Segoe UI', sans-serif; }
-    .stTabs [data-baseweb="tab"] { color: #94a3b8; font-size: 16px; }
-    .stTabs [data-baseweb="tab"]:hover { color: #3b82f6; }
-    .stTabs [aria-selected="true"] { color: #3b82f6 !important; font-weight: bold; }
     div[data-testid="stMetricValue"] { color: #22c55e; }
     .signature-container {
         text-align: right; font-family: 'Consolas', monospace; color: #475569; font-size: 12px;
@@ -41,6 +38,15 @@ st.markdown("""
     }
     .signature-link { color: #3b82f6; text-decoration: none; }
     .signature-link:hover { text-decoration: underline; }
+    
+    /* Modern Sekme Seçim Alanı Stili */
+    div[data-testid="stRadio"] > label { display: none; }
+    div[data-testid="stRadio"] > div {
+        background-color: #11131f;
+        padding: 6px;
+        border-radius: 8px;
+        border: 1px solid #1e293b;
+    }
     
     /* Roadmap Kart Tasarımları */
     .roadmap-card {
@@ -218,6 +224,10 @@ def classify_aircraft(ac_type, callsign):
         
     return "✈️ Commercial"
 
+# --- DEĞİŞİKLİK: REFRESH BUTONUNDA YERİ KORUMA MEKANİZMASI ---
+if "active_navigation_tab" not in st.session_state:
+    st.session_state.active_navigation_tab = "🏆 Leaderboard"
+
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
@@ -236,7 +246,8 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             load_global_fir_dictionary.clear()
-            st.rerun()
+            log_activity("Manual Data Refresh Triggered")
+            st.rerun()  # State tab tabanlı korunduğu için artık ilk sekmeye atmayacak!
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -265,6 +276,19 @@ if data:
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
+
+    # --- DEVREYE ALINAN STATE KORUMALI NAVİGASYON SİSTEMİ ---
+    nav_options = ["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"]
+    
+    selected_tab = st.radio(
+        "Navigation",
+        options=nav_options,
+        index=nav_options.index(st.session_state.active_navigation_tab),
+        horizontal=True,
+        key="navigation_radio_selector"
+    )
+    st.session_state.active_navigation_tab = selected_tab
+    st.markdown("<br>", unsafe_allow_html=True)
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
@@ -326,9 +350,8 @@ if data:
         if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
         if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
-
-    with tab1:
+    # --- SEKMELERİ RENDER ETME ALANI ---
+    if selected_tab == "🏆 Leaderboard":
         st.subheader("Current Flight Records")
         leader_data = []
         if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
@@ -337,7 +360,7 @@ if data:
         if veteran_p: leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {veteran_p.get('logon_time','')[11:16]} UTC", "Pilot": veteran_p.get('name')})
         st.table(leader_data)
 
-    with tab2:
+    elif selected_tab == "✈️ Selected FIR Focus":
         st.subheader("✈️ Regional Airspace Monitor")
         selected_option = st.selectbox("Choose Region/FIR Focus:", options=fir_options, index=default_index, key="main_fir_selectbox")
         
@@ -604,13 +627,12 @@ if data:
         else:
             st.warning("No active flights found for this region prefix right now.")
 
-    with tab3:
+    elif selected_tab == "🌐 Global Stats & ATC":
         st.subheader("Global Network Insights")
         col_g1, col_g2, col_g3 = st.columns(3)
         with col_g1:
             st.markdown("### 📍 Busiest Hubs")
             
-            # --- YATAY SLIDEBAR / SWITCH MANTIĞI ---
             hub_view = st.radio(
                 "Select Focus:",
                 ["🛫 Top Departures", "🛬 Top Arrivals"],
@@ -637,12 +659,12 @@ if data:
             atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
             for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
-    with tab4:
+    elif selected_tab == "🛸 Anomaly Radar (X-Files)":
         st.subheader("🛸 Live Anomaly Radar (X-Files)")
         if anomalies: st.dataframe(anomalies, use_container_width=True)
         else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
-    with tab5:
+    elif selected_tab == "🚀 Project Roadmap":
         st.subheader("🚀 VatScore Strategic Development Roadmap")
         
         st.markdown("""
