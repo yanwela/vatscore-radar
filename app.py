@@ -169,7 +169,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.cache_data(ttl=15)
+@st.context.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
@@ -177,7 +177,7 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-@st.cache_data(ttl=3600)
+@st.context.cache_data(ttl=3600)
 def load_global_fir_dictionary():
     fir_dict = {}
     try:
@@ -199,24 +199,20 @@ def load_global_fir_dictionary():
     return fir_dict
 
 # --- 🛰️ LOCAL CSV COORD GENERATOR ---
-@st.cache_data
+@st.context.cache_data
 def load_csv_database():
     """Loads the 3MB airports.csv database into a quick lookup dictionary."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
-            # Sütun isimlerindeki boşlukları temizleyip küçük harfe çekiyoruz
             df.columns = [c.lower().strip() for c in df.columns]
             
-            # Dinamik sütun ismi yakalama (icao, latitude, longitude uyumluluğu için)
             icao_col = 'icao' if 'icao' in df.columns else df.columns[0]
             lat_col = 'latitude' if 'latitude' in df.columns else 'latitude_deg' if 'latitude_deg' in df.columns else 'lat'
             lon_col = 'longitude' if 'longitude' in df.columns else 'longitude_deg' if 'longitude_deg' in df.columns else 'lon'
             
-            # Anahtarları büyük harf yaparak sözlüğe aktar (JS tarafına temiz gitmesi için)
             df[icao_col] = df[icao_col].astype(str).str.upper().str.strip()
             
-            # JavaScript'e her ihtimale karşı hem latitude_deg hem de düz latitude olarak göndermek için haritalıyoruz
             res_dict = {}
             for _, row in df.iterrows():
                 icao_code = row[icao_col]
@@ -241,7 +237,6 @@ def get_coordinates_from_library(pilots_list):
         dep = str(fplan.get("departure", "")).strip().upper()
         arr = str(fplan.get("arrival", "")).strip().upper()
         
-        # Extract Departure Coords from CSV
         if dep and len(dep) == 4 and dep not in coords_map:
             if dep in csv_db:
                 coords_map[dep] = {
@@ -249,7 +244,6 @@ def get_coordinates_from_library(pilots_list):
                     "longitude_deg": csv_db[dep]['longitude']
                 }
                 
-        # Extract Arrival Coords from CSV
         if arr and len(arr) == 4 and arr not in coords_map:
             if arr in csv_db:
                 coords_map[arr] = {
@@ -257,7 +251,6 @@ def get_coordinates_from_library(pilots_list):
                     "longitude_deg": csv_db[arr]['longitude']
                 }
         
-    # Hardcoded premium operational fallbacks safely injected
     fallback = {
         "LTBA": {"latitude_deg": 40.9769, "longitude_deg": 28.8146},
         "LTFM": {"latitude_deg": 41.2753, "longitude_deg": 28.7519},
@@ -300,7 +293,6 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
-    # Generate coordinates dynamically from your uploaded airports.csv
     airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
@@ -567,6 +559,7 @@ if data:
 
             <script>
                 let globalDossiers = {};
+                let currentlyOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
@@ -591,7 +584,6 @@ if data:
                         fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
                     }
                     
-                    // Hem büyük harf hem de küçük harf varyasyonları için toleranslı veri okuma
                     const lat1 = depPoint.latitude_deg || depPoint.latitude;
                     const lon1 = depPoint.longitude_deg || depPoint.longitude;
                     const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
@@ -599,11 +591,11 @@ if data:
                     
                     function toRad(v) { return v * Math.PI / 180; }
                     function getDistanceNM(la1, lo1, la2, lo2) {
-                        let R = 6371; // Dünya yarıçapı KM
+                        let R = 6371; 
                         let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
                         let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
                         let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                        return (R * c) * 0.539957; // KM'yi Deniz Miline (NM) çevirir
+                        return (R * c) * 0.539957; 
                     }
                     
                     let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
@@ -700,6 +692,8 @@ if data:
                     const p = globalDossiers[callsign];
                     if (!p) return;
 
+                    currentlyOpenCallsign = callsign;
+
                     const url = new URL(window.parent.location.href);
                     url.searchParams.set('selected_callsign', callsign);
                     window.parent.history.replaceState({}, '', url);
@@ -719,13 +713,13 @@ if data:
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
 
-                    // Canlı mesafe ve harita ilerleme metriklerini tetikle
                     updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
 
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
                 function closeModal() { 
+                    currentlyOpenCallsign = null;
                     document.getElementById("dossierModal").style.display = "none"; 
                     const url = new URL(window.parent.location.href);
                     url.searchParams.delete('selected_callsign');
@@ -744,6 +738,9 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
+                            if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
+                                openDossier(currentlyOpenCallsign);
+                            }
                         }
                     } catch(e) { console.log(e); }
                     setTimeout(() => { notifier.style.display = "none"; }, 2000);
