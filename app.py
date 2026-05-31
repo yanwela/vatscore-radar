@@ -428,7 +428,7 @@ if data:
         if (15000 < alt < 45000) and (45.0 < lat < 62.0) and (-40.0 < lon < -15.0):
             atlantic_count += 1
 
-    # 3️⃣ EN SON SEKMELERİ ÇİZİYORUZ (Hatasız ve Pürüzsüz)
+    # 3️⃣ SEKMELERİ EKRANA BASIYORUZ
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab1:
@@ -478,12 +478,12 @@ if data:
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
             
-            # 🎯 Satır seçimini dinleyen interaktif tablo
+            # 🎯 Satır seçimini dinleyen interaktif tablo (selection_mode="single" olarak düzeltildi)
             event = st.dataframe(
                 df_fir[final_columns], 
                 use_container_width=True,
                 on_select="rerun",
-                selection_mode="single_row",
+                selection_mode="single",
                 key="fir_table_selection"
             )
             
