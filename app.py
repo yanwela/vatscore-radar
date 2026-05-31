@@ -63,6 +63,19 @@ st.markdown("""
         background: none !important; border: none !important; font-size: 24px !important;
         padding: 0px !important; cursor: pointer; line-height: 1;
     }
+    
+    /* Canlı Senkronizasyon Işığı */
+    #sync-notification-iframe-status {
+        background-color: #1e293b; color: #22c55e; padding: 4px 10px; border-radius: 20px; 
+        border: 1px solid #22c55e40; font-size: 11px; font-weight: bold; font-family: monospace;
+        display: none; animation: pulse-green 1.5s infinite ease-in-out;
+        margin-bottom: 10px; float: right;
+    }
+    @keyframes pulse-green {
+        0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
+        70% { opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -168,7 +181,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=10)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
@@ -225,20 +238,11 @@ if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
 
-    title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
+    # Üst Kontrol Paneli Yerleşimi
+    title_col, settings_col = st.columns([0.94, 0.06])
     with title_col: st.title("⚡ VATSCORE // Premium Global Radar")
     
-    with refresh_col:
-        st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
-        st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
-        refresh_clicked = st.button("🔄", help="Force Manual Refresh Now")
-        st.markdown('</div>', unsafe_allow_html=True)
-        if refresh_clicked:
-            fetch_vatsim_data.clear()
-            load_global_fir_dictionary.clear()
-            st.rerun()
-    
-    with emoji_col:
+    with settings_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
         st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
         settings_clicked = st.button("⚙️", help="Click to toggle Column visibility and Fleet filters")
@@ -275,30 +279,21 @@ if data:
 
     fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
     
-    # --- 🗺️ PERSISTENT FIR SELECTION MANTIĞI (HAVA SAHASI KORUMA) ---
-    # Eğer URL parametresinde seçili bir hava sahası varsa state'e al
+    # --- 🗺️ PERSISTENT FIR SELECTION MANTIĞI ---
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
     
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
 
-    # Dinamik index bulucu: Eğer state'deki prefix listede varsa onun indeksini kullan, yoksa 0.
     matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
     calculated_index = matched_indices[0] if matched_indices else 0
-
-    # --- 🛰️ POPUP HAFIZA YÖNETİMİ ---
-    if "selected_callsign" in st.query_params:
-        st.session_state.active_popup = st.query_params["selected_callsign"]
-    if "active_popup" not in st.session_state:
-        st.session_state.active_popup = ""
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
         st.subheader("✈️ Regional Airspace Monitor")
         
-        # Selectbox tetiklendiğinde query parametrelerini anlık güncelleyen callback fonksiyonu
         def on_fir_change():
             new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
             st.session_state.current_fir_prefix = new_prefix
@@ -315,7 +310,6 @@ if data:
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
 
-        # Pilot veri döngüsü ve filtreleme başlangıcı
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -381,10 +375,10 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- MODAL DÜZENİ: TEK RATING BOX + SQUAWK BOX AYRIMI + URL SYNCHRONIZER ---
+            # --- ASENKRON MİMARİ HTML & JAVASCRIPT MOTORU (STRATEJİ B) ---
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
+                <span id="sync-notification-iframe-status">🛰️ AUTO-SYNC ACTIVE</span>
 
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
@@ -432,24 +426,23 @@ if data:
 
             <style>
                 #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
+                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; clear: both; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
                 .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; }
-                
-                #sync-notification {
-                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
-                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
-                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
-                    animation: pulse-blue 1.5s infinite ease-in-out;
+
+                #sync-notification-iframe-status {
+                    background-color: #1e293b; color: #22c55e; padding: 4px 10px; border-radius: 20px; 
+                    border: 1px solid #22c55e40; font-size: 11px; font-weight: bold; font-family: monospace;
+                    display: none; animation: pulse-green 1.5s infinite ease-in-out;
+                    margin-bottom: 10px; float: right;
                 }
-                @keyframes pulse-blue {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+                @keyframes pulse-green {
+                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
+                    70% { opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
                 }
 
                 .v-modal { 
@@ -490,9 +483,9 @@ if data:
 
             <script>
                 let globalDossiers = {};
+                let currentOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
-                const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
 
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
@@ -566,17 +559,21 @@ if data:
                             tbody.appendChild(tr);
                         }
                     });
+
+                    if (currentOpenCallsign && globalDossiers[currentOpenCallsign]) {
+                        refreshPopupData(currentOpenCallsign);
+                    }
                 }
 
                 function openDossier(callsign) {
+                    currentOpenCallsign = callsign;
+                    refreshPopupData(callsign);
+                    document.getElementById("dossierModal").style.display = "block";
+                }
+
+                function refreshPopupData(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
-
-                    // URL Geçmiş Köprüsü: Ana Streamlit sayfasına çaktırmadan parametre ekler
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.set('selected_callsign', callsign);
-                    window.parent.history.replaceState({}, '', url);
-
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -588,44 +585,44 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
-                    document.getElementById("dossierModal").style.display = "block";
                 }
 
                 function closeModal() { 
                     document.getElementById("dossierModal").style.display = "none"; 
-                    const url = new URL(window.parent.location.href);
-                    url.searchParams.delete('selected_callsign');
-                    window.parent.history.replaceState({}, '', url);
+                    currentOpenCallsign = null;
                 }
                 
                 window.onclick = function(e) { 
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
                 }
 
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "block";
+                // --- STRATEJİ B: BAĞIMSIZ ARKA PLAN AUTOMATIC REFRESH MANTIĞI ---
+                async function autoRefreshTableOnly() {
+                    const statusBadge = document.getElementById("sync-notification-iframe-status");
+                    if (statusBadge) statusBadge.style.display = "inline-block";
+                    
                     try {
                         const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
-                        const data = await res.json();
-                        if (data && data.pilots) {
-                            buildTable(data.pilots);
+                        const freshData = await res.json();
+                        if (freshData && freshData.pilots) {
+                            buildTable(freshData.pilots);
+                            console.log("VatScore Telemetry Auto-Synced Successfully.");
                         }
-                    } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
+                    } catch(e) { 
+                        console.log("Auto-Sync Network Interrupted:", e); 
+                    }
+                    
+                    setTimeout(() => { 
+                        if (statusBadge) statusBadge.style.display = "none"; 
+                    }, 2000);
                 }
 
+                // İlk veri kurulumu
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
-                // Eğer yenileme sonrası açılması istenen bir çağrı işareti varsa otomatik tetikle
-                if (autoOpenCallsign && autoOpenCallsign !== "") {
-                    setTimeout(() => {
-                        openDossier(autoOpenCallsign);
-                    }, 150);
-                }
-
-                setInterval(updateData, 30000);
+                // CROSS-ORIGIN HATASINA DÜŞMEDEN 30 SANİYEDE BİR KENDİ İÇİNDE PÜRÜZSÜZ GÜNCELLEME
+                setInterval(autoRefreshTableOnly, 30000);
             </script>
             """
             
@@ -634,10 +631,9 @@ if data:
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("VATSIM_DATA_URL_PLACEHOLDER", "https://data.vatsim.net/v3/vatsim-data.json")\
-                .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
-            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = df_fir.to_csv(index=False).encode('utf-8')
