@@ -6,7 +6,6 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
-# Auto-refresh logic and Pop-up system have some bug.
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -566,31 +565,37 @@ if data:
                 function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
                 window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
 
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "block";
-                    try {
-                        const res = await fetch("VATSIM_DATA_URL_PLACEHOLDER");
-                        const data = await res.json();
-                        if (data && data.pilots) {
-                            buildTable(data.pilots);
-                        }
-                    } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 2000);
+                // --- 🚀 ÖLÜMSÜZ OTONOM YENİLEME MOTORU ---
+                async function startOtonomEngine() {
+                    while (true) {
+                        await new Promise(resolve => setTimeout(resolve, 30000)); // 30 Saniye Bekle
+                        const notifier = document.getElementById("sync-notification");
+                        if(notifier) notifier.style.display = "block";
+                        
+                        try {
+                            const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
+                            const freshData = await res.json();
+                            if (freshData && freshData.pilots) {
+                                buildTable(freshData.pilots);
+                            }
+                        } catch(e) { console.log("Otonom Sync Error:", e); }
+                        
+                        if(notifier) setTimeout(() => { notifier.style.display = "none"; }, 1500);
+                    }
                 }
 
+                // İlk yükleme ve döngü başlangıcı
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
-                setInterval(updateData, 30000);
+                startOtonomEngine();
             </script>
             """
             
-            # Değişken enjeksiyonunu f-string kullanmadan güvenle yapıyoruz
+            # Değişken enjeksiyonunu güvenle yapıyoruz (Tırnak krizini tamamen çözdük)
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("VATSIM_DATA_URL_PLACEHOLDER", str(VATSIM_DATA_URL))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))
 
             st.components.v1.html(html_table_and_modal_code, height=580, scrolling=True)
