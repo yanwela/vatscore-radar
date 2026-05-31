@@ -463,7 +463,7 @@ if data:
             if search_query:
                 df_fir = df_fir[df_fir['Callsign'].str.contains(search_query)]
                 
-            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}.")
             
             with chart_expander:
                 c_col1, c_col2 = st.columns(2)
@@ -478,21 +478,19 @@ if data:
 
             final_columns = ["Callsign"] + [col for col in st.session_state.visible_columns if col in df_fir.columns]
             
-            # 🎯 Satır seçimini dinleyen interaktif modern tablo altyapısı
-            event = st.dataframe(
-                df_fir[final_columns], 
-                use_container_width=True,
-                on_select="rerun",
-                selection_mode="single",
-                key="fir_table_selection"
+            # 🕵️‍♂️ [SÜPER DEĞİŞİKLİK]: Python 3.14 bug'ına yakalanmayan %100 güvenli, temiz veri tablosu görünümü
+            st.dataframe(df_fir[final_columns], use_container_width=True)
+            
+            # 🎯 [YENİ SİSTEM DETAY DETEKTÖRÜ]: Python 3.14 uyumlu interaktif uçuş dosyası dökücü
+            st.markdown("🔍 **Telemetry Dossier Decoder**")
+            all_available_callsigns = sorted(df_fir["Callsign"].tolist())
+            
+            clicked_callsign = st.selectbox(
+                "Select Active Callsign to decrypt full flight log & dossier:",
+                options=["-- Choose Aircraft --"] + all_available_callsigns
             )
             
-            # 🕵️‍♂️ [DÜZELTME]: Modern on_select API veri yapısına tam uyumlu seçim yakalayıcı
-            selected_rows = event.get("selection", {}).get("rows", [])
-            if selected_rows:
-                selected_index = selected_rows[0]
-                clicked_callsign = df_fir.iloc[selected_index]["Callsign"]
-                
+            if clicked_callsign and clicked_callsign != "-- Choose Aircraft --":
                 raw_pilot = next((p for p in pilots if p.get("callsign") == clicked_callsign), None)
                 
                 if raw_pilot:
@@ -515,7 +513,6 @@ if data:
                     
                     v5_voice = "🎙️ Voice (VHF Active)" if raw_pilot.get("has_voice", True) else "⌨️ Text Only"
 
-                    st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown(f"### 🛰️ Telemetry Dossier: `{clicked_callsign}`")
                     
                     det_c1, det_c2, det_c3 = st.columns(3)
@@ -598,14 +595,7 @@ if data:
                 if search_atc:
                     df_atc = df_atc[df_atc["Callsign"].str.contains(search_atc)]
                 
-                st.dataframe(
-                    df_atc, 
-                    use_container_width=True,
-                    column_config={
-                        "Frequency": st.column_config.TextColumn("Frequency 📻"),
-                        "Time Online (Mins)": st.column_config.NumberColumn("Time Online ⏳")
-                    }
-                )
+                st.dataframe(df_atc, use_container_width=True)
                 st.caption(f"Showing {len(df_atc)} active ATC connections. (Autorefresh active: 30s)")
             else:
                 st.info("No active ATC found matching standard position filters.")
@@ -623,7 +613,7 @@ if data:
         <div class="roadmap-card">
             <div class="roadmap-badge" style="background-color: #ef4444;">Phase 1: Telemetry & UI Expansion</div>
             <div class="roadmap-title">✈️ Flight Detail Insight System</div>
-            <div class="roadmap-desc">Implementing an interactive row-click action on dataframe tables. Users will be able to expand any active flight track to view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the page.</div>
+            <div class="roadmap-desc">Implementing an interactive telemetry tracker action on radar lists. Users can drop down any active aircraft to view full route string coordinates, network registration info, and server stats seamlessly.</div>
         </div>
         """, unsafe_allow_html=True)
         
