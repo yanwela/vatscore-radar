@@ -755,12 +755,12 @@ with tab5:
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
         <div class="roadmap-title">🌐 Advanced Filtering & Ecosystem Scaling</div>
         <div class="roadmap-desc">
-            This phase focuses on deep telemetry sorting and production deployment adjustments:
+            This phase focuses on deep telemetry sorting, precise route computations, and production deployment adjustments:
             <ul style="margin-top: 5px; padding-left: 20px; color: #94a3b8;">
-                <li><b>VFR / IFR Flight Rules Separation:</b> Ability to isolate cross-country visual flights from heavy airline operations.</li>
-                <li><b>Airline-Specific Fleet Filtering:</b> Instant focus tags for major operators like THY (Turkish Airlines), PGT (Pegasus), etc.</li>
-                <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across sessions.</li>
-                <li><b>Custom Domain Deployment:</b> Migrating infrastructure under a dedicated brand domain name.</li>
+                <li><b>Dynamic Fleet and Airline Intelligence:</b> Expand standard FIR filters to support global ICAO airline codes, giving users the ability to explicitly isolate fleets (e.g., tracking only THY, PGT, or BAW callsigns) paired with automated IFR and VFR telemetry tags.</li>
+                <li><b>Real-Time Route & Distance Engine:</b> Replacing time-based estimations with an advanced co-ordinate system based on the Haversine formula. It computes actual distances between origin and destination airports against live telemetry ($Latitude/Longitude$) to display pixel-perfect progress percentages.</li>
+                <li><b>User Favorites System:</b> Mark and track specific airframes or pilot CIDs across active radar sessions.</li>
+                <li><b>Custom Domain Deployment:</b> Migrating global infrastructure under a dedicated premium brand domain name.</li>
             </ul>
         </div>
     </div>
