@@ -669,9 +669,14 @@ if data:
 
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
+                    // FIXED MAPPING: JSON objesinden doğrudan callsign verisini kontrol etme
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        callsignField.innerText = airlineData.callsign || cleanPrefix;
+                        if (airlineData && airlineData.callsign) {
+                            callsignField.innerText = airlineData.callsign.toUpperCase();
+                        } else {
+                            callsignField.innerText = cleanPrefix;
+                        }
                     } else {
                         callsignField.innerText = cleanPrefix;
                     }
