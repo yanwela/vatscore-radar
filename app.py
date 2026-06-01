@@ -662,6 +662,7 @@ if data:
 
                     if (!callsign) return;
                     
+                    // Harfleri ayıklıyoruz (Örn: THY123 -> THY)
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
@@ -669,10 +670,11 @@ if data:
 
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
-                    // FIXED MAPPING: JSON objesinden doğrudan callsign verisini kontrol etme
+                    // API'den gelen veride tam eşleşme kontrolü ve .callsign alanının çekilmesi
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
                         if (airlineData && airlineData.callsign) {
+                            // Telsiz Telaffuzunu (Örn: TURKISH, EMIRATES) doğrudan ekrana basıyoruz
                             callsignField.innerText = airlineData.callsign.toUpperCase();
                         } else {
                             callsignField.innerText = cleanPrefix;
@@ -872,6 +874,7 @@ with tab4:
     st.subheader("🛸 Live Anomaly Radar (X-Files)")
     if anomalies: st.dataframe(anomalies, use_container_width=True)
     else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+
 with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
@@ -883,19 +886,21 @@ with tab5:
             Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
-   <div class="roadmap-card">
-    <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed</div>
-    <div class="roadmap-title">📢 Automated API Telephony Integration & Trajectory Tracking</div>
-    <div class="roadmap-desc">
-        <strong>Status:</strong> Completed — June 1, 2026<br>
-        Successfully transition to a fully dynamic, asynchronous production environment featuring:
-        <ul>
-            <li><strong>Live Trajectory Progress Bar:</strong> Fully operational Haversine Formula engine tracking live nautical mile (NM) distances directly inside the custom DOM.</li>
-            <li><strong>Telephony Matcher Engine:</strong> Automated production network mapping via telemetry API, instantly matching dynamic ICAO prefixes to official airline callsigns.</li>
-        </ul>
+    <div class="roadmap-card in-progress">
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+        <div class="roadmap-title">📢 Automated API Telephony Integration & Trajectory Tracking</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Active Development (June 2026)<br>
+            Aviation telemetry and dynamic DOM updates development track. Currently working on:
+            <ul>
+                <li><strong>Dynamic Telephony Engine:</strong> Testing the asynchronous ICAO-to-Callsign API parsing matcher inside the DOM (e.g., matching UAE string to EMIRATES).</li>
+                <li><strong>Haversine Flight Trajectory:</strong> Fine-tuning distance metrics progress tracking and visual icon alignment inside the modal wrapper.</li>
+                <li><strong>UI State Lock:</strong> Resolving refresh conflicts to guarantee telemetry modals do not dismiss abruptly during data updates.</li>
+            </ul>
+        </div>
     </div>
-</div>
     """, unsafe_allow_html=True)
+
 if data:
     st.markdown("""
     <div class="signature-container">
