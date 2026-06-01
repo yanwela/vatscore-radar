@@ -904,12 +904,8 @@ if data:
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            # --- USE st.html() FOR DYNAMIC HTML RENDERING ---
-            if hasattr(st, 'html'):
-                iframe_output = st.html(html_table_and_modal_code)
-            else:
-                # Fallback for older Streamlit versions
-                iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            # --- USE STREAMLIT COMPONENT HTML RENDERING ---
+            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             # If iframe returns SYNC_UPDATE signal, extract time and update state for all tabs
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
