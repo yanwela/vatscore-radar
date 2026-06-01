@@ -633,6 +633,15 @@ if data:
             </style>
 
             <script>
+                // Fallback Streamlit object if component-lib isn't loaded
+                if (typeof Streamlit === 'undefined') {
+                    window.Streamlit = {
+                        setComponentValue: function(val) {
+                            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: val }, '*');
+                        }
+                    };
+                }
+
                 let globalDossiers = {};
                 let currentlyOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
@@ -726,9 +735,9 @@ if data:
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
                     const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
                     
-                    // Send unique SYNC_UPDATE signal so Python detects data refresh
+                    // Send via postMessage instead of Streamlit object (more reliable)
                     const syncSignal = "SYNC_UPDATE:" + formattedTime;
-                    Streamlit.setComponentValue(syncSignal);
+                    window.parent.postMessage({ type: 'streamlit:setComponentValue', value: syncSignal }, '*');
                 }
 
                 function buildTable(pilotsList) {
