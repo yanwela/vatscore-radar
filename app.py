@@ -318,6 +318,17 @@ def classify_aircraft(ac_type, callsign):
 if "last_sync_time" not in st.session_state:
     st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
+if "last_sync_check" not in st.session_state:
+    st.session_state.last_sync_check = datetime.utcnow()
+
+# Auto-update every 30 seconds on Python side
+current_time = datetime.utcnow()
+if (current_time - st.session_state.last_sync_check).total_seconds() >= 30:
+    st.session_state.last_sync_time = current_time.strftime('%H:%M:%S Z')
+    st.session_state.last_sync_check = current_time
+    fetch_vatsim_data.clear()  # Force cache refresh
+    st.rerun()
+
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
