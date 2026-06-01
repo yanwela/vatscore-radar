@@ -183,7 +183,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=30)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
