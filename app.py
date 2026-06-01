@@ -652,7 +652,7 @@ if data:
                     planeIcon.style.left = pct + "%";
                     
                     // Upgraded premium sleek text formatting system
-                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM Flown";
+                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM";
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
