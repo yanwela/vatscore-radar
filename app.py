@@ -24,6 +24,23 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Auto-refresh every 30 seconds so live VATSIM data and all tabs stay current.
+if hasattr(st, "autorefresh"):
+    st.autorefresh(interval=30000, limit=None, key="live_data_autorefresh")
+else:
+    refresh_html = """
+    <script>
+        function emitRefreshSignal() {
+            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: 'AUTO_REFRESH' }, '*');
+        }
+        setTimeout(emitRefreshSignal, 200);
+        setInterval(emitRefreshSignal, 30000);
+    </script>
+    """
+    refresh_signal = st.components.v1.html(refresh_html, height=0, width=0)
+    if refresh_signal == 'AUTO_REFRESH':
+        st.experimental_rerun()
+
 # CUSTOM CSS
 st.markdown("""
     <style>
@@ -293,9 +310,9 @@ def classify_aircraft(ac_type, callsign):
         
     return "✈️ Commercial"
 
-# --- JS LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
-if "last_js_sync_time" not in st.session_state:
-    st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+# --- LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
+if "last_sync_time" not in st.session_state:
+    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
@@ -304,6 +321,7 @@ if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
 if data:
+    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
@@ -320,7 +338,8 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
-            st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+            st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+            st.experimental_rerun()
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -351,7 +370,7 @@ if data:
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="Last Sync", value=f" {st.session_state.last_js_sync_time}")
+    with col_stat3: st.metric(label="System Status", value=st.session_state.last_sync_time)
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
@@ -863,8 +882,8 @@ if data:
             
             # If the iframe returns data, ensure it is a string before matching
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                if iframe_output != st.session_state.last_js_sync_time:
-                    st.session_state.last_js_sync_time = iframe_output
+                if iframe_output != st.session_state.last_sync_time:
+                    st.session_state.last_sync_time = iframe_output
                     st.rerun()
             
             st.markdown("<br>", unsafe_allow_html=True)
