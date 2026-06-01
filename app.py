@@ -351,7 +351,7 @@ if data:
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="System Status", value=f"🟢 ONLINE // {st.session_state.last_js_sync_time}")
+    with col_stat3: st.metric(label="System Status", value=f"🟢 // {st.session_state.last_js_sync_time}")
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
