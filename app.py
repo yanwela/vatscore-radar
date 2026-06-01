@@ -6,10 +6,14 @@ from datetime import datetime
 import os
 from user_agents import parse
 import json
-#Items Under Review: 
-# Callsign Telephony System: Automate the Callsign matching system directly via API.
-# Progress Bar Mini-Update: Optimization of visual tracking accuracy for best values.
-# Auto-Refresh Update: Implementation of automated telemetry synchronization.
+
+# ==============================================================================
+# 🚀 VATSCORE ENGINE - STATUS REVIEW
+# ==============================================================================
+# ACTIVE: Callsign Telephony System — Automated via data.vatsim-radar.com API.
+# ACTIVE: Haversine Geodesic Progress Bar — Active live coordinate metrics.
+# ACTIVE: Zero-Shake Sync — Automated asynchronous telemetry synchronization.
+# ==============================================================================
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -173,6 +177,7 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
+@st.context.memo
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
@@ -880,18 +885,18 @@ with tab5:
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal[cite: 2].
         </div>
     </div>
-   <div class="roadmap-card in-progress">
-    <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
+   <div class="roadmap-card">
+    <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed</div>
     <div class="roadmap-title">📢 Automated API Telephony Integration & Trajectory Tracking</div>
     <div class="roadmap-desc">
-        <strong>Status:</strong> Development Started — May 31, 2026<br>
-        Transitioning to a fully dynamic, asynchronous architecture. Current development focuses on two core pillars:
+        <strong>Status:</strong> Completed — June 1, 2026<br>
+        Successfully transition to a fully dynamic, asynchronous production environment featuring:
         <ul>
-            <li><strong>Live Trajectory Progress Bar:</strong> Implementation of a high-precision coordinate tracking engine utilizing the Haversine Formula to visualize real-time flight progress.</li>
-            <li><strong>Telephony Matcher Engine:</strong> Engineering an API-driven solution to fetch global airline telemetry from production networks, enabling instantaneous mapping of ICAO prefixes to standardized airline callsigns.</li>
+            <li><strong>Live Trajectory Progress Bar:</strong> Fully operational Haversine Formula engine tracking live nautical mile (NM) distances directly inside the custom DOM.</li>
+            <li><strong>Telephony Matcher Engine:</strong> Automated production network mapping via telemetry API, instantly matching dynamic ICAO prefixes to official airline callsigns.</li>
         </ul>
     </div>
 </div>
