@@ -477,7 +477,8 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
+
+            # --- CUSTOM FRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -488,12 +489,14 @@ if data:
                         <div class="v-modal-header">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
-                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
                             </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
+                            <div style="display: flex; align-items: center; gap: 12px; margin-top:0; margin-bottom:12px;">
+                                <h4 id="popCallsign" style="color:#3b82f6; margin:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
+                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
+                            </div>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
                             <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
@@ -599,7 +602,19 @@ if data:
                 }
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
-                .v-rules-badge { background-color: #1d3531; color: #22c55e; border: 1px solid #22c55e40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; }
+                
+                /* Kutu tasarımı stabil bir premium yeşile çekildi */
+                .v-rules-badge { 
+                    background-color: #143a24; 
+                    color: #22c55e; 
+                    border: 1px solid #22c55e50; 
+                    padding: 3px 10px; 
+                    border-radius: 4px; 
+                    font-size: 13px; 
+                    font-weight: bold; 
+                    font-family: monospace;
+                    display: inline-block;
+                }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
@@ -778,7 +793,7 @@ if data:
 
                     currentlyOpenCallsign = callsign;
 
-                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                    document.getElementById("popCallsign").innerText = "Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popCombinedRating").innerText = p.combined_rating;
@@ -790,17 +805,9 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
 
+                    // Dinamik içerik ne gelirse gelsin kutu sabit yeşil stilini korur
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
-                    if (p.rules === "VFR") {
-                        badge.style.backgroundColor = "#143a24";
-                        badge.style.color = "#22c55e";
-                        badge.style.borderColor = "#22c55e40";
-                    } else {
-                        badge.style.backgroundColor = "#1d2e47";
-                        badge.style.color = "#3b82f6";
-                        badge.style.borderColor = "#3b82f640";
-                    }
 
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
