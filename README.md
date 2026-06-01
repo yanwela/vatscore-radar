@@ -9,7 +9,7 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 - [x] Flight Detail Insight System: Implement interactive row-click actions on data tables to expand and view the full flight plan string (ROUTE), pilot real name, and voice VHF frequency metadata natively without leaving the view.
 
 ### Phase 2: Pro-Tier Filtering & Advanced Telemetry
-[in-progress] Airline Call-Sign Isolation: Expand standard FIR filters to support global ICAO airline codes, allowing users to explicitly isolate specific fleets (e.g., THY, PGT, BAW).
+-[x] Airline Call-Sign Isolation: Expand standard FIR filters to support global ICAO airline codes, allowing users to explicitly isolate specific fleets (e.g., THY, PGT, BAW).
 - [ ] Automated Telemetry Tagging: Integrate automated IFR and VFR flight rule telemetry tags based on live flight plan data.
 - [x] Real-Time Haversine Distance Engine: Replace estimated progress tracking with a precise coordinate calculation framework based on the Haversine Formula, cross-referencing live positions against global airport databases.
 - [ ] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
