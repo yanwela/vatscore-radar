@@ -6,10 +6,6 @@ from datetime import datetime
 import os
 import json
 
-# ==============================================================================
-# VATSCORE ENGINE - PREMIUM AIRLINE IDENTIFIER SYSTEM
-# ==============================================================================
-
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
