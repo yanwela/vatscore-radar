@@ -506,18 +506,137 @@ if data:
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
             display_df = doc_fir[active_cols].copy()
             
-            st.dataframe(
-                display_df,
-                height=400,
-                width=None,
-                use_container_width=True,
-                column_config={
-                    "Callsign": st.column_config.TextColumn("✈️ Callsign", width=100),
-                    "Category": st.column_config.TextColumn("🎭 Category"),
-                    "Altitude (FT)": st.column_config.NumberColumn("🛫 Altitude (FT)", format="%.0f"),
-                    "Speed (KT)": st.column_config.NumberColumn("⚡ Speed (KT)", format="%.0f"),
-                }
-            )
+            # Create clickable callsigns in the dataframe
+            def create_clickable_table():
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.markdown("#### Available Aircraft")
+                
+                for idx, row in display_df.iterrows():
+                    col1, col2, col3, col4 = st.columns([2, 1.5, 1.5, 0.5])
+                    with col1:
+                        if st.button(f"🛫 {row['Callsign']}", key=f"callsign_{idx}", use_container_width=True):
+                            st.session_state.active_popup = row['Callsign']
+                            st.rerun()
+                    with col2:
+                        st.caption(f"{row['Altitude (FT)']:.0f} FT")
+                    with col3:
+                        st.caption(f"{row['Speed (KT)']:.0f} KT")
+            
+            create_clickable_table()
+            
+            # Telemetry Dossier Modal when active_popup is set
+            if st.session_state.active_popup and st.session_state.active_popup != "":
+                selected_callsign = st.session_state.active_popup
+                pilot_data = None
+                
+                # Find the pilot in the pilots list
+                for p in pilots:
+                    if p.get("callsign", "").upper() == selected_callsign.upper():
+                        pilot_data = p
+                        break
+                
+                if pilot_data:
+                    with st.container(border=True):
+                        st.markdown(f"### 🛰️ Telemetry Dossier Decoder — **{selected_callsign}**")
+                        
+                        col_close = st.columns([20, 1])[1]
+                        with col_close:
+                            if st.button("✕ Close", key="close_dossier"):
+                                st.session_state.active_popup = ""
+                                st.rerun()
+                        
+                        # Telemetry Details
+                        fplan = pilot_data.get("flight_plan") or {}
+                        dep = (fplan.get("departure") or "").strip().upper()
+                        arr = (fplan.get("arrival") or "").strip().upper()
+                        actype = (fplan.get("aircraft") or "").split("/")[0]
+                        
+                        # Ratings
+                        p_ratings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"}
+                        a_ratings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"}
+                        p_rating = p_ratings.get(pilot_data.get("pilot_rating", 0), "P1")
+                        a_rating = a_ratings.get(pilot_data.get("rating", 0), "OBS")
+                        
+                        # Online time
+                        online_time = "Unknown"
+                        if pilot_data.get("logon_time"):
+                            log_dt = datetime.fromisoformat(pilot_data["logon_time"].replace("Z", "+00:00"))
+                            online_mins = int((datetime.utcnow() - log_dt.replace(tzinfo=None)).total_seconds() / 60)
+                            online_time = f"{online_mins} mins"
+                        
+                        # Flight Rules
+                        flight_rules = fplan.get("flight_rules", "I")
+                        rules_text = "IFR" if flight_rules == "I" else "VFR"
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("👤 Pilot Name", pilot_data.get("name", "Anonymous"))
+                            st.metric("🆔 VATSIM CID", pilot_data.get("cid", "N/A"))
+                        with col2:
+                            st.metric("🎖️ Ratings", f"P:{p_rating} / ATC:{a_rating}")
+                            st.metric("🟢 Online Time", online_time)
+                        with col3:
+                            st.metric("📡 Squawk", pilot_data.get("transponder", "0000"))
+                            st.metric("📻 Voice", "🎙️ Active" if pilot_data.get("has_voice") else "⌨️ Text")
+                        
+                        st.divider()
+                        
+                        # Flight Progress Bar (Haversine calculation)
+                        if dep and arr and dep in airports_coords_map and arr in airports_coords_map:
+                            dep_coords = airports_coords_map[dep]
+                            arr_coords = airports_coords_map[arr]
+                            curr_lat = pilot_data.get("latitude", 0)
+                            curr_lon = pilot_data.get("longitude", 0)
+                            
+                            # Haversine distance
+                            def haversine(lat1, lon1, lat2, lon2):
+                                from math import radians, cos, sin, asin, sqrt
+                                lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+                                dlon = lon2 - lon1
+                                dlat = lat2 - lat1
+                                a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+                                c = 2 * asin(sqrt(a))
+                                r = 3440.065  # Radius of earth in nautical miles
+                                return c * r
+                            
+                            total_nm = haversine(dep_coords.get("latitude", 0), dep_coords.get("longitude", 0),
+                                                arr_coords.get("latitude", 0), arr_coords.get("longitude", 0))
+                            flown_nm = haversine(dep_coords.get("latitude", 0), dep_coords.get("longitude", 0),
+                                               curr_lat, curr_lon)
+                            
+                            if flown_nm > total_nm:
+                                flown_nm = total_nm
+                            
+                            progress_pct = (flown_nm / total_nm * 100) if total_nm > 0 else 0
+                            
+                            st.markdown("##### 📍 Flight Progress")
+                            col_dep, col_prog, col_arr = st.columns([1, 4, 1])
+                            with col_dep:
+                                st.caption(f"🛫 {dep}")
+                            with col_prog:
+                                st.progress(min(progress_pct / 100, 1.0), text=f"{flown_nm:.0f} NM ({progress_pct:.0f}%) / {total_nm:.0f} NM")
+                            with col_arr:
+                                st.caption(f"🛬 {arr}")
+                        
+                        st.divider()
+                        
+                        # Flight Details
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**✈️ Origin**")
+                            st.text(dep if dep else "⚠️ NO FPL")
+                            st.markdown("**🛫 Destination**")
+                            st.text(arr if arr else "⚠️ NO FPL")
+                        with col2:
+                            st.markdown("**📋 Aircraft Type**")
+                            st.text(actype if actype else "Unknown")
+                            st.markdown("**✈️ Flight Rules**")
+                            st.text(rules_text)
+                        
+                        st.markdown("**🗺️ Filed Route**")
+                        route_text = fplan.get("route", "No FPL Filed.")
+                        st.text_area("Route", value=route_text, disabled=True, height=80)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
