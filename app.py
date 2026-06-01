@@ -633,6 +633,15 @@ if data:
             </style>
 
             <script>
+                // CRITICAL: Define Streamlit fallback at script start, before anything else runs
+                if (typeof Streamlit === 'undefined') {
+                    window.Streamlit = {
+                        setComponentValue: function(val) {
+                            try { window.parent.postMessage({ type: 'streamlit:setComponentValue', value: val }, '*'); } catch(e) { }
+                        }
+                    };
+                }
+
                 // Fallback Streamlit object if component-lib isn't loaded
                 if (typeof Streamlit === 'undefined') {
                     window.Streamlit = {
