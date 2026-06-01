@@ -462,12 +462,19 @@ if data:
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
                 <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
-                <div id="dossierModal" class="v-modal">
-                    <div class="v-modal-content">
-                        <div class="v-modal-header">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
-                                <span id="popRulesBadge" class="rules-badge">IFR</span>
+                
+<div id="dossierModal" class="v-modal">
+    <div class="v-modal-content">
+        <div class="v-modal-header">
+            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+            <span class="v-close-btn" onclick="closeModal()">&times;</span>
+        </div>
+        <div class="v-modal-body">
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 0; margin-bottom: 14px;">
+                <h4 id="popCallsign" style="color:#3b82f6; margin: 0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
+                <span id="popRulesBadge" class="rules-badge">IFR</span>
+            </div>
+            <hr style="border-color:#1e293b; margin-bottom:14px;">
                             </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
