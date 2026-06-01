@@ -30,15 +30,19 @@ if hasattr(st, "autorefresh"):
 else:
     refresh_html = """
     <script>
-        function emitRefreshSignal() {
-            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: 'AUTO_REFRESH' }, '*');
-        }
-        setTimeout(emitRefreshSignal, 200);
-        setInterval(emitRefreshSignal, 30000);
+        // Load Streamlit component helper and emit a component value every 30s
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js';
+        s.onload = () => {
+            function emitRefresh() { Streamlit.setComponentValue('AUTO_REFRESH'); }
+            setTimeout(emitRefresh, 200);
+            setInterval(emitRefresh, 30000);
+        };
+        document.head.appendChild(s);
     </script>
     """
     refresh_signal = st.components.v1.html(refresh_html, height=0, width=0)
-    if refresh_signal == 'AUTO_REFRESH':
+    if isinstance(refresh_signal, str) and refresh_signal == 'AUTO_REFRESH':
         st.experimental_rerun()
 
 # CUSTOM CSS
@@ -316,6 +320,9 @@ if "last_sync_time" not in st.session_state:
 
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
+
+# Update last sync timestamp on every run (attempted fetch time)
+st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
