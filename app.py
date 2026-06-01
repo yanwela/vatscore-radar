@@ -931,16 +931,15 @@ with tab5:
         </div>
     </div>
     <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "BABYBUS"</div>
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
         <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Active Development (June 2026)<br>
             Focusing on operational depth and data accuracy. Key milestones include:
             <ul>
-                <li><strong>✅ Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
-                <li><strong>✅ Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
-                <li><strong>🔄 Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
-                <li><strong>⏳ Pro-Tier Filters:</strong> Development pending for global airline code isolation and persistent VIP watchlist systems.[cite: 1]</li>
+                <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
+                <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
+                <li><strong> Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
             </ul>
         </div>
     </div>
