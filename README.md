@@ -15,8 +15,9 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 - [ ] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
 - [ ] High-Availability Server Migration: Upgrade core network infrastructure to high-availability servers to support premium custom branding and stable user connections.
 
-### Phase 3: Hyper-Personalization
+### Phase 3: The Ultimate Score, Analytics & Hyper-Personalization 
 - [ ] Localized Favorites Ecosystem: Enable virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns using session states and local storage architecture to pin favorite airframes cleanly at the top of the radar hierarchy.
+- [ ] Designed from the ground up as a comprehensive performance analytics and scoring hub rather than a simple radar or stats site, Phase 3 introduces a deep CID-based dashboard alongside user customization. This centralized module utilizes dynamic filtering sliders (monthly, yearly, hours, and NM) to render interactive graphical matrices tracking time-series flight statistics, ICAO airframe and major manufacturer distributions (Airbus, Boeing, etc.), and flight duration rankings. It delivers high-level user profiles featuring pilot/ATC badges, connection timelines, and algorithmic insights into most-frequented or unique routes, while automatically rendering conditional sector analysis charts for active controllers and a global leaderboard badge (#xxxxx) to rank network standing. Furthermore, this update brings a localized favorites ecosystem using session states and local storage architecture to pin preferred callsigns cleanly at the top of the radar hierarchy, alongside a comprehensive interface optimized for real-world daytime flight operations.
 - [ ] White Mode for User Interface.
 
 ### Phase 4: Admin Infrastructure and Branding
