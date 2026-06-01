@@ -43,7 +43,7 @@ else:
     """
     refresh_signal = st.components.v1.html(refresh_html, height=0, width=0)
     if isinstance(refresh_signal, str) and refresh_signal == 'AUTO_REFRESH':
-        st.experimental_rerun()
+        st.rerun()
 
 # CUSTOM CSS
 st.markdown("""
@@ -346,7 +346,7 @@ if data:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
             st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
-            st.experimental_rerun()
+            st.rerun()
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
