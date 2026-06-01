@@ -375,6 +375,27 @@ if data:
         st.session_state.active_popup = st.query_params["selected_callsign"]
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
+    
+    # Initialize cross-tab communication flags
+    if "fir_data_updated_at" not in st.session_state:
+        st.session_state.fir_data_updated_at = datetime.now()
+    if "last_sync_time" not in st.session_state:
+        now_utc = datetime.utcnow()
+        st.session_state.last_sync_time = f"{now_utc.strftime('%H:%M:%S')} Z"
+    
+    # ====== TOP METRICS SECTION ======
+    st.markdown("---")
+    top_col1, top_col2, top_col3, top_col4 = st.columns(4)
+    with top_col1:
+        st.metric("🛫 Active Pilots", len(pilots))
+    with top_col2:
+        st.metric("✈️ Aircraft Types", len(set([p.get('flight_plan', {}).get('aircraft', 'N/A') for p in pilots])))
+    with top_col3:
+        st.metric("🌍 Active Regions", len(set([p.get('flight_plan', {}).get('departure', '').split()[0] for p in pilots if p.get('flight_plan', {}).get('departure')])))
+    with top_col4:
+        st.metric("⏰ System Status", st.session_state.last_sync_time)
+    st.markdown("---")
+    # ====== END TOP METRICS ======
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
@@ -689,9 +710,9 @@ if data:
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
                     const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
                     
-                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
-                    // SENDS TEXT STRING INSTEAD
-                    Streamlit.setComponentValue(formattedTime);
+                    // Send SYNC_UPDATE signal so other tabs detect data refresh
+                    const syncSignal = "SYNC_UPDATE:" + formattedTime;
+                    Streamlit.setComponentValue(syncSignal);
                 }
 
                 function buildTable(pilotsList) {
@@ -863,8 +884,17 @@ if data:
             
             # If the iframe returns data, ensure it is a string before matching
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                if iframe_output != st.session_state.last_js_sync_time:
+                # Check if this is a SYNC_UPDATE signal from iframe (data refresh)
+                if iframe_output.startswith("SYNC_UPDATE:"):
+                    # Extract time from signal
+                    sync_time = iframe_output.replace("SYNC_UPDATE:", "").strip()
+                    st.session_state.last_sync_time = sync_time
+                    # Mark that FIR data was just updated - send signal to other tabs
+                    st.session_state.fir_data_updated_at = datetime.now()
+                    st.rerun()
+                elif iframe_output != st.session_state.get("last_js_sync_time", ""):
                     st.session_state.last_js_sync_time = iframe_output
+                    st.session_state.fir_data_updated_at = datetime.now()
                     st.rerun()
             
             st.markdown("<br>", unsafe_allow_html=True)
