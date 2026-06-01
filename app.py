@@ -8,11 +8,10 @@ from user_agents import parse
 import json
 
 # ==============================================================================
-# 🚀 VATSCORE ENGINE - STATUS REVIEW
+# VATSCORE ENGINE - CALLSIGN TELEPHONY SYSTEM
 # ==============================================================================
-# ACTIVE: Callsign Telephony System — Automated via data.vatsim-radar.com API.
-# ACTIVE: Haversine Geodesic Progress Bar — Active live coordinate metrics.
-# ACTIVE: Zero-Shake Sync — Automated asynchronous telemetry synchronization.
+# Callsign Telephony System: Automated via data.vatsim-radar.com API.
+# Geodesic Navigation Engine: Integrated via live airport dataset.
 # ==============================================================================
 
 # API URLs
@@ -75,7 +74,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 🛰️ QUIET LOGGING & ADMIN SYSTEM ---
+# Admin Activity Logging System
 LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
 
@@ -94,9 +93,9 @@ def log_activity(action):
         browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
         
         if user_agent.is_mobile: device_type = "📱 Mobile"
-        elif user_agent.is_tablet: device_type = "平板 Tablet"
-        elif user_agent.is_pc: device_type = "💻 PC / Laptop"
-        else: device_type = "🤖 Bot/Unknown"
+        elif user_agent.is_tablet: device_type = "Tablet"
+        elif user_agent.is_pc: device_type = "PC / Laptop"
+        else: device_type = "Bot/Unknown"
         
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
@@ -186,7 +185,7 @@ def fetch_vatsim_data():
     except: pass
     return None
 
-@st.cache_data(ttl=86400) # Günde 1 kere çekilmesi yeterli, statik veri
+@st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
     try:
         r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
@@ -217,7 +216,6 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
-# --- 🛰️ LOCAL CSV COORD GENERATOR ---
 @st.cache_data
 def load_csv_database():
     if os.path.exists(CSV_FILE_PATH):
@@ -513,7 +511,6 @@ if data:
                                 </div>
                             </div>
                             
-                            <!-- SADECE TELEPHONY YAZAN MINIMAL ALAN -->
                             <p class="v-label" style="margin-top:14px;">🎙️ Telephony (Telsiz Çağrı Adı)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
@@ -552,7 +549,6 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* Yenilenmiş Minimal Telephony Kutusu */
                 .telephony-premium-box {
                     background-color: #141724;
                     border: 1px solid #1e293b;
@@ -661,11 +657,8 @@ if data:
                     return "✈️ Commercial";
                 }
 
-                // Sadece Telephony Ayıklayan Fonksiyon
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
-                    
-                    // Varsayılan değer
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
 
                     if (!callsign) return;
@@ -679,7 +672,6 @@ if data:
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        // Eğer api'de 'callsign' (telsiz okunuşu) varsa onu yaz, yoksa temiz prefix'i bırak
                         callsignField.innerText = airlineData.callsign || cleanPrefix;
                     } else {
                         callsignField.innerText = cleanPrefix;
@@ -822,7 +814,6 @@ if data:
             </script>
             """
             
-            # Havayolu verisini Python ile çekip JSON'a döküyoruz
             airlines_db = load_vatsim_radar_airlines()
             
             html_table_and_modal_code = raw_html_template\
@@ -885,7 +876,7 @@ with tab5:
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal[cite: 2].
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
    <div class="roadmap-card">
