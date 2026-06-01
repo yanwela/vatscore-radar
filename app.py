@@ -343,6 +343,7 @@ if data:
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
     if "fleet_filter_selection" not in st.session_state: st.session_state.fleet_filter_selection = "All Flights"
+    if "rules_filter_selection" not in st.session_state: st.session_state.rules_filter_selection = "All Rules"
 
     if st.session_state.show_panel:
         with st.container():
@@ -352,6 +353,7 @@ if data:
                 st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
             with cfg_col2:
                 st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
+                st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -402,6 +404,7 @@ if data:
         
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
+        current_rules_filter = st.session_state.rules_filter_selection
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
@@ -414,6 +417,7 @@ if data:
             dep = fplan.get("departure", "").strip().upper()
             arr = fplan.get("arrival", "").strip().upper()
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
+            flight_rules = fplan.get("flight_rules", "I") # Fallback to IFR if not provided
 
             if dep: dep_airports.append(dep)
             if arr: arr_airports.append(arr)
@@ -424,6 +428,9 @@ if data:
             if current_fleet_filter == "General Aviation Only" and category != "🛩️ General Aviation": continue
             if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
             if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
+
+            if current_rules_filter == "IFR Only" and flight_rules != "I": continue
+            if current_rules_filter == "VFR Only" and flight_rules != "V": continue
 
             matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             is_physically_here = False
@@ -437,7 +444,8 @@ if data:
                 fir_pilots.append({
                     "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
                     "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
-                    "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000")
+                    "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
+                    "FlightRules": flight_rules
                 })
 
             if alt > max_alt: max_alt = alt; highest_p = p
@@ -478,7 +486,10 @@ if data:
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
-                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
+                            </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
@@ -588,6 +599,7 @@ if data:
                 }
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
+                .v-rules-badge { background-color: #1d3531; color: #22c55e; border: 1px solid #22c55e40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
@@ -605,6 +617,7 @@ if data:
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
+                const rulesFilter = "RULES_FILTER_PLACEHOLDER";
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -651,7 +664,6 @@ if data:
                     fillBar.style.width = pct + "%";
                     planeIcon.style.left = pct + "%";
                     
-                    // Upgraded premium sleek text formatting system
                     txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
                 }
 
@@ -703,7 +715,11 @@ if data:
                         const arr = (fplan.arrival || "").trim().toUpperCase();
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
+                        const fRules = fplan.flight_rules || "I";
                         
+                        if (rulesFilter === "IFR Only" && fRules !== "I") return;
+                        if (rulesFilter === "VFR Only" && fRules !== "V") return;
+
                         const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         let isPhysHere = false;
                         if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
@@ -735,7 +751,8 @@ if data:
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
-                                heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0
+                                heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
+                                rules: fRules === "V" ? "VFR" : "IFR"
                             };
 
                             const tr = document.createElement("tr");
@@ -772,6 +789,18 @@ if data:
                     document.getElementById("popDestination").innerText = p.destination;
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
+
+                    const badge = document.getElementById("popRulesBadge");
+                    badge.innerText = p.rules;
+                    if (p.rules === "VFR") {
+                        badge.style.backgroundColor = "#143a24";
+                        badge.style.color = "#22c55e";
+                        badge.style.borderColor = "#22c55e40";
+                    } else {
+                        badge.style.backgroundColor = "#1d2e47";
+                        badge.style.color = "#3b82f6";
+                        badge.style.borderColor = "#3b82f640";
+                    }
 
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
@@ -837,7 +866,8 @@ if data:
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
-                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))
+                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
+                .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
