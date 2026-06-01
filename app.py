@@ -295,7 +295,7 @@ def classify_aircraft(ac_type, callsign):
 
 # --- JS LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
 if "last_js_sync_time" not in st.session_state:
-    st.session_state.last_js_sync_time = datetime.now().strftime('%H:%M:%S UTC')
+    st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
@@ -320,7 +320,7 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
-            st.session_state.last_js_sync_time = datetime.now().strftime('%H:%M:%S UTC')
+            st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -347,7 +347,7 @@ if data:
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
-    # --- INJECTING DYNAMIC REFRESHED CLOCK INTO THE GREEN SYSTEM METRIC ---
+    # --- GREEN SYSTEM METRIC - PROPERLY CLEANED FROM OBJECT STRINGS ---
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
@@ -398,7 +398,7 @@ if data:
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
 
-        # Hidden processing block to build charts & anomalies
+        # Processing loop to build charts & statistics
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -473,7 +473,6 @@ if data:
             # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <!-- THE SYNC LOGO REMOVED FROM HERE AS PER REQUEST -->
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
                 <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
@@ -567,7 +566,7 @@ if data:
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
                     color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
                     font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: block;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
                     animation: pulse-blue 1.5s infinite ease-in-out;
                 }
                 @keyframes pulse-blue {
@@ -688,13 +687,11 @@ if data:
                     const hours = String(now.getUTCHours()).padStart(2, '0');
                     const minutes = String(now.getUTCMinutes()).padStart(2, '0');
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                    const formattedTime = hours + ":" + minutes + ":" + seconds + " UTC";
+                    const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
                     
-                    // PASSES THE NEW TIMESTAMP TO PARENT STREAMLIT ENGINE URL
-                    window.parent.postMessage({
-                        type: 'streamlit:set_component_value',
-                        value: formattedTime
-                    }, '*');
+                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
+                    // SENDS TEXT STRING INSTEAD
+                    Streamlit.setComponentValue(formattedTime);
                 }
 
                 function buildTable(pilotsList) {
@@ -808,14 +805,13 @@ if data:
 
                 async function updateData() {
                     const notifier = document.getElementById("sync-notification");
-                    notifier.style.style.opacity = "1";
                     notifier.style.display = "block";
                     try {
                         const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            sendTimeToStreamlitBackend(); // TRIGGERS CROSS-TAB PYTHON DATA UPDATES
+                            sendTimeToStreamlitBackend();
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
@@ -823,6 +819,11 @@ if data:
                     } catch(e) { console.log(e); }
                     setTimeout(() => { notifier.style.display = "none"; }, 1500);
                 }
+
+                // INJECT STREAMLIT COMPONENT LIBS
+                const scriptStreamlit = document.createElement('script');
+                scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
+                document.head.appendChild(scriptStreamlit);
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
@@ -857,12 +858,14 @@ if data:
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            # --- CROSS-TAB STATE CAPTURE & ASYNC STREAMLIT VARIABLE PASSING ---
+            # --- CORRECTION: USE STREAMLIT NATIVE SAFARI WRAPPER VAL CAPTURING ---
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
-            if iframe_output and iframe_output != st.session_state.last_js_sync_time:
-                st.session_state.last_js_sync_time = iframe_output
-                st.rerun() # SAFELY TRIGGERS EVERY OTHER TAB DATA TO RE-CALCULATE WITHOUT DISRUPTING JS MODAL LOCKS
+            # If the iframe returns data, ensure it is a string before matching
+            if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
+                if iframe_output != st.session_state.last_js_sync_time:
+                    st.session_state.last_js_sync_time = iframe_output
+                    st.rerun()
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
