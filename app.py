@@ -293,20 +293,50 @@ def classify_aircraft(ac_type, callsign):
         
     return "✈️ Commercial"
 
-# --- JS LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
+# ==============================================================================
+# GLOBAL DYNAMIC REFRESH ENGINE & STRICT STATE INITIALIZATION
+# ==============================================================================
 if "last_js_sync_time" not in st.session_state:
     st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
-
-data = fetch_vatsim_data()
-global_fir_map = load_global_fir_dictionary()
 
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
+# TÜM SEKMELERİN ÜSTÜNDE ÇALIŞAN GÖRÜNMEZ ARKA PLAN TETİKLEYİCİSİ
+js_timer_html = """
+<script>
+    function sendTimeAndRefresh() {
+        const now = new Date();
+        const hours = String(now.getUTCHours()).padStart(2, '0');
+        const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+        const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
+        
+        window.parent.postMessage({
+            type: 'streamlit:setComponentValue',
+            value: formattedTime
+        }, '*');
+    }
+    setTimeout(sendTimeAndRefresh, 200); 
+    setInterval(sendTimeAndRefresh, 30000);
+</script>
+"""
+
+# Genişlik ve yükseklik 0 - Tamamen görünmez, her sekmede arka planda tetiklenir
+iframe_output = st.components.v1.html(js_timer_html, height=0, width=0)
+
+if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in str(iframe_output):
+    if iframe_output != st.session_state.last_js_sync_time:
+        st.session_state.last_js_sync_time = iframe_output
+        st.rerun()
+
+# Data fetching setup
+data = fetch_vatsim_data()
+global_fir_map = load_global_fir_dictionary()
+
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
-    
     airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
@@ -321,6 +351,7 @@ if data:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
             st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+            st.rerun()
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -347,11 +378,11 @@ if data:
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
-    # --- GREEN SYSTEM METRIC - PROPERLY CLEANED FROM OBJECT STRINGS ---
+    # METRİKLER - SADECE SAF ZULU SAATİ YAZAR
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="System Status", value=f"🟢 ONLINE // {st.session_state.last_js_sync_time}")
+    with col_stat3: st.metric(label="System Status", value=st.session_state.last_js_sync_time)
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
@@ -364,7 +395,6 @@ if data:
     
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
-    
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
 
@@ -376,7 +406,73 @@ if data:
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
 
+    selected_fir_prefix = st.session_state.current_fir_prefix
+    current_fleet_filter = st.session_state.fleet_filter_selection
+    current_rules_filter = st.session_state.rules_filter_selection
+
+    # Process core metrics
+    for p in pilots:
+        callsign = p.get("callsign", "N/A")
+        alt = p.get("altitude", 0)
+        gs = p.get("groundspeed", 0)
+        lat = p.get("latitude", 0.0)
+        lon = p.get("longitude", 0.0)
+        logon = p.get("logon_time", "")
+        fplan = p.get("flight_plan") or {}
+        dep = fplan.get("departure", "").strip().upper()
+        arr = fplan.get("arrival", "").strip().upper()
+        ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
+        flight_rules = fplan.get("flight_rules", "I")
+
+        if dep: dep_airports.append(dep)
+        if arr: arr_airports.append(arr)
+        if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
+
+        category = classify_aircraft(ac_type, callsign)
+        if current_fleet_filter == "Commercial Only" and category != "✈️ Commercial": continue
+        if current_fleet_filter == "General Aviation Only" and category != "🛩️ General Aviation": continue
+        if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
+        if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
+
+        if current_rules_filter == "IFR Only" and flight_rules != "I": continue
+        if current_rules_filter == "VFR Only" and flight_rules != "V": continue
+
+        matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
+        is_physically_here = False
+        if selected_fir_prefix == "LT" and lat and lon and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5): 
+            is_physically_here = True
+
+        if matches_flight_plan or is_physically_here:
+            display_dep = dep if dep else "⚠️ NO FPL"
+            display_arr = arr if arr else "⚠️ NO FPL"
+            
+            fir_pilots.append({
+                "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
+                "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
+                "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
+                "FlightRules": flight_rules
+            })
+
+        if alt > max_alt: max_alt = alt; highest_p = p
+        if gs > max_gs: max_gs = gs; fastest_p = p
+        if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
+        if logon and logon < min_logon: min_logon = logon; veteran_p = p
+
+        if str(p.get("transponder")) == "7700": anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday", "Airframe": ac_type})
+        if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
+        if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
+
+    # TABS DOCKING
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
+
+    with tab1:
+        st.subheader("Current Flight Records")
+        leader_data = []
+        if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
+        if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
+        if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
+        if veteran_p: leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {veteran_p.get('logon_time','')[11:16]} UTC", "Pilot": veteran_p.get('name')})
+        st.table(leader_data)
 
     with tab2:
         st.subheader("✈️ Regional Airspace Monitor")
@@ -386,7 +482,7 @@ if data:
             st.session_state.current_fir_prefix = new_prefix
             st.query_params["saved_fir"] = new_prefix
 
-        selected_option = st.selectbox(
+        st.selectbox(
             "Choose Region/FIR Focus:", 
             options=fir_options, 
             index=calculated_index, 
@@ -394,62 +490,6 @@ if data:
             on_change=on_fir_change
         )
         
-        selected_fir_prefix = st.session_state.current_fir_prefix
-        current_fleet_filter = st.session_state.fleet_filter_selection
-        current_rules_filter = st.session_state.rules_filter_selection
-
-        # Processing loop to build charts & statistics
-        for p in pilots:
-            callsign = p.get("callsign", "N/A")
-            alt = p.get("altitude", 0)
-            gs = p.get("groundspeed", 0)
-            lat = p.get("latitude", 0.0)
-            lon = p.get("longitude", 0.0)
-            logon = p.get("logon_time", "")
-            fplan = p.get("flight_plan") or {}
-            dep = fplan.get("departure", "").strip().upper()
-            arr = fplan.get("arrival", "").strip().upper()
-            ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
-            flight_rules = fplan.get("flight_rules", "I")
-
-            if dep: dep_airports.append(dep)
-            if arr: arr_airports.append(arr)
-            if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
-
-            category = classify_aircraft(ac_type, callsign)
-            if current_fleet_filter == "Commercial Only" and category != "✈️ Commercial": continue
-            if current_fleet_filter == "General Aviation Only" and category != "🛩️ General Aviation": continue
-            if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
-            if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
-
-            if current_rules_filter == "IFR Only" and flight_rules != "I": continue
-            if current_rules_filter == "VFR Only" and flight_rules != "V": continue
-
-            matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
-            is_physically_here = False
-            if selected_fir_prefix == "LT" and lat and lon and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5): 
-                is_physically_here = True
-
-            if matches_flight_plan or is_physically_here:
-                display_dep = dep if dep else "⚠️ NO FPL"
-                display_arr = arr if arr else "⚠️ NO FPL"
-                
-                fir_pilots.append({
-                    "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
-                    "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
-                    "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
-                    "FlightRules": flight_rules
-                })
-
-            if alt > max_alt: max_alt = alt; highest_p = p
-            if gs > max_gs: max_gs = gs; fastest_p = p
-            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
-            if logon and logon < min_logon: min_logon = logon; veteran_p = p
-
-            if str(p.get("transponder")) == "7700": anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday", "Airframe": ac_type})
-            if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
-            if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
-
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
@@ -466,16 +506,13 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
-            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {st.session_state.current_fir_prefix}. Click a row to inspect telemetry.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE ---
+            # CUSTOM GRID RENDERER HTML WITHOUT INNER INJECT TIMER LOCKS
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
-                <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
-
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
@@ -562,19 +599,6 @@ if data:
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
 
-                #sync-notification {
-                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
-                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
-                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
-                    animation: pulse-blue 1.5s infinite ease-in-out;
-                }
-                @keyframes pulse-blue {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-                }
-
                 .v-modal { 
                     display: none; position: fixed; z-index: 99999999; left: 0; top: 0; width: 100vw; height: 100vh; 
                     background-color: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
@@ -597,7 +621,6 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                let currentlyOpenCallsign = null;
                 const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
@@ -619,7 +642,7 @@ if data:
                     const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
                     
                     if (!depPoint || !arrPoint) {
-                        txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
+                        txtBox.innerText = "Coordinates Missing";
                         fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
                     }
                     
@@ -638,29 +661,23 @@ if data:
                     }
                     
                     let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
-                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
                     let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
                     
                     if (flownNM > totalNM) flownNM = totalNM;
-                    if (remainingNM < 5) flownNM = totalNM;
-
                     let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
                     if (pct > 100) pct = 100; if (pct < 0) pct = 0;
 
                     fillBar.style.width = pct + "%";
                     planeIcon.style.left = pct + "%";
-                    
-                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM";
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
                     callsign = String(callsign).toUpperCase().trim();
-                    const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
-                    if (milTypes.includes(acType)) return "⚔️ Military";
+                    if (["F16", "F18", "F15", "F35", "C17", "A400"].includes(acType)) return "⚔️ Military";
                     if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
-                    const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
-                    if (gaTypes.includes(acType)) return "🛩️ General Aviation";
+                    if (["C172", "C152", "DA42"].includes(acType)) return "🛩️ General Aviation";
                     return "✈️ Commercial";
                 }
 
@@ -674,24 +691,8 @@ if data:
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        if (airlineData && airlineData.name && airlineData.callsign) {
-                            callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
-                        } else if (airlineData && airlineData.name) {
-                            callsignField.innerText = airlineData.name + " - " + cleanPrefix;
-                        } else { callsignField.innerText = cleanPrefix; }
+                        callsignField.innerText = airlineData.name + " - " + (airlineData.callsign || cleanPrefix).toUpperCase();
                     } else { callsignField.innerText = cleanPrefix; }
-                }
-
-                function sendTimeToStreamlitBackend() {
-                    const now = new Date();
-                    const hours = String(now.getUTCHours()).padStart(2, '0');
-                    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-                    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                    const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
-                    
-                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
-                    // SENDS TEXT STRING INSTEAD
-                    Streamlit.setComponentValue(formattedTime);
                 }
 
                 function buildTable(pilotsList) {
@@ -726,24 +727,16 @@ if data:
 
                             let onlineMins = "Unknown";
                             if (p.logon_time) {
-                                const logDt = new Date(p.logon_time);
-                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
+                                onlineMins = Math.floor((new Date() - new Date(p.logon_time)) / 60000) + " Mins";
                             }
-
-                            const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
-                            const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
-                            
-                            const pRatingText = pRatings[p.pilot_rating] || "P1";
-                            const aRatingText = aRatings[p.rating] || "OBS";
 
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
+                                combined_rating: "P Rating: " + (p.pilot_rating || 1), online: onlineMins,
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
-                                heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
-                                rules: fRules === "V" ? "VFR" : "IFR"
+                                lat: p.latitude || 0, lon: p.longitude || 0, rules: fRules === "V" ? "VFR" : "IFR"
                             };
 
                             const tr = document.createElement("tr");
@@ -764,8 +757,6 @@ if data:
                 function openDossier(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
-                    currentlyOpenCallsign = callsign;
-
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
@@ -780,12 +771,7 @@ if data:
 
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
-                    if (p.rules === "VFR") {
-                        badge.style.backgroundColor = "#143a24"; badge.style.color = "#22c55e"; badge.style.borderColor = "#22c55e40";
-                    } else {
-                        badge.style.backgroundColor = "#1d2e47"; badge.style.color = "#3b82f6"; badge.style.borderColor = "#3b82f640";
-                    }
-
+                    
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
 
@@ -794,59 +780,16 @@ if data:
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
-                function closeModal() { 
-                    currentlyOpenCallsign = null;
-                    document.getElementById("dossierModal").style.display = "none"; 
-                }
-                
-                window.onclick = function(e) { 
-                    if (e.target == document.getElementById("dossierModal")) closeModal(); 
-                }
-
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "block";
-                    try {
-                        const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
-                        const data = await res.json();
-                        if (data && data.pilots) {
-                            buildTable(data.pilots);
-                            sendTimeToStreamlitBackend();
-                            if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
-                                openDossier(currentlyOpenCallsign);
-                            }
-                        }
-                    } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 1500);
-                }
-
-                // INJECT STREAMLIT COMPONENT LIBS
-                const scriptStreamlit = document.createElement('script');
-                scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
-                document.head.appendChild(scriptStreamlit);
+                function closeModal() { document.getElementById("dossierModal").style.display = "none"; }
+                window.onclick = function(e) { if (e.target == document.getElementById("dossierModal")) closeModal(); }
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
-
-                if (autoOpenCallsign && autoOpenCallsign !== "") {
-                    setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
-                }
-
-                setInterval(() => {
-                    const el = document.getElementById("signal-receiver");
-                    const currentSig = el.getAttribute("data-sig");
-                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData();
-                    }
-                    window.lastKnownSig = currentSig;
-                }, 500);
-
-                setInterval(updateData, 30000);
+                if (autoOpenCallsign) setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
             </script>
             """
             
             airlines_db = load_vatsim_radar_airlines()
-            
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
@@ -854,18 +797,10 @@ if data:
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
-                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            # --- CORRECTION: USE STREAMLIT NATIVE SAFARI WRAPPER VAL CAPTURING ---
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
-            
-            # If the iframe returns data, ensure it is a string before matching
-            if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                if iframe_output != st.session_state.last_js_sync_time:
-                    st.session_state.last_js_sync_time = iframe_output
-                    st.rerun()
+            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
@@ -873,66 +808,57 @@ if data:
         else:
             st.warning("No active flights found for this region prefix right now.")
 
-with tab1:
-    st.subheader("Current Flight Records")
-    leader_data = []
-    if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
-    if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
-    if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
-    if veteran_p: leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {veteran_p.get('logon_time','')[11:16]} UTC", "Pilot": veteran_p.get('name')})
-    st.table(leader_data)
+    with tab3:
+        st.subheader("Global Network Insights")
+        col_g1, col_g2, col_g3 = st.columns(3)
+        with col_g1:
+            st.markdown("### 📍 Busiest Hubs")
+            hub_view = st.radio("Select Focus:", ["🛫 Top Departures", "🛬 Top Arrivals"], horizontal=True, label_visibility="collapsed")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if "Departures" in hub_view:
+                st.write("**Top Flight Departures Currently:**")
+                for k, v in Counter(dep_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
+            else:
+                st.write("**Top Flight Arrivals Currently:**")
+                for k, v in Counter(arr_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
+        with col_g2:
+            st.markdown("### ✈️ Fleet Distribution")
+            for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
+        with col_g3:
+            st.markdown("### 👑 Busiest Airspaces (ATC)")
+            atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
+            for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
-with tab3:
-    st.subheader("Global Network Insights")
-    col_g1, col_g2, col_g3 = st.columns(3)
-    with col_g1:
-        st.markdown("### 📍 Busiest Hubs")
-        hub_view = st.radio("Select Focus:", ["🛫 Top Departures", "🛬 Top Arrivals"], horizontal=True, label_visibility="collapsed")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if "Departures" in hub_view:
-            st.write("**Top Flight Departures Currently:**")
-            for k, v in Counter(dep_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
-        else:
-            st.write("**Top Flight Arrivals Currently:**")
-            for k, v in Counter(arr_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
-    with col_g2:
-        st.markdown("### ✈️ Fleet Distribution")
-        for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
-    with col_g3:
-        st.markdown("### 👑 Busiest Airspaces (ATC)")
-        atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
-        for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
+    with tab4:
+        st.subheader("🛸 Live Anomaly Radar (X-Files)")
+        if anomalies: st.dataframe(anomalies, use_container_width=True)
+        else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
-with tab4:
-    st.subheader("🛸 Live Anomaly Radar (X-Files)")
-    if anomalies: st.dataframe(anomalies, use_container_width=True)
-    else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
-
-with tab5:
-    st.subheader("🚀 VatScore Strategic Development Roadmap")
-    st.markdown("""
-    <div class="roadmap-card">
-        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
-        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">
-            <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+    with tab5:
+        st.subheader("🚀 VatScore Strategic Development Roadmap")
+        st.markdown("""
+        <div class="roadmap-card">
+            <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
+            <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+            <div class="roadmap-desc">
+                <strong>Status:</strong> Completed — May 31, 2026<br>
+                Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+            </div>
         </div>
-    </div>
-    <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
-        <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
-        <div class="roadmap-desc">
-            <strong>Status:</strong> Active Development (June 2026)<br>
-            Focusing on operational depth and data accuracy. Key milestones include:
-            <ul>
-                <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
-                <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
-                <li><strong> Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
-            </ul>
+        <div class="roadmap-card in-progress">
+            <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
+            <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
+            <div class="roadmap-desc">
+                <strong>Status:</strong> Active Development (June 2026)<br>
+                Focusing on operational depth and data accuracy. Key milestones include:
+                <ul>
+                    <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
+                    <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
+                    <li><strong> Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
+                </ul>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
 if data:
     st.markdown("""
