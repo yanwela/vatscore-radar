@@ -24,10 +24,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Auto-refresh every 30 seconds so live VATSIM data and all tabs stay current.
-if hasattr(st, "autorefresh"):
-    st.autorefresh(interval=30000, limit=None, key="live_data_autorefresh")
-
 # CUSTOM CSS
 st.markdown("""
     <style>
@@ -355,7 +351,7 @@ if data:
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="System Status", value=st.session_state.last_sync_time)
+    with col_stat3: st.metric(label="Last Sync", value=f" {st.session_state.last_js_sync_time}")
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
