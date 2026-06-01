@@ -715,9 +715,9 @@ if data:
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
                     const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
                     
-                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
-                    // SENDS TEXT STRING INSTEAD
-                    Streamlit.setComponentValue(formattedTime);
+                    // Send unique SYNC_UPDATE signal so Python detects data refresh
+                    const syncSignal = "SYNC_UPDATE:" + formattedTime;
+                    Streamlit.setComponentValue(syncSignal);
                 }
 
                 function buildTable(pilotsList) {
@@ -887,9 +887,18 @@ if data:
             # --- CORRECTION: USE STREAMLIT NATIVE SAFARI WRAPPER VAL CAPTURING ---
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
-            # If the iframe returns data, ensure it is a string before matching
+            # If iframe returns SYNC_UPDATE signal, extract time and update state for all tabs
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                if iframe_output != st.session_state.last_sync_time:
+                if iframe_output.startswith("SYNC_UPDATE:"):
+                    # Extract and set sync time from iframe data update
+                    sync_time = iframe_output.replace("SYNC_UPDATE:", "").strip()
+                    st.session_state.last_sync_time = sync_time
+                    st.rerun()
+                elif iframe_output.startswith("LOCK:"):
+                    # Handle modal open commands
+                    st.session_state.active_popup = iframe_output.replace("LOCK:", "")
+                elif iframe_output and iframe_output != st.session_state.last_sync_time:
+                    # Fallback for any other time signals
                     st.session_state.last_sync_time = iframe_output
                     st.rerun()
             
