@@ -176,7 +176,6 @@ if is_admin_route:
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
         st.stop()
 
-@st.context.memo
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
