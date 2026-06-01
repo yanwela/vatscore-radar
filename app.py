@@ -4,7 +4,6 @@ import pandas as pd
 from collections import Counter
 from datetime import datetime
 import os
-from user_agents import parse
 import json
 
 # ==============================================================================
@@ -14,7 +13,8 @@ import json
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
-CSV_FILE_PATH = "airports.csv"  # CSV file for airports
+VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
+CSV_FILE_PATH = "airports.csv"
 
 # Page Configuration
 st.set_page_config(
@@ -84,18 +84,7 @@ init_log_file()
 
 def log_activity(action):
     try:
-        ua_string = st.context.headers.get("User-Agent", "")
-        user_agent = parse(ua_string)
-        os_name = f"{user_agent.os.family} {user_agent.os.version_string}"
-        browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
-        
-        if user_agent.is_mobile: device_type = "📱 Mobile"
-        elif user_agent.is_tablet: device_type = "Tablet"
-        elif user_agent.is_pc: device_type = "PC / Laptop"
-        else: device_type = "Bot/Unknown"
-        
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
         if "user_session_id" not in st.session_state:
             st.session_state.user_session_id = datetime.now().strftime('%H%M%S') + str(os.getpid())
             
@@ -108,7 +97,7 @@ def log_activity(action):
         else:
             new_row = pd.DataFrame([{
                 "Timestamp": timestamp, "Session_ID": session_id,
-                "OS": os_name, "Browser": browser_name, "Device_Type": device_type, "Last_Action": action
+                "OS": "Generic OS", "Browser": "Generic Browser", "Device_Type": "PC / Laptop", "Last_Action": action
             }])
             df = pd.concat([df, new_row], ignore_index=True)
             
@@ -183,13 +172,27 @@ def fetch_vatsim_data():
 
 @st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
+    """
+    Fetches the list from data.vatsim-radar.com/airlines and maps it 
+    into a high-performance key-value dictionary (ICAO -> Data)
+    to prevent JavaScript parsing failures or slow array loops.
+    """
+    airlines_map = {}
     try:
-        r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
+        r = requests.get(VATSIM_RADAR_AIRLINES_URL, timeout=10)
         if r.status_code == 200: 
-            return r.json()
+            raw_list = r.json()
+            if isinstance(raw_list, list):
+                for item in raw_list:
+                    icao_code = item.get("icao")
+                    if icao_code:
+                        airlines_map[icao_code.upper().strip()] = {
+                            "name": item.get("name", "Unknown Airline"),
+                            "callsign": item.get("callsign", "UNKNOWN")
+                        }
     except: 
         pass
-    return {}
+    return airlines_map
 
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
@@ -507,7 +510,7 @@ if data:
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Havayolu Adı - Callsign)</p>
+                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Airline Name - Callsign)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
@@ -594,6 +597,7 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
+                const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -659,19 +663,14 @@ if data:
 
                     if (!callsign) return;
                     
-                    // İlk 3 harfi çekmek için regex (Örn: SXS6TY -> SXS, THY123 -> THY)
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
                     if (cleanPrefix.length < 2) return;
-
-                    // Streamlit'ten enjekte edilen API datası
-                    const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
                         if (airlineData && airlineData.name && airlineData.callsign) {
-                            // Tam istediğin format: Havayolu Adı - Callsign (Örn: SunExpress - SUNEXPRESS)
                             callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
                         } else if (airlineData && airlineData.name) {
                             callsignField.innerText = airlineData.name + " - " + cleanPrefix;
