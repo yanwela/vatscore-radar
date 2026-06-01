@@ -389,9 +389,20 @@ if data:
     with top_col1:
         st.metric("🛫 Active Pilots", len(pilots))
     with top_col2:
-        st.metric("✈️ Aircraft Types", len(set([p.get('flight_plan', {}).get('aircraft', 'N/A') for p in pilots])))
+        aircraft_types_set = set()
+        for p in pilots:
+            fplan = p.get('flight_plan') or {}
+            aircraft = fplan.get('aircraft', 'N/A')
+            aircraft_types_set.add(aircraft)
+        st.metric("✈️ Aircraft Types", len(aircraft_types_set))
     with top_col3:
-        st.metric("🌍 Active Regions", len(set([p.get('flight_plan', {}).get('departure', '').split()[0] for p in pilots if p.get('flight_plan', {}).get('departure')])))
+        regions_set = set()
+        for p in pilots:
+            fplan = p.get('flight_plan') or {}
+            dep = fplan.get('departure', '').strip().upper()
+            if dep:
+                regions_set.add(dep.split()[0])
+        st.metric("🌍 Active Regions", len(regions_set))
     with top_col4:
         st.metric("⏰ System Status", st.session_state.last_sync_time)
     st.markdown("---")
