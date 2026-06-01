@@ -8,10 +8,7 @@ from user_agents import parse
 import json
 
 # ==============================================================================
-# VATSCORE ENGINE - CALLSIGN TELEPHONY SYSTEM
-# ==============================================================================
-# Callsign Telephony System: Automated via data.vatsim-radar.com API.
-# Geodesic Navigation Engine: Integrated via live airport dataset.
+# VATSCORE ENGINE - PREMIUM AIRLINE IDENTIFIER SYSTEM
 # ==============================================================================
 
 # API URLs
@@ -510,7 +507,7 @@ if data:
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">🎙️ Telephony (Telsiz Çağrı Adı)</p>
+                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Havayolu Adı - Callsign)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
@@ -556,7 +553,7 @@ if data:
                     display: flex;
                     align-items: center;
                 }
-                .telephony-text { font-size: 16px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
+                .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
 
                 #sync-notification {
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
@@ -662,20 +659,22 @@ if data:
 
                     if (!callsign) return;
                     
-                    // Harfleri ayıklıyoruz (Örn: THY123 -> THY)
+                    // İlk 3 harfi çekmek için regex (Örn: SXS6TY -> SXS, THY123 -> THY)
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
                     if (cleanPrefix.length < 2) return;
 
+                    // Streamlit'ten enjekte edilen API datası
                     const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
-                    // API'den gelen veride tam eşleşme kontrolü ve .callsign alanının çekilmesi
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
-                        if (airlineData && airlineData.callsign) {
-                            // Telsiz Telaffuzunu (Örn: TURKISH, EMIRATES) doğrudan ekrana basıyoruz
-                            callsignField.innerText = airlineData.callsign.toUpperCase();
+                        if (airlineData && airlineData.name && airlineData.callsign) {
+                            // Tam istediğin format: Havayolu Adı - Callsign (Örn: SunExpress - SUNEXPRESS)
+                            callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
+                        } else if (airlineData && airlineData.name) {
+                            callsignField.innerText = airlineData.name + " - " + cleanPrefix;
                         } else {
                             callsignField.innerText = cleanPrefix;
                         }
