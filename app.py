@@ -7,10 +7,6 @@ import os
 from user_agents import parse
 import json
 
-# ==============================================================================
-# VATSCORE ENGINE - PREMIUM AIRLINE IDENTIFIER SYSTEM
-# ==============================================================================
-
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
@@ -212,6 +208,7 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
+# FIXED: Replaced faulty @st.context.memo with standard @st.cache_data
 @st.cache_data
 def load_csv_database():
     if os.path.exists(CSV_FILE_PATH):
@@ -468,14 +465,14 @@ if data:
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
-                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                                <span id="popRulesBadge" class="rules-badge">IFR</span>
+                            </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <div style="display: flex; align-items: center; gap: 12px; margin-top: 0; margin-bottom: 14px;">
-                                <h4 id="popCallsign" style="color:#3b82f6; margin: 0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
-                                <span id="popRulesBadge" class="rules-badge">IFR</span>
-                            </div>
+                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
                             <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
@@ -489,7 +486,7 @@ if data:
                             </div>
                             <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:13px; color:#3b82f6; font-family:monospace; font-weight:bold;">
                                 <span id="progressCalculatedText">Distance Tracking Active</span>
-                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM / 0 NM Flown (0%)</span>
+                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM (0%) / Total 0 NM</span>
                             </div>
 
                             <div class="v-grid">
@@ -548,23 +545,20 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                /* Premium Dynamic Rules Badge Styles */
+                /* NEW: Premium Rules Badge CSS Layout */
                 .rules-badge {
                     font-size: 11px;
-                    font-weight: bold;
-                    font-family: sans-serif;
-                    padding: 3px 8px;
+                    font-weight: 800;
+                    padding: 3px 10px;
                     border-radius: 4px;
                     text-transform: uppercase;
-                    border: 1px solid #22c55e50;
-                    background-color: #14241c;
-                    color: #22c55e;
+                    letter-spacing: 0.5px;
+                    font-family: monospace;
+                    display: inline-block;
                 }
-                .rules-badge.vfr-style {
-                    border: 1px solid #3b82f650;
-                    background-color: #141b24;
-                    color: #3b82f6;
-                }
+                .badge-ifr { background-color: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.4); }
+                .badge-vfr { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); }
+                .badge-unknown { background-color: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
                 .telephony-premium-box {
                     background-color: #141724;
@@ -660,7 +654,9 @@ if data:
 
                     fillBar.style.width = pct + "%";
                     planeIcon.style.left = pct + "%";
-                    txtBox.innerText = flownNM + " NM / " + totalNM + " NM Flown (" + pct + "%)";
+                    
+                    // FIXED: Reordered layout per requested sleek specification
+                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM";
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
@@ -713,7 +709,7 @@ if data:
                         const arr = (fplan.arrival || "").trim().toUpperCase();
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
-                        const flightRules = fplan.flight_rules || "I";
+                        const rules = fplan.flight_rules || "I"; // Get flight rules string
                         
                         const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         let isPhysHere = false;
@@ -747,7 +743,7 @@ if data:
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
-                                rules: flightRules
+                                rules: rules // Bind flight rules locally
                             };
 
                             const tr = document.createElement("tr");
@@ -773,8 +769,7 @@ if data:
 
                     currentlyOpenCallsign = callsign;
 
-                    // Hem başlığı koruyoruz hem de Callsign'ı doğru yere yazdırıyoruz
-                    document.getElementById("popCallsign").innerText = "Target Profile: " + callsign;
+                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popCombinedRating").innerText = p.combined_rating;
@@ -789,14 +784,19 @@ if data:
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
 
-                    // VFR/IFR Rozetinin dinamik yönetimi
+                    // NEW: Dynamic UI injection for the header rules badge
                     const badge = document.getElementById("popRulesBadge");
-                    if (p.rules === "V" || p.rules === "VFR") {
-                        badge.innerText = "VFR";
-                        badge.className = "rules-badge vfr-style";
-                    } else {
+                    badge.className = "rules-badge"; // reset classes
+                    
+                    if (p.rules === "I") {
                         badge.innerText = "IFR";
-                        badge.className = "rules-badge";
+                        badge.classList.add("badge-ifr");
+                    } else if (p.rules === "V") {
+                        badge.innerText = "VFR";
+                        badge.classList.add("badge-vfr");
+                    } else {
+                        badge.innerText = p.rules;
+                        badge.classList.add("badge-unknown");
                     }
 
                     updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
