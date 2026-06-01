@@ -715,15 +715,30 @@ if data:
                 }
 
                 function sendTimeToStreamlitBackend() {
-                    const now = new Date();
-                    const hours = String(now.getUTCHours()).padStart(2, '0');
-                    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-                    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                    const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
-                    
-                    // Send SYNC_UPDATE signal so other tabs detect data refresh
-                    const syncSignal = "SYNC_UPDATE:" + formattedTime;
-                    Streamlit.setComponentValue(syncSignal);
+                    try {
+                        const now = new Date();
+                        const hours = String(now.getUTCHours()).padStart(2, '0');
+                        const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+                        const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+                        const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
+                        
+                        // Send SYNC_UPDATE signal so other tabs detect data refresh
+                        const syncSignal = "SYNC_UPDATE:" + formattedTime;
+                        
+                        // Try Streamlit if available
+                        if (typeof Streamlit !== 'undefined' && Streamlit.setComponentValue) {
+                            Streamlit.setComponentValue(syncSignal);
+                        } else {
+                            // Fallback: direct postMessage to parent
+                            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: syncSignal }, '*');
+                        }
+                    } catch(e) {
+                        console.error("sendTimeToStreamlitBackend error:", e);
+                        // Last resort: try postMessage anyway
+                        try {
+                            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: 'SYNC_UPDATE:' + new Date().toUTCString() }, '*');
+                        } catch(e2) { }
+                    }
                 }
 
                 function buildTable(pilotsList) {
@@ -855,6 +870,35 @@ if data:
                 // INJECT STREAMLIT COMPONENT LIBS
                 const scriptStreamlit = document.createElement('script');
                 scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
+                
+                // Wait for Streamlit to load, then start intervals
+                scriptStreamlit.onload = function() {
+                    console.log("Streamlit component lib loaded");
+                    setInterval(() => {
+                        const el = document.getElementById("signal-receiver");
+                        const currentSig = el.getAttribute("data-sig");
+                        if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
+                            updateData();
+                        }
+                        window.lastKnownSig = currentSig;
+                    }, 500);
+                    setInterval(updateData, 30000);
+                };
+                
+                scriptStreamlit.onerror = function() {
+                    console.warn("Streamlit component lib failed to load, using fallback");
+                    // Still start intervals even if lib fails
+                    setInterval(() => {
+                        const el = document.getElementById("signal-receiver");
+                        const currentSig = el.getAttribute("data-sig");
+                        if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
+                            updateData();
+                        }
+                        window.lastKnownSig = currentSig;
+                    }, 500);
+                    setInterval(updateData, 30000);
+                };
+                
                 document.head.appendChild(scriptStreamlit);
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
@@ -863,17 +907,6 @@ if data:
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
-
-                setInterval(() => {
-                    const el = document.getElementById("signal-receiver");
-                    const currentSig = el.getAttribute("data-sig");
-                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData();
-                    }
-                    window.lastKnownSig = currentSig;
-                }, 500);
-
-                setInterval(updateData, 30000);
             </script>
             """
             
