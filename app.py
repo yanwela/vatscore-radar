@@ -927,19 +927,20 @@ with tab5:
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
     <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress</div>
-        <div class="roadmap-title">📢 Automated API Telephony Integration & Trajectory Tracking</div>
+        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "BABYBUS"</div>
+        <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Active Development (June 2026)<br>
-            Aviation telemetry and dynamic DOM updates development track. Currently working on:
+            Focusing on operational depth and data accuracy. Key milestones include:
             <ul>
-                <li><strong>Dynamic Telephony Engine:</strong> Testing the asynchronous ICAO-to-Callsign API parsing matcher inside the DOM (e.g., matching UAE string to EMIRATES).</li>
-                <li><strong>Haversine Flight Trajectory:</strong> Fine-tuning distance metrics progress tracking and visual icon alignment inside the modal wrapper.</li>
-                <li><strong>UI State Lock:</strong> Resolving refresh conflicts to guarantee telemetry modals do not dismiss abruptly during data updates.</li>
+                <li><strong>✅ Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
+                <li><strong>✅ Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
+                <li><strong>🔄 Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
+                <li><strong>⏳ Pro-Tier Filters:</strong> Development pending for global airline code isolation and persistent VIP watchlist systems.[cite: 1]</li>
             </ul>
         </div>
     </div>
