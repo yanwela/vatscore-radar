@@ -4,17 +4,13 @@ import pandas as pd
 from collections import Counter
 from datetime import datetime
 import os
+from user_agents import parse
 import json
-
-# ==============================================================================
-# VATSCORE ENGINE - PREMIUM AIRLINE IDENTIFIER SYSTEM
-# ==============================================================================
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
-VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
-CSV_FILE_PATH = "airports.csv"
+CSV_FILE_PATH = "airports.csv"  # CSV file for airports
 
 # Page Configuration
 st.set_page_config(
@@ -76,7 +72,6 @@ LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
 
 def init_log_file():
-    """Initializes the activity log file with a standardized schema if it does not exist."""
     if not os.path.exists(LOG_FILE):
         df = pd.DataFrame(columns=["Timestamp", "Session_ID", "OS", "Browser", "Device_Type", "Last_Action"])
         df.to_csv(LOG_FILE, index=False)
@@ -84,9 +79,19 @@ def init_log_file():
 init_log_file()
 
 def log_activity(action):
-    """Tracks and updates user session actions into the security logging file."""
     try:
+        ua_string = st.context.headers.get("User-Agent", "")
+        user_agent = parse(ua_string)
+        os_name = f"{user_agent.os.family} {user_agent.os.version_string}"
+        browser_name = f"{user_agent.browser.family} {user_agent.browser.version_string}"
+        
+        if user_agent.is_mobile: device_type = "📱 Mobile"
+        elif user_agent.is_tablet: device_type = "Tablet"
+        elif user_agent.is_pc: device_type = "PC / Laptop"
+        else: device_type = "Bot/Unknown"
+        
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         if "user_session_id" not in st.session_state:
             st.session_state.user_session_id = datetime.now().strftime('%H%M%S') + str(os.getpid())
             
@@ -99,7 +104,7 @@ def log_activity(action):
         else:
             new_row = pd.DataFrame([{
                 "Timestamp": timestamp, "Session_ID": session_id,
-                "OS": "Generic OS", "Browser": "Generic Browser", "Device_Type": "PC / Laptop", "Last_Action": action
+                "OS": os_name, "Browser": browser_name, "Device_Type": device_type, "Last_Action": action
             }])
             df = pd.concat([df, new_row], ignore_index=True)
             
@@ -166,7 +171,6 @@ if is_admin_route:
 
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
-    """Fetches real-time worldwide flight and controller JSON feeds from standard VATSIM production servers."""
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
         if r.status_code == 200: return r.json()
@@ -175,31 +179,16 @@ def fetch_vatsim_data():
 
 @st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
-    """
-    Fetches the global airline database from data.vatsim-radar.com/airlines
-    and maps it into a high-performance key-value object (ICAO -> Data)
-    to prevent JavaScript parsing failures or suboptimal client-side loop routines.
-    """
-    airlines_map = {}
     try:
-        r = requests.get(VATSIM_RADAR_AIRLINES_URL, timeout=10)
+        r = requests.get("https://data.vatsim-radar.com/airlines", timeout=10)
         if r.status_code == 200: 
-            raw_list = r.json()
-            if isinstance(raw_list, list):
-                for item in raw_list:
-                    icao_code = item.get("icao")
-                    if icao_code:
-                        airlines_map[icao_code.upper().strip()] = {
-                            "name": item.get("name", "Unknown Airline"),
-                            "callsign": item.get("callsign", "UNKNOWN")
-                        }
+            return r.json()
     except: 
         pass
-    return airlines_map
+    return {}
 
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
-    """Builds a comprehensive dictionary mapping regional prefixes to their official FIR airspace names."""
     fir_dict = {}
     try:
         response = requests.get(VATSIM_FIR_GEO_URL, timeout=10)
@@ -219,9 +208,9 @@ def load_global_fir_dictionary():
         if k not in fir_dict: fir_dict[k] = v
     return fir_dict
 
+# FIXED: Replaced faulty @st.context.memo with standard @st.cache_data
 @st.cache_data
 def load_csv_database():
-    """Loads localized airport geographical coordinates from the project csv data file."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -248,7 +237,6 @@ def load_csv_database():
     return {}
 
 def get_coordinates_from_library(pilots_list):
-    """Generates an explicit bounding dictionary containing geographical coordinates for active airports."""
     coords_map = {}
     csv_db = load_csv_database()
     
@@ -286,7 +274,6 @@ def get_coordinates_from_library(pilots_list):
     return coords_map
 
 def classify_aircraft(ac_type, callsign):
-    """Classifies live radar objects into tactical, commercial, general aviation, or corporate operations."""
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
     
@@ -452,24 +439,24 @@ if data:
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
-            doc_fir = pd.DataFrame(fir_pilots)
+            df_fir = pd.DataFrame(fir_pilots)
             with chart_expander:
                 c_col1, c_col2 = st.columns(2)
                 with c_col1:
                     st.markdown("##### 📈 FIR Altitude Profiles (FT)")
-                    df_alt_chart = doc_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
+                    df_alt_chart = df_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
                     st.bar_chart(df_alt_chart, y='Altitude (FT)', color='#3b82f6')
                 with c_col2:
                     st.markdown("##### ⚡ FIR Groundspeed Profiles (KT)")
-                    df_spd_chart = doc_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
+                    df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
-            active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
-            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
+            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -478,7 +465,10 @@ if data:
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
-                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                                <span id="popRulesBadge" class="rules-badge">IFR</span>
+                            </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
@@ -496,7 +486,7 @@ if data:
                             </div>
                             <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:13px; color:#3b82f6; font-family:monospace; font-weight:bold;">
                                 <span id="progressCalculatedText">Distance Tracking Active</span>
-                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM (0%) / Total 0 NM Flown</span>
+                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM (0%) / Total 0 NM</span>
                             </div>
 
                             <div class="v-grid">
@@ -517,7 +507,7 @@ if data:
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Airline Name - Callsign)</p>
+                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Havayolu Adı - Callsign)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
@@ -554,6 +544,21 @@ if data:
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
+
+                /* NEW: Premium Rules Badge CSS Layout */
+                .rules-badge {
+                    font-size: 11px;
+                    font-weight: 800;
+                    padding: 3px 10px;
+                    border-radius: 4px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    font-family: monospace;
+                    display: inline-block;
+                }
+                .badge-ifr { background-color: rgba(59, 130, 246, 0.2); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.4); }
+                .badge-vfr { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4); }
+                .badge-unknown { background-color: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
                 .telephony-premium-box {
                     background-color: #141724;
@@ -604,7 +609,6 @@ if data:
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
-                const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -651,7 +655,7 @@ if data:
                     fillBar.style.width = pct + "%";
                     planeIcon.style.left = pct + "%";
                     
-                    // Upgraded premium sleek text formatting system
+                    // FIXED: Reordered layout per requested sleek specification
                     txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM";
                 }
 
@@ -676,6 +680,8 @@ if data:
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
                     
                     if (cleanPrefix.length < 2) return;
+
+                    const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
                         let airlineData = localAirlinesDb[cleanPrefix];
@@ -703,6 +709,7 @@ if data:
                         const arr = (fplan.arrival || "").trim().toUpperCase();
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
+                        const rules = fplan.flight_rules || "I"; // Get flight rules string
                         
                         const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         let isPhysHere = false;
@@ -735,7 +742,8 @@ if data:
                                 voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
-                                heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0
+                                heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
+                                rules: rules // Bind flight rules locally
                             };
 
                             const tr = document.createElement("tr");
@@ -775,6 +783,21 @@ if data:
 
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
+
+                    // NEW: Dynamic UI injection for the header rules badge
+                    const badge = document.getElementById("popRulesBadge");
+                    badge.className = "rules-badge"; // reset classes
+                    
+                    if (p.rules === "I") {
+                        badge.innerText = "IFR";
+                        badge.classList.add("badge-ifr");
+                    } else if (p.rules === "V") {
+                        badge.innerText = "VFR";
+                        badge.classList.add("badge-vfr");
+                    } else {
+                        badge.innerText = p.rules;
+                        badge.classList.add("badge-unknown");
+                    }
 
                     updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
                     fetchAirlineCompany(callsign);
@@ -842,7 +865,7 @@ if data:
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            csv = doc_fir.to_csv(index=False).encode('utf-8')
+            csv = df_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found for this region prefix right now.")
