@@ -359,7 +359,7 @@ if data:
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="Last Network Sync", value=datetime.now().strftime('%H:%M:%S UTC'))
+    with col_stat3: st.metric(label="System Status", value="🟢 ONLINE // JS SYNC ACTIVE")
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
@@ -417,7 +417,7 @@ if data:
             dep = fplan.get("departure", "").strip().upper()
             arr = fplan.get("arrival", "").strip().upper()
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
-            flight_rules = fplan.get("flight_rules", "I") # Fallback to IFR if not provided
+            flight_rules = fplan.get("flight_rules", "I")
 
             if dep: dep_airports.append(dep)
             if arr: arr_airports.append(arr)
@@ -477,10 +477,14 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-
-            # --- CUSTOM FRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
             raw_html_template = """
             <div id="vatscore-custom-container">
+                <div class="sync-container">
+                    <span class="sync-label">📡 Last Network Sync:</span>
+                    <span id="js-sync-time" class="sync-time">Syncing data...</span>
+                </div>
+
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
                 <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
@@ -489,14 +493,12 @@ if data:
                         <div class="v-modal-header">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
                             </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <div style="display: flex; align-items: center; gap: 12px; margin-top:0; margin-bottom:12px;">
-                                <h4 id="popCallsign" style="color:#3b82f6; margin:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
-                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
-                            </div>
+                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
                             <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
@@ -556,6 +558,9 @@ if data:
 
             <style>
                 #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
+                .sync-container { background: #1e293b; padding: 6px 14px; border-radius: 6px; display: inline-block; margin-bottom: 15px; border: 1px solid #334155; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+                .sync-label { color: #94a3b8; font-size: 13px; font-weight: 500; }
+                .sync-time { color: #38bdf8; font-size: 13px; font-weight: 700; margin-left: 6px; font-family: 'Courier New', Courier, monospace; }
                 .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
@@ -569,14 +574,7 @@ if data:
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
                 .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
 
-                .telephony-premium-box {
-                    background-color: #141724;
-                    border: 1px solid #1e293b;
-                    padding: 12px 16px;
-                    border-radius: 6px;
-                    display: flex;
-                    align-items: center;
-                }
+                .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
 
                 #sync-notification {
@@ -602,19 +600,7 @@ if data:
                 }
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
-                
-                /* Kutu tasarımı stabil bir premium yeşile çekildi */
-                .v-rules-badge { 
-                    background-color: #143a24; 
-                    color: #22c55e; 
-                    border: 1px solid #22c55e50; 
-                    padding: 3px 10px; 
-                    border-radius: 4px; 
-                    font-size: 13px; 
-                    font-weight: bold; 
-                    font-family: monospace;
-                    display: inline-block;
-                }
+                .v-rules-badge { background-color: #1d3531; color: #22c55e; border: 1px solid #22c55e40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
@@ -718,6 +704,14 @@ if data:
                     }
                 }
 
+                function refreshSyncClock() {
+                    const now = new Date();
+                    const hours = String(now.getUTCHours()).padStart(2, '0');
+                    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+                    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+                    document.getElementById("js-sync-time").innerText = hours + ":" + minutes + ":" + seconds + " UTC";
+                }
+
                 function buildTable(pilotsList) {
                     const tbody = document.getElementById("table-body");
                     tbody.innerHTML = "";
@@ -793,7 +787,7 @@ if data:
 
                     currentlyOpenCallsign = callsign;
 
-                    document.getElementById("popCallsign").innerText = "Target Profile: " + callsign;
+                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popCombinedRating").innerText = p.combined_rating;
@@ -805,9 +799,17 @@ if data:
                     document.getElementById("popAirframe").innerText = p.airframe;
                     document.getElementById("popRoute").value = p.route;
 
-                    // Dinamik içerik ne gelirse gelsin kutu sabit yeşil stilini korur
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
+                    if (p.rules === "VFR") {
+                        badge.style.backgroundColor = "#143a24";
+                        badge.style.color = "#22c55e";
+                        badge.style.borderColor = "#22c55e40";
+                    } else {
+                        badge.style.backgroundColor = "#1d2e47";
+                        badge.style.color = "#3b82f6";
+                        badge.style.borderColor = "#3b82f640";
+                    }
 
                     document.getElementById("progressDeparture").innerText = p.origin;
                     document.getElementById("progressArrival").innerText = p.destination;
@@ -835,6 +837,7 @@ if data:
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
+                            refreshSyncClock();
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
@@ -845,6 +848,7 @@ if data:
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
+                refreshSyncClock();
 
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
@@ -876,7 +880,7 @@ if data:
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
+            st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
@@ -927,7 +931,7 @@ with tab5:
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
     <div class="roadmap-card in-progress">
