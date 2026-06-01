@@ -173,14 +173,14 @@ if is_admin_route:
             btn_c1, btn_c2 = st.columns([0.8, 0.2])
             with btn_c1: st.subheader("👥 Live Session Logs")
             with btn_c2:
-                if st.button("🗑️ Wipe Logs", use_container_width=True):
+                if st.button("🗑️ Wipe Logs", use_container_width=False):
                     os.remove(LOG_FILE)
                     init_log_file()
                     st.rerun()
                     
             df_display = df_logs.sort_values(by="Timestamp", ascending=False).copy()
             df_display['Timestamp'] = df_display['Timestamp'].dt.strftime('%H:%M:%S || %Y-%m-%d')
-            st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
+            st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], width='stretch')
         st.stop()
 
 @st.cache_data(ttl=30)
@@ -316,13 +316,13 @@ def classify_aircraft(ac_type, callsign):
 
 # --- LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
 if "last_sync_time" not in st.session_state:
-    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+    st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
 
 if "last_sync_check" not in st.session_state:
-    st.session_state.last_sync_check = datetime.utcnow()
+    st.session_state.last_sync_check = datetime.now(datetime.timezone.utc)
 
 # Auto-update every 30 seconds on Python side
-current_time = datetime.utcnow()
+current_time = datetime.now(datetime.timezone.utc)
 if (current_time - st.session_state.last_sync_check).total_seconds() >= 30:
     st.session_state.last_sync_time = current_time.strftime('%H:%M:%S Z')
     st.session_state.last_sync_check = current_time
@@ -333,13 +333,13 @@ data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
 # Update last sync timestamp on every run (attempted fetch time)
-st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
 
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
 if data:
-    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+    st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
@@ -356,7 +356,7 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
-            st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
+            st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
             st.rerun()
     
     with emoji_col:
@@ -904,8 +904,12 @@ if data:
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            # --- CORRECTION: USE STREAMLIT NATIVE SAFARI WRAPPER VAL CAPTURING ---
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            # --- USE st.html() FOR DYNAMIC HTML RENDERING ---
+            if hasattr(st, 'html'):
+                iframe_output = st.html(html_table_and_modal_code)
+            else:
+                # Fallback for older Streamlit versions
+                iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             # If iframe returns SYNC_UPDATE signal, extract time and update state for all tabs
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
@@ -960,7 +964,7 @@ with tab3:
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar (X-Files)")
-    if anomalies: st.dataframe(anomalies, use_container_width=True)
+    if anomalies: st.dataframe(anomalies, width='stretch')
     else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
 with tab5:
