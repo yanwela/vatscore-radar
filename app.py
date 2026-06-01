@@ -6,6 +6,10 @@ from datetime import datetime
 import os
 import json
 
+# ==============================================================================
+# VATSCORE ENGINE - PREMIUM AIRLINE IDENTIFIER SYSTEM
+# ==============================================================================
+
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
@@ -72,6 +76,7 @@ LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
 
 def init_log_file():
+    """Initializes the activity log file with a standardized schema if it does not exist."""
     if not os.path.exists(LOG_FILE):
         df = pd.DataFrame(columns=["Timestamp", "Session_ID", "OS", "Browser", "Device_Type", "Last_Action"])
         df.to_csv(LOG_FILE, index=False)
@@ -79,6 +84,7 @@ def init_log_file():
 init_log_file()
 
 def log_activity(action):
+    """Tracks and updates user session actions into the security logging file."""
     try:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if "user_session_id" not in st.session_state:
@@ -160,6 +166,7 @@ if is_admin_route:
 
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
+    """Fetches real-time worldwide flight and controller JSON feeds from standard VATSIM production servers."""
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
         if r.status_code == 200: return r.json()
@@ -169,9 +176,9 @@ def fetch_vatsim_data():
 @st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
     """
-    Fetches the list from data.vatsim-radar.com/airlines and maps it 
-    into a high-performance key-value dictionary (ICAO -> Data)
-    to prevent JavaScript parsing failures or slow array loops.
+    Fetches the global airline database from data.vatsim-radar.com/airlines
+    and maps it into a high-performance key-value object (ICAO -> Data)
+    to prevent JavaScript parsing failures or suboptimal client-side loop routines.
     """
     airlines_map = {}
     try:
@@ -192,6 +199,7 @@ def load_vatsim_radar_airlines():
 
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
+    """Builds a comprehensive dictionary mapping regional prefixes to their official FIR airspace names."""
     fir_dict = {}
     try:
         response = requests.get(VATSIM_FIR_GEO_URL, timeout=10)
@@ -213,6 +221,7 @@ def load_global_fir_dictionary():
 
 @st.cache_data
 def load_csv_database():
+    """Loads localized airport geographical coordinates from the project csv data file."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -239,6 +248,7 @@ def load_csv_database():
     return {}
 
 def get_coordinates_from_library(pilots_list):
+    """Generates an explicit bounding dictionary containing geographical coordinates for active airports."""
     coords_map = {}
     csv_db = load_csv_database()
     
@@ -276,6 +286,7 @@ def get_coordinates_from_library(pilots_list):
     return coords_map
 
 def classify_aircraft(ac_type, callsign):
+    """Classifies live radar objects into tactical, commercial, general aviation, or corporate operations."""
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
     
@@ -441,24 +452,24 @@ if data:
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
         if fir_pilots:
-            df_fir = pd.DataFrame(fir_pilots)
+            doc_fir = pd.DataFrame(fir_pilots)
             with chart_expander:
                 c_col1, c_col2 = st.columns(2)
                 with c_col1:
                     st.markdown("##### 📈 FIR Altitude Profiles (FT)")
-                    df_alt_chart = df_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
+                    df_alt_chart = doc_fir[['Callsign', 'Altitude (FT)']].copy().set_index('Callsign')
                     st.bar_chart(df_alt_chart, y='Altitude (FT)', color='#3b82f6')
                 with c_col2:
                     st.markdown("##### ⚡ FIR Groundspeed Profiles (KT)")
-                    df_spd_chart = df_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
+                    df_spd_chart = doc_fir[['Callsign', 'Speed (KT)']].copy().set_index('Callsign')
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
-            active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in df_fir.columns]
-            st.info(f"Showing {len(df_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
+            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -485,7 +496,7 @@ if data:
                             </div>
                             <div style="display:flex; justify-content:space-between; margin-top:4px; margin-bottom:14px; font-size:13px; color:#3b82f6; font-family:monospace; font-weight:bold;">
                                 <span id="progressCalculatedText">Distance Tracking Active</span>
-                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM / 0 NM Flown (0%)</span>
+                                <span id="progressPercentageText" style="margin-left:auto; color:#22c55e;">0 NM (0%) / Total 0 NM Flown</span>
                             </div>
 
                             <div class="v-grid">
@@ -639,7 +650,9 @@ if data:
 
                     fillBar.style.width = pct + "%";
                     planeIcon.style.left = pct + "%";
-                    txtBox.innerText = flownNM + " NM / " + totalNM + " NM Flown (" + pct + "%)";
+                    
+                    // Upgraded premium sleek text formatting system
+                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM Flown";
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
@@ -829,7 +842,7 @@ if data:
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            csv = df_fir.to_csv(index=False).encode('utf-8')
+            csv = doc_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found for this region prefix right now.")
