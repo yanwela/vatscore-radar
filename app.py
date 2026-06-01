@@ -76,7 +76,6 @@ LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
 
 def init_log_file():
-    """Initializes the activity log file with a standardized schema if it does not exist."""
     if not os.path.exists(LOG_FILE):
         df = pd.DataFrame(columns=["Timestamp", "Session_ID", "OS", "Browser", "Device_Type", "Last_Action"])
         df.to_csv(LOG_FILE, index=False)
@@ -84,7 +83,6 @@ def init_log_file():
 init_log_file()
 
 def log_activity(action):
-    """Tracks and updates user session actions into the security logging file."""
     try:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if "user_session_id" not in st.session_state:
@@ -166,7 +164,6 @@ if is_admin_route:
 
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
-    """Fetches real-time worldwide flight and controller JSON feeds from standard VATSIM production servers."""
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
         if r.status_code == 200: return r.json()
@@ -175,11 +172,6 @@ def fetch_vatsim_data():
 
 @st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
-    """
-    Fetches the global airline database from data.vatsim-radar.com/airlines
-    and maps it into a high-performance key-value object (ICAO -> Data)
-    to prevent JavaScript parsing failures or suboptimal client-side loop routines.
-    """
     airlines_map = {}
     try:
         r = requests.get(VATSIM_RADAR_AIRLINES_URL, timeout=10)
@@ -193,13 +185,11 @@ def load_vatsim_radar_airlines():
                             "name": item.get("name", "Unknown Airline"),
                             "callsign": item.get("callsign", "UNKNOWN")
                         }
-    except: 
-        pass
+    except: pass
     return airlines_map
 
 @st.cache_data(ttl=3600)
 def load_global_fir_dictionary():
-    """Builds a comprehensive dictionary mapping regional prefixes to their official FIR airspace names."""
     fir_dict = {}
     try:
         response = requests.get(VATSIM_FIR_GEO_URL, timeout=10)
@@ -221,7 +211,6 @@ def load_global_fir_dictionary():
 
 @st.cache_data
 def load_csv_database():
-    """Loads localized airport geographical coordinates from the project csv data file."""
     if os.path.exists(CSV_FILE_PATH):
         try:
             df = pd.read_csv(CSV_FILE_PATH)
@@ -243,12 +232,10 @@ def load_csv_database():
                     "longitude": float(row[lon_col])
                 }
             return res_dict
-        except:
-            pass
+        except: pass
     return {}
 
 def get_coordinates_from_library(pilots_list):
-    """Generates an explicit bounding dictionary containing geographical coordinates for active airports."""
     coords_map = {}
     csv_db = load_csv_database()
     
@@ -286,7 +273,6 @@ def get_coordinates_from_library(pilots_list):
     return coords_map
 
 def classify_aircraft(ac_type, callsign):
-    """Classifies live radar objects into tactical, commercial, general aviation, or corporate operations."""
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
     
@@ -306,6 +292,10 @@ def classify_aircraft(ac_type, callsign):
     if ac_type in biz_jets: return "💼 Business Jet"
         
     return "✈️ Commercial"
+
+# --- JS LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
+if "last_js_sync_time" not in st.session_state:
+    st.session_state.last_js_sync_time = datetime.now().strftime('%H:%M:%S UTC')
 
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
@@ -330,6 +320,7 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
+            st.session_state.last_js_sync_time = datetime.now().strftime('%H:%M:%S UTC')
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -356,10 +347,11 @@ if data:
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
+    # --- INJECTING DYNAMIC REFRESHED CLOCK INTO THE GREEN SYSTEM METRIC ---
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="System Status", value="🟢 ONLINE // JS SYNC ACTIVE")
+    with col_stat3: st.metric(label="System Status", value=f"🟢 ONLINE // {st.session_state.last_js_sync_time}")
 
     fir_pilots = []
     dep_airports, arr_airports, aircraft_types = [], [], []
@@ -406,6 +398,7 @@ if data:
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
 
+        # Hidden processing block to build charts & anomalies
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -477,14 +470,10 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE WITH PREMIUM EMBEDDED NOTIFIERS ---
+            # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <div class="sync-container">
-                    <span class="sync-label">📡 Last Network Sync:</span>
-                    <span id="js-sync-time" class="sync-time">Syncing data...</span>
-                </div>
-
+                <!-- THE SYNC LOGO REMOVED FROM HERE AS PER REQUEST -->
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
                 <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
@@ -558,10 +547,7 @@ if data:
 
             <style>
                 #vatscore-custom-container { font-family: 'Segoe UI', sans-serif; background-color: #0f111a; color: #f8fafc; }
-                .sync-container { background: #1e293b; padding: 6px 14px; border-radius: 6px; display: inline-block; margin-bottom: 15px; border: 1px solid #334155; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-                .sync-label { color: #94a3b8; font-size: 13px; font-weight: 500; }
-                .sync-time { color: #38bdf8; font-size: 13px; font-weight: 700; margin-left: 6px; font-family: 'Courier New', Courier, monospace; }
-                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; }
+                .table-responsive { width: 100%; overflow-x: auto; border: 1px solid #1e293b; border-radius: 8px; background-color: #11131f; margin-top: 5px; }
                 .radar-html-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
                 .radar-html-table th { background-color: #1e293b; color: #94a3b8; padding: 12px 16px; font-weight: 600; }
                 .radar-html-table tr { border-bottom: 1px solid #1e293b; transition: background-color 0.2s ease; cursor: pointer; }
@@ -581,7 +567,7 @@ if data:
                     position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
                     color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
                     font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: block;
                     animation: pulse-blue 1.5s infinite ease-in-out;
                 }
                 @keyframes pulse-blue {
@@ -682,12 +668,9 @@ if data:
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
-
                     if (!callsign) return;
-                    
                     let matches = callsign.match(/^[A-Z]+/i);
                     let cleanPrefix = matches ? matches[0].toUpperCase() : "";
-                    
                     if (cleanPrefix.length < 2) return;
                     
                     if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
@@ -696,20 +679,22 @@ if data:
                             callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
                         } else if (airlineData && airlineData.name) {
                             callsignField.innerText = airlineData.name + " - " + cleanPrefix;
-                        } else {
-                            callsignField.innerText = cleanPrefix;
-                        }
-                    } else {
-                        callsignField.innerText = cleanPrefix;
-                    }
+                        } else { callsignField.innerText = cleanPrefix; }
+                    } else { callsignField.innerText = cleanPrefix; }
                 }
 
-                function refreshSyncClock() {
+                function sendTimeToStreamlitBackend() {
                     const now = new Date();
                     const hours = String(now.getUTCHours()).padStart(2, '0');
                     const minutes = String(now.getUTCMinutes()).padStart(2, '0');
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                    document.getElementById("js-sync-time").innerText = hours + ":" + minutes + ":" + seconds + " UTC";
+                    const formattedTime = hours + ":" + minutes + ":" + seconds + " UTC";
+                    
+                    // PASSES THE NEW TIMESTAMP TO PARENT STREAMLIT ENGINE URL
+                    window.parent.postMessage({
+                        type: 'streamlit:set_component_value',
+                        value: formattedTime
+                    }, '*');
                 }
 
                 function buildTable(pilotsList) {
@@ -771,9 +756,7 @@ if data:
                                 const td = document.createElement("td");
                                 if (col === "Callsign") {
                                     td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
-                                } else {
-                                    td.innerText = rowData[col];
-                                }
+                                } else { td.innerText = rowData[col]; }
                                 tr.appendChild(td);
                             });
                             tbody.appendChild(tr);
@@ -784,7 +767,6 @@ if data:
                 function openDossier(callsign) {
                     const p = globalDossiers[callsign];
                     if (!p) return;
-
                     currentlyOpenCallsign = callsign;
 
                     document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
@@ -802,13 +784,9 @@ if data:
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
                     if (p.rules === "VFR") {
-                        badge.style.backgroundColor = "#143a24";
-                        badge.style.color = "#22c55e";
-                        badge.style.borderColor = "#22c55e40";
+                        badge.style.backgroundColor = "#143a24"; badge.style.color = "#22c55e"; badge.style.borderColor = "#22c55e40";
                     } else {
-                        badge.style.backgroundColor = "#1d2e47";
-                        badge.style.color = "#3b82f6";
-                        badge.style.borderColor = "#3b82f640";
+                        badge.style.backgroundColor = "#1d2e47"; badge.style.color = "#3b82f6"; badge.style.borderColor = "#3b82f640";
                     }
 
                     document.getElementById("progressDeparture").innerText = p.origin;
@@ -816,7 +794,6 @@ if data:
 
                     updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
                     fetchAirlineCompany(callsign);
-
                     document.getElementById("dossierModal").style.display = "block";
                 }
 
@@ -831,13 +808,14 @@ if data:
 
                 async function updateData() {
                     const notifier = document.getElementById("sync-notification");
+                    notifier.style.style.opacity = "1";
                     notifier.style.display = "block";
                     try {
                         const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
                         const data = await res.json();
                         if (data && data.pilots) {
                             buildTable(data.pilots);
-                            refreshSyncClock();
+                            sendTimeToStreamlitBackend(); // TRIGGERS CROSS-TAB PYTHON DATA UPDATES
                             if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
@@ -848,7 +826,6 @@ if data:
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
-                refreshSyncClock();
 
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
@@ -880,7 +857,12 @@ if data:
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
 
-            st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            # --- CROSS-TAB STATE CAPTURE & ASYNC STREAMLIT VARIABLE PASSING ---
+            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            
+            if iframe_output and iframe_output != st.session_state.last_js_sync_time:
+                st.session_state.last_js_sync_time = iframe_output
+                st.rerun() # SAFELY TRIGGERS EVERY OTHER TAB DATA TO RE-CALCULATE WITHOUT DISRUPTING JS MODAL LOCKS
             
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
