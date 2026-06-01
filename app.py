@@ -316,13 +316,13 @@ def classify_aircraft(ac_type, callsign):
 
 # --- LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
 if "last_sync_time" not in st.session_state:
-    st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
+    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 if "last_sync_check" not in st.session_state:
-    st.session_state.last_sync_check = datetime.now(datetime.timezone.utc)
+    st.session_state.last_sync_check = datetime.utcnow()
 
 # Auto-update every 30 seconds on Python side
-current_time = datetime.now(datetime.timezone.utc)
+current_time = datetime.utcnow()
 if (current_time - st.session_state.last_sync_check).total_seconds() >= 30:
     st.session_state.last_sync_time = current_time.strftime('%H:%M:%S Z')
     st.session_state.last_sync_check = current_time
@@ -333,13 +333,13 @@ data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
 # Update last sync timestamp on every run (attempted fetch time)
-st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
+st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
 if data:
-    st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
+    st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
     
@@ -356,7 +356,7 @@ if data:
         if refresh_clicked:
             fetch_vatsim_data.clear()
             st.session_state.iframe_signal += 1
-            st.session_state.last_sync_time = datetime.now(datetime.timezone.utc).strftime('%H:%M:%S Z')
+            st.session_state.last_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
             st.rerun()
     
     with emoji_col:
