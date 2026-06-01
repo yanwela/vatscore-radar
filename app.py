@@ -375,38 +375,6 @@ if data:
         st.session_state.active_popup = st.query_params["selected_callsign"]
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
-    
-    # Initialize cross-tab communication flags
-    if "fir_data_updated_at" not in st.session_state:
-        st.session_state.fir_data_updated_at = datetime.now()
-    if "last_sync_time" not in st.session_state:
-        now_utc = datetime.utcnow()
-        st.session_state.last_sync_time = f"{now_utc.strftime('%H:%M:%S')} Z"
-    
-    # ====== TOP METRICS SECTION ======
-    st.markdown("---")
-    top_col1, top_col2, top_col3, top_col4 = st.columns(4)
-    with top_col1:
-        st.metric("🛫 Active Pilots", len(pilots))
-    with top_col2:
-        aircraft_types_set = set()
-        for p in pilots:
-            fplan = p.get('flight_plan') or {}
-            aircraft = fplan.get('aircraft', 'N/A')
-            aircraft_types_set.add(aircraft)
-        st.metric("✈️ Aircraft Types", len(aircraft_types_set))
-    with top_col3:
-        regions_set = set()
-        for p in pilots:
-            fplan = p.get('flight_plan') or {}
-            dep = fplan.get('departure', '').strip().upper()
-            if dep:
-                regions_set.add(dep.split()[0])
-        st.metric("🌍 Active Regions", len(regions_set))
-    with top_col4:
-        st.metric("⏰ System Status", st.session_state.last_sync_time)
-    st.markdown("---")
-    # ====== END TOP METRICS ======
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
@@ -715,30 +683,15 @@ if data:
                 }
 
                 function sendTimeToStreamlitBackend() {
-                    try {
-                        const now = new Date();
-                        const hours = String(now.getUTCHours()).padStart(2, '0');
-                        const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-                        const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                        const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
-                        
-                        // Send SYNC_UPDATE signal so other tabs detect data refresh
-                        const syncSignal = "SYNC_UPDATE:" + formattedTime;
-                        
-                        // Try Streamlit if available
-                        if (typeof Streamlit !== 'undefined' && Streamlit.setComponentValue) {
-                            Streamlit.setComponentValue(syncSignal);
-                        } else {
-                            // Fallback: direct postMessage to parent
-                            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: syncSignal }, '*');
-                        }
-                    } catch(e) {
-                        console.error("sendTimeToStreamlitBackend error:", e);
-                        // Last resort: try postMessage anyway
-                        try {
-                            window.parent.postMessage({ type: 'streamlit:setComponentValue', value: 'SYNC_UPDATE:' + new Date().toUTCString() }, '*');
-                        } catch(e2) { }
-                    }
+                    const now = new Date();
+                    const hours = String(now.getUTCHours()).padStart(2, '0');
+                    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+                    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+                    const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
+                    
+                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
+                    // SENDS TEXT STRING INSTEAD
+                    Streamlit.setComponentValue(formattedTime);
                 }
 
                 function buildTable(pilotsList) {
@@ -870,35 +823,6 @@ if data:
                 // INJECT STREAMLIT COMPONENT LIBS
                 const scriptStreamlit = document.createElement('script');
                 scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
-                
-                // Wait for Streamlit to load, then start intervals
-                scriptStreamlit.onload = function() {
-                    console.log("Streamlit component lib loaded");
-                    setInterval(() => {
-                        const el = document.getElementById("signal-receiver");
-                        const currentSig = el.getAttribute("data-sig");
-                        if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                            updateData();
-                        }
-                        window.lastKnownSig = currentSig;
-                    }, 500);
-                    setInterval(updateData, 30000);
-                };
-                
-                scriptStreamlit.onerror = function() {
-                    console.warn("Streamlit component lib failed to load, using fallback");
-                    // Still start intervals even if lib fails
-                    setInterval(() => {
-                        const el = document.getElementById("signal-receiver");
-                        const currentSig = el.getAttribute("data-sig");
-                        if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                            updateData();
-                        }
-                        window.lastKnownSig = currentSig;
-                    }, 500);
-                    setInterval(updateData, 30000);
-                };
-                
                 document.head.appendChild(scriptStreamlit);
 
                 const initialData = INITIAL_DATA_PLACEHOLDER;
@@ -907,6 +831,17 @@ if data:
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
+
+                setInterval(() => {
+                    const el = document.getElementById("signal-receiver");
+                    const currentSig = el.getAttribute("data-sig");
+                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
+                        updateData();
+                    }
+                    window.lastKnownSig = currentSig;
+                }, 500);
+
+                setInterval(updateData, 30000);
             </script>
             """
             
@@ -928,17 +863,8 @@ if data:
             
             # If the iframe returns data, ensure it is a string before matching
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                # Check if this is a SYNC_UPDATE signal from iframe (data refresh)
-                if iframe_output.startswith("SYNC_UPDATE:"):
-                    # Extract time from signal
-                    sync_time = iframe_output.replace("SYNC_UPDATE:", "").strip()
-                    st.session_state.last_sync_time = sync_time
-                    # Mark that FIR data was just updated - send signal to other tabs
-                    st.session_state.fir_data_updated_at = datetime.now()
-                    st.rerun()
-                elif iframe_output != st.session_state.get("last_js_sync_time", ""):
+                if iframe_output != st.session_state.get("last_js_sync_time", ""):
                     st.session_state.last_js_sync_time = iframe_output
-                    st.session_state.fir_data_updated_at = datetime.now()
                     st.rerun()
             
             st.markdown("<br>", unsafe_allow_html=True)
