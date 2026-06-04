@@ -30,9 +30,9 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
-    div[data-testid="stDecoration"] {display: none;}
-    [data-testid="sidebarNav"] {display: none !important;}
-    div[data-testid="stSidebar"] {display: none !important;}
+    div[data-testid=\"stDecoration\"] {display: none;}
+    [data-testid=\"sidebarNav\"] {display: none !important;}
+    div[data-testid=\"stSidebar\"] {display: none !important;}
     .main { background-color: #0f111a; }
     h1 { color: #3b82f6; font-family: 'Segoe UI', sans-serif; }
     .stTabs [data-baseweb="tab"] { color: #94a3b8; font-size: 16px; }
@@ -302,6 +302,12 @@ global_fir_map = load_global_fir_dictionary()
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
 
+# Persistent Watchlist Session Initialization
+if "vip_cids" not in st.session_state:
+    st.session_state.vip_cids = ""
+if "vip_callsigns" not in st.session_state:
+    st.session_state.vip_callsigns = ""
+
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
@@ -385,12 +391,9 @@ if data:
             st.session_state.current_fir_prefix = new_prefix
             st.query_params["saved_fir"] = new_prefix
 
-        # --- CONFIGURATION TOGGLE FOR PLAN A / PLAN B (image_314b65.png Reference) ---
-        # Set to True for White marked area (Plan A). Set to False for Red vertical split (Plan B).
         USE_PLAN_A = True
 
         if USE_PLAN_A:
-            # Plan A: White marked placement - Sequential stacked vertical layout
             selected_option = st.selectbox(
                 "Choose Region/FIR Focus:", 
                 options=fir_options, 
@@ -406,7 +409,6 @@ if data:
                 key="main_airline_filter_input_a"
             )
         else:
-            # Plan B: Red marked split - 50/50 horizontal column split layout
             col_fir_layout, col_airline_layout = st.columns([0.5, 0.5])
             with col_fir_layout:
                 selected_option = st.selectbox(
@@ -453,7 +455,7 @@ if data:
             if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
 
             if current_rules_filter == "IFR Only" and flight_rules != "I": continue
-            if current_rules_filter == "VFR Only" and flight_rules != "V": continue
+            if current_rules_filter == "VFR Only" and flight_rules != "VFR": continue
 
             if current_isolation_filter.strip():
                 allowed_codes = [c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()]
@@ -633,6 +635,15 @@ if data:
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 6px 0 4px 0; }
                 .v-val { color: #f1f5f9; font-size: 14px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 80px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; line-height: 1.4; }
+                
+                /* Watchlist Custom Highlight Row Class */
+                .v-watchlist-highlight-row {
+                    background-color: #7c2d1230 !important;
+                    border-left: 4px solid #f97316 !important;
+                }
+                .v-watchlist-highlight-row:hover {
+                    background-color: #7c2d1255 !important;
+                }
             </style>
 
             <script>
@@ -645,6 +656,10 @@ if data:
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                 const rulesFilter = "RULES_FILTER_PLACEHOLDER";
                 const isolationFilterRaw = "ISOLATION_FILTER_PLACEHOLDER";
+                
+                // VIP Watchlist Arrays passed from server
+                const trackedVipCids = WATCHLIST_CIDS_PLACEHOLDER;
+                const trackedVipCallsigns = WATCHLIST_CALLSIGNS_PLACEHOLDER;
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -750,6 +765,7 @@ if data:
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
                         const fRules = fplan.flight_rules || "I";
+                        const pilotCidStr = String(p.cid || "");
                         
                         if (rulesFilter === "IFR Only" && fRules !== "I") return;
                         if (rulesFilter === "VFR Only" && fRules !== "V") return;
@@ -798,10 +814,20 @@ if data:
                             const tr = document.createElement("tr");
                             tr.onclick = () => openDossier(callsign);
                             
+                            // Check for VIP Highlights
+                            let isVipTarget = trackedVipCids.includes(pilotCidStr) || trackedVipCallsigns.includes(callsign.toUpperCase());
+                            if (isVipTarget) {
+                                tr.classList.add("v-watchlist-highlight-row");
+                            }
+                            
                             activeColumns.forEach(col => {
                                 const td = document.createElement("td");
                                 if (col === "Callsign") {
-                                    td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
+                                    if (isVipTarget) {
+                                        td.innerHTML = '<b style="color:#f97316; cursor:pointer;">' + rowData[col] + ' [VIP]</b>';
+                                    } else {
+                                        td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
+                                    }
                                 } else { td.innerText = rowData[col]; }
                                 tr.appendChild(td);
                             });
@@ -894,6 +920,22 @@ if data:
             
             airlines_db = load_vatsim_radar_airlines()
             
+            # Watchlist Serialization
+            vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
+            vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
+
+            # Cross-checking global tracking for Anomaly List fusions
+            for p in pilots:
+                p_cid_str = str(p.get("cid", ""))
+                p_callsign = str(p.get("callsign", "")).upper()
+                if p_cid_str in vip_cid_array or p_callsign in vip_callsign_array:
+                    anomalies.insert(0, {
+                        "Type": "VIP TARGET IDENTIFIED", 
+                        "Callsign": p.get("callsign", "N/A"), 
+                        "Details": f"Tracked Pilot CID: {p_cid_str} is live on network.", 
+                        "Airframe": (p.get("flight_plan") or {}).get("aircraft", "Unknown").split("/")[0]
+                    })
+            
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
@@ -904,7 +946,9 @@ if data:
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
-                .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
+                .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))\
+                .replace("WATCHLIST_CIDS_PLACEHOLDER", json.dumps(vip_cid_array))\
+                .replace("WATCHLIST_CALLSIGNS_PLACEHOLDER", json.dumps(vip_callsign_array))
 
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
@@ -951,6 +995,27 @@ with tab3:
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar (X-Files)")
+    
+    # VIP WATCHLIST CONFIGURATION PANEL (Tab 4 Customizer)
+    with st.expander("⚙️ Open VIP Watchlist Controller", expanded=False):
+        st.markdown("#### Custom Surveillance Parameters")
+        wl_c1, wl_c2 = st.columns(2)
+        with wl_c1:
+            st.session_state.vip_cids = st.text_input(
+                "Target Pilot CIDs (Comma Separated):",
+                value=st.session_state.vip_cids,
+                placeholder="e.g. 1863530, 1900122",
+                key="input_vip_cids"
+            )
+        with wl_c2:
+            st.session_state.vip_callsigns = st.text_input(
+                "Target Tracking Callsigns (Comma Separated):",
+                value=st.session_state.vip_callsigns,
+                placeholder="e.g. THY123, PGT456",
+                key="input_vip_callsigns"
+            )
+        st.markdown("---")
+        
     if anomalies: st.dataframe(anomalies, use_container_width=True)
     else: st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
@@ -972,9 +1037,10 @@ with tab5:
             <strong>Status:</strong> Active Development (June 2026)<br>
             Focusing on operational depth and data accuracy. Key milestones include:
             <ul>
-                <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
-                <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
-                <li><strong> Dynamic Telephony Engine & Isolation:</strong> Enriched with asynchronous API matcher and premium ICAO fleet code isolation filter.</li>
+                <li><strong> Airline Call-Sign Isolation:</strong> Standard airline filtering enriched with dynamic fleet isolation mechanism.</li>
+                <li><strong> Automated Telemetry Tagging:</strong> Deployed native rule boxes for rapid structural mapping of live flight parameters.</li>
+                <li><strong> Real-Time Haversine Distance Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
+                <li><strong> VIP Watchlist System:</strong> Integrated asynchronous tracker matching targets against session vectors inside the intelligence center.</li>
             </ul>
         </div>
     </div>
