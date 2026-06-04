@@ -431,27 +431,40 @@ if data:
             include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gozukmesin)", value=False)
 
         st.markdown("### 🎛️ Watchlist Registry Management")
-        w_c1, w_c2 = st.columns([0.8, 0.2])
-        with w_c1:
-            watchlist_input = st.text_input("Enter Target Callsign or CID to Monitor:", key="watchlist_input_box", placeholder="e.g. THY1KD or 1863530").upper().strip()
-        with w_c2:
+        
+        w_col1, w_col2, w_col3 = st.columns([0.5, 0.25, 0.25])
+        with w_col1:
+            watchlist_input = st.text_input("Target Callsign or CID:", key="watchlist_input_box", placeholder="e.g. THY1KD or 1863530").upper().strip()
+        with w_col2:
             st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            if st.button("🚀 Register Target", use_container_width=True):
-                if watchlist_input and watchlist_input not in st.session_state.vip_watchlist:
-                    st.session_state.vip_watchlist.append(watchlist_input)
-                    log_activity(f"Registered VIP Target: {watchlist_input}")
-                    st.success(f"🎯 Target Verified: {watchlist_input}")
-                    st.rerun()
+            register_clicked = st.button("🚀 Register Target", use_container_width=True)
+        with w_col3:
+            st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
+            clear_clicked = st.button("🗑️ Wipe Database", use_container_width=True)
 
-        if st.session_state.vip_watchlist:
-            st.markdown("##### 📌 Monitored Signals")
-            cols_vip = st.columns(len(st.session_state.vip_watchlist) if len(st.session_state.vip_watchlist) < 6 else 6)
-            for idx, vip in enumerate(st.session_state.vip_watchlist):
-                with cols_vip[idx % 6]:
-                    st.info(f"🎯 **{vip}**")
-            if st.button("🗑️ Clear Watchlist Database", use_container_width=False):
-                st.session_state.vip_watchlist = []
+        if register_clicked and watchlist_input:
+            if watchlist_input not in st.session_state.vip_watchlist:
+                st.session_state.vip_watchlist.append(watchlist_input)
+                log_activity(f"Registered VIP Target: {watchlist_input}")
                 st.rerun()
+
+        if clear_clicked:
+            st.session_state.vip_watchlist = []
+            log_activity("Cleared VIP Watchlist Database")
+            st.rerun()
+
+        st.markdown("##### 🖥️ Watchlist System Core Engine")
+        st.caption("Status: Multi-Channel Monitoring Active")
+        
+        log_lines = [
+            ">> [SYS_INIT] Watchlist Engine Core V2 Online...",
+            ">> [STABLE] Standing by for incoming cross-network target tags..."
+        ]
+        for t in st.session_state.vip_watchlist:
+            log_lines.append(f">> [REGISTRY_SIGNAL] TARGET IDENTIFIER ATTACHED SUCCESSFUL: {t} [MONITORING ACTIVE]")
+            
+        console_content = "\n".join(log_lines)
+        st.code(console_content, language="text")
         
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
@@ -707,42 +720,46 @@ if data:
                         fillBar.style.width = "0%"; planeIcon.style.left = "0%"; return;
                     }
                     
-                    const depPoint = airportsDatabase[depIcao.toUpperCase()];
-                    const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
-                    
-                    if (!depPoint || !arrPoint) {
-                        txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
-                        fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
-                    }
-                    
-                    const lat1 = depPoint.latitude_deg || depPoint.latitude;
-                    const lon1 = depPoint.longitude_deg || depPoint.longitude;
-                    const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
-                    const lon2 = arrPoint.longitude_deg || arrPoint.longitude;
-                    
-                    function toRad(v) { return v * Math.PI / 180; }
-                    function getDistanceNM(la1, lo1, la2, lo2) {
-                        let R = 6371; 
-                        let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
-                        let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                        let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                        return (R * c) * 0.539957; 
-                    }
-                    
-                    let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
-                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
-                    let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
-                    
-                    if (flownNM > totalNM) flownNM = totalNM;
-                    if (remainingNM < 5) flownNM = totalNM;
+                    try {
+                        const depPoint = airportsDatabase[depIcao.toUpperCase()];
+                        const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
+                        
+                        if (!depPoint || !arrPoint) {
+                            txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
+                            fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
+                        }
+                        
+                        const lat1 = depPoint.latitude_deg || depPoint.latitude;
+                        const lon1 = depPoint.longitude_deg || depPoint.longitude;
+                        const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
+                        const lon2 = arrPoint.longitude_deg || arrPoint.longitude;
+                        
+                        function toRad(v) { return v * Math.PI / 180; }
+                        function getDistanceNM(la1, lo1, la2, lo2) {
+                            let R = 6371; 
+                            let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
+                            let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                            let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                            return (R * c) * 0.539957; 
+                        }
+                        
+                        let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
+                        let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
+                        let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
+                        
+                        if (flownNM > totalNM) flownNM = totalNM;
+                        if (remainingNM < 5) flownNM = totalNM;
 
-                    let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
-                    if (pct > 100) pct = 100; if (pct < 0) pct = 0;
+                        let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
+                        if (pct > 100) pct = 100; if (pct < 0) pct = 0;
 
-                    fillBar.style.width = pct + "%";
-                    planeIcon.style.left = pct + "%";
-                    
-                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                        fillBar.style.width = pct + "%";
+                        planeIcon.style.left = pct + "%";
+                        
+                        txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                    } catch (err) {
+                        txtBox.innerText = "Error Calculating Metrics";
+                    }
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
@@ -760,18 +777,23 @@ if data:
                     const callsignField = document.getElementById("airlineCallsignText");
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
                     if (!callsign) return;
-                    let matches = callsign.match(/^[A-Z]+/i);
-                    let cleanPrefix = matches ? matches[0].toUpperCase() : "";
-                    if (cleanPrefix.length < 2) return;
                     
-                    if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
-                        let airlineData = localAirlinesDb[cleanPrefix];
-                        if (airlineData && airlineData.name && airlineData.callsign) {
-                            callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
-                        } else if (airlineData && airlineData.name) {
-                            callsignField.innerText = airlineData.name + " - " + cleanPrefix;
+                    try {
+                        let matches = callsign.match(/^[A-Z]+/i);
+                        let cleanPrefix = matches ? matches[0].toUpperCase() : "";
+                        if (cleanPrefix.length < 2) return;
+                        
+                        if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
+                            let airlineData = localAirlinesDb[cleanPrefix];
+                            if (airlineData && airlineData.name && airlineData.callsign) {
+                                callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
+                            } else if (airlineData && airlineData.name) {
+                                callsignField.innerText = airlineData.name + " - " + cleanPrefix;
+                            } else { callsignField.innerText = cleanPrefix; }
                         } else { callsignField.innerText = cleanPrefix; }
-                    } else { callsignField.innerText = cleanPrefix; }
+                    } catch (err) {
+                        callsignField.innerText = "IDENTITY CORRUPTED";
+                    }
                 }
 
                 function sendTimeToStreamlitBackend() {
@@ -872,35 +894,45 @@ if data:
                 }
 
                 function openDossier(callsign) {
-                    const p = globalDossiers[callsign];
-                    if (!p) return;
-                    currentlyOpenCallsign = callsign;
+                    try {
+                        const p = globalDossiers[callsign];
+                        if (!p) return;
+                        currentlyOpenCallsign = callsign;
 
-                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
-                    document.getElementById("popName").innerText = p.name;
-                    document.getElementById("popCid").innerText = p.cid;
-                    document.getElementById("popCombinedRating").innerText = p.combined_rating;
-                    document.getElementById("popOnline").innerText = p.online;
-                    document.getElementById("popVoice").innerText = p.voice;
-                    document.getElementById("popSquawkBox").innerText = p.squawk;
-                    document.getElementById("popOrigin").innerText = p.origin;
-                    document.getElementById("popDestination").innerText = p.destination;
-                    document.getElementById("popAirframe").innerText = p.airframe;
-                    document.getElementById("popRoute").value = p.route;
+                        document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                        document.getElementById("popName").innerText = p.name;
+                        document.getElementById("popCid").innerText = p.cid;
+                        document.getElementById("popCombinedRating").innerText = p.combined_rating;
+                        document.getElementById("popOnline").innerText = p.online;
+                        document.getElementById("popVoice").innerText = p.voice;
+                        document.getElementById("popSquawkBox").innerText = p.squawk;
+                        document.getElementById("popOrigin").innerText = p.origin;
+                        document.getElementById("popDestination").innerText = p.destination;
+                        document.getElementById("popAirframe").innerText = p.airframe;
+                        document.getElementById("popRoute").value = p.route;
 
-                    const badge = document.getElementById("popRulesBadge");
-                    badge.innerText = p.rules;
-                    
-                    badge.style.backgroundColor = "#143a24"; 
-                    badge.style.color = "#22c55e"; 
-                    badge.style.borderColor = "#22c55e40";
+                        const badge = document.getElementById("popRulesBadge");
+                        badge.innerText = p.rules;
+                        
+                        badge.style.backgroundColor = "#143a24"; 
+                        badge.style.color = "#22c55e"; 
+                        badge.style.borderColor = "#22c55e40";
 
-                    document.getElementById("progressDeparture").innerText = p.origin;
-                    document.getElementById("progressArrival").innerText = p.destination;
+                        document.getElementById("progressDeparture").innerText = p.origin;
+                        document.getElementById("progressArrival").innerText = p.destination;
 
-                    updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
-                    fetchAirlineCompany(callsign);
-                    document.getElementById("dossierModal").style.display = "block";
+                        try {
+                            updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
+                        } catch (e) { console.log("Haversine sub-error ignored"); }
+
+                        try {
+                            fetchAirlineCompany(callsign);
+                        } catch (e) { console.log("Airline identification sub-error ignored"); }
+
+                        document.getElementById("dossierModal").style.display = "block";
+                    } catch (fatalErr) {
+                        console.log("Fatal crash intercepted in openDossier:", fatalErr);
+                    }
                 }
 
                 function closeModal() { 
