@@ -425,7 +425,7 @@ if data:
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
-        st.subheader("✈️ Selected FIR Focus")
+        st.subheader("Selected FIR Focus")
         
         def on_fir_change():
             new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
@@ -440,16 +440,25 @@ if data:
             on_change=on_fir_change
         )
         
+        # Sadece fiziksel olarak FIR içinde olanları filtrelemek için checkbox
+        if "only_physical_inside" not in st.session_state:
+            st.session_state.only_physical_inside = False
+
+        st.session_state.only_physical_inside = st.checkbox(
+            "Sadece Hava Sahası Sınırları İçindeki Uçakları Göster (FPL Bağımsız)",
+            value=st.session_state.only_physical_inside
+        )
+        
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
 
+        # Secili hava sahasinin tum cokgen poligon kumesini al
         target_fir_polygons = global_grouped_firs.get(selected_fir_prefix, {}).get("polygons", [])
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
-            cid = str(p.get("cid", ""))
             alt = p.get("altitude", 0)
             gs = p.get("groundspeed", 0)
             lat = p.get("latitude", 0.0)
@@ -466,29 +475,10 @@ if data:
             if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
 
             category = classify_aircraft(ac_type, callsign)
-            
-            # Watchlist Kontrolleri ve Anomali Tetiklemeleri
-            if callsign in st.session_state.vip_watchlist or cid in st.session_state.vip_watchlist:
-                anomalies.append({
-                    "Type": "🎯 VIP Watchlist Match", 
-                    "Callsign": callsign, 
-                    "Details": f"Tracked Target Online (CID: {cid})", 
-                    "Airframe": ac_type
-                })
-
-            if alt > max_alt: max_alt = alt; highest_p = p
-            if gs > max_gs: max_gs = gs; fastest_p = p
-            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
-            if logon and logon < min_logon: min_logon = logon; veteran_p = p
-
-            if str(p.get("transponder")) == "7700": anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday", "Airframe": ac_type})
-            if gs > 1150: anomalies.append({"Type": "⚡ Warp Speed Glitch", "Callsign": callsign, "Details": f"Speed: {gs} KT", "Airframe": ac_type})
-            if category == "⚔️ Military": anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment", "Airframe": ac_type})
-
-            if current_fleet_filter == "Commercial Only" and category != "✈️ Commercial": continue
-            if current_fleet_filter == "General Aviation Only" and category != "🛩️ General Aviation": continue
-            if current_fleet_filter == "Business Jet Only" and category != "💼 Business Jet": continue
-            if current_fleet_filter == "Military Only" and category != "⚔️ Military": continue
+            if current_fleet_filter == "Commercial Only" and category != "Commercial": continue
+            if current_fleet_filter == "General Aviation Only" and category != "General Aviation": continue
+            if current_fleet_filter == "Business Jet Only" and category != "Business Jet": continue
+            if current_fleet_filter == "Military Only" and category != "Military": continue
 
             if current_rules_filter == "IFR Only" and flight_rules != "I": continue
             if current_rules_filter == "VFR Only" and flight_rules != "V": continue
@@ -501,18 +491,28 @@ if data:
                 if cs_prefix not in allowed_codes:
                     continue
 
+            # 1. Kontrol: Ucagin ucus plani bu bolgeyle mi iliskili?
             matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
+            # 2. Kontrol: Ucak anlik koordinatiyla cografi poligon sinirlarinin tam icinde mi? (Ray-Casting)
             is_physically_here = False
             if lat and lon and target_fir_polygons:
                 for poly in target_fir_polygons:
-                    if is_point_in_polygon(lon, lat, poly):  
+                    if is_point_in_polygon(lon, lat, poly):  # GeoJSON formati: [lon, lat] siralamasindadir
                         is_physically_here = True
                         break
 
-            if matches_flight_plan or is_physically_here:
-                display_dep = dep if dep else "⚠️ NO FPL"
-                display_arr = arr if arr else "⚠️ NO FPL"
+            # FILTRELEME MANTIGI:
+            # Checkbox isaretliyse SADECE fiziksel olarak iceride olanlari alir (is_physically_here).
+            # Isaretli degilse eski mantıkta oldugu gibi FPL eslesmesi veya fiziksel varlik yeterlidir.
+            if st.session_state.only_physical_inside:
+                include_aircraft = is_physically_here
+            else:
+                include_aircraft = matches_flight_plan or is_physically_here
+
+            if include_aircraft:
+                display_dep = dep if dep else "NO FPL"
+                display_arr = arr if arr else "NO FPL"
                 
                 fir_pilots.append({
                     "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
