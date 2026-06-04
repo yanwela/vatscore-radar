@@ -444,9 +444,8 @@ if data:
             )
         with sel_c2:
             st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gözükmesin)", value=False)
+            include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gozukmesin)", value=False)
 
-        # Dynamic Watchlist Quick Add Panel
         st.markdown("##### Watchlist Registry Management")
         w_c1, w_c2 = st.columns([0.8, 0.2])
         with w_c1:
@@ -519,8 +518,8 @@ if data:
                 matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
             if is_physically_here or matches_flight_plan:
-                display_dep = dep if dep else "⚠️ NO FPL"
-                display_arr = arr if arr else "⚠️ NO FPL"
+                display_dep = dep if dep else "NO FPL"
+                display_arr = arr if arr else "NO FPL"
                 
                 fir_pilots.append({
                     "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
@@ -598,7 +597,7 @@ if data:
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
                                     <div id="progressBarFill" class="progress-bar-fill"></div>
-                                    <div id="progressPlaneIcon" class="progress-plane-icon">✈️</div>
+                                    <div id="progressPlaneIcon" class="progress-plane-icon">PLANE</div>
                                 </div>
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
@@ -661,7 +660,7 @@ if data:
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
-                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
+                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 12px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; color: #22c55e; font-weight: bold; font-family: sans-serif; }
 
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -843,7 +842,7 @@ if data:
 
                         if (isPhysHere || matchesPlan) {
                             const rowData = {
-                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
+                                "Callsign": callsign, "Origin": dep || "NO FPL", "Destination": arr || "NO FPL",
                                 "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
                                 "Speed (KT)": p.groundspeed || 0, "Squawk": p.transponder || "0000"
                             };
@@ -1027,8 +1026,23 @@ with tab3:
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar & VIP Watchlist Matrix")
-    if anomalies: 
-        st.dataframe(anomalies, use_container_width=True)
+    if anomalies:
+        for idx, anomaly in enumerate(anomalies):
+            is_vip = "VIP" in anomaly["Type"]
+            border_color = "#ef4444" if not is_vip else "#3b82f6"
+            bg_color = "#1e1b1b" if not is_vip else "#131924"
+            text_color = "#fca5a5" if not is_vip else "#93c5fd"
+            
+            st.markdown(f"""
+            <div style="background-color: {bg_color}; border-left: 6px solid {border_color}; padding: 15px; border-radius: 6px; margin-bottom: 12px;">
+                <span style="color: {border_color}; font-weight: bold; font-size: 13px; text-transform: uppercase; font-family: monospace;">{anomaly['Type']}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+                    <h4 style="margin: 0; color: #f8fafc; font-style: italic;">Target: {anomaly['Callsign']}</h4>
+                    <span style="color: #94a3b8; font-size: 13px; font-family: monospace;">Airframe: {anomaly['Airframe']} | Alt: {anomaly['Altitude']:,} FT | Speed: {anomaly['Speed']} KT</span>
+                </div>
+                <p style="margin: 8px 0 0 0; color: {text_color}; font-size: 14px;">{anomaly['Details']}</p>
+            </div>
+            """, unsafe_allow_html=True)
     else: 
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
