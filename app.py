@@ -293,7 +293,6 @@ def classify_aircraft(ac_type, callsign):
         
     return "✈️ Commercial"
 
-# --- JS LAST SYNC BACKEND TIME STAMP INITIALIZATION ---
 if "last_js_sync_time" not in st.session_state:
     st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
@@ -335,6 +334,7 @@ if data:
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
     if "fleet_filter_selection" not in st.session_state: st.session_state.fleet_filter_selection = "All Flights"
     if "rules_filter_selection" not in st.session_state: st.session_state.rules_filter_selection = "All Rules"
+    if "airline_isolation_filter" not in st.session_state: st.session_state.airline_isolation_filter = ""
 
     if st.session_state.show_panel:
         with st.container():
@@ -342,12 +342,17 @@ if data:
             cfg_col1, cfg_col2 = st.columns(2)
             with cfg_col1:
                 st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
+                # NOTA ATIŞI: Airline Call-Sign Isolation İsteri Ekleniyor
+                st.session_state.airline_isolation_filter = st.text_input(
+                    "✈️ Airline Call-Sign Isolation (ICAO):", 
+                    value=st.session_state.airline_isolation_filter,
+                    placeholder="e.g. THY, PGT, BAW (Leave empty for all)"
+                )
             with cfg_col2:
                 st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
-    # --- GREEN SYSTEM METRIC - PROPERLY CLEANED FROM OBJECT STRINGS ---
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
@@ -397,8 +402,8 @@ if data:
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
+        current_isolation_filter = st.session_state.airline_isolation_filter
 
-        # Processing loop to build charts & statistics
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -424,6 +429,15 @@ if data:
 
             if current_rules_filter == "IFR Only" and flight_rules != "I": continue
             if current_rules_filter == "VFR Only" and flight_rules != "V": continue
+
+            # NOTA ATIŞI: Python tarafında da listeyi süzerek performansı koruyoruz
+            if current_isolation_filter.strip():
+                allowed_codes = [c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()]
+                import re
+                cs_prefix_match = re.match(r"^[A-Z]+", callsign.upper())
+                cs_prefix = cs_prefix_match.group(0) if cs_prefix_match else ""
+                if cs_prefix not in allowed_codes:
+                    continue
 
             matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             is_physically_here = False
@@ -606,6 +620,7 @@ if data:
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                 const rulesFilter = "RULES_FILTER_PLACEHOLDER";
+                const isolationFilterRaw = "ISOLATION_FILTER_PLACEHOLDER";
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -690,9 +705,6 @@ if data:
                     const minutes = String(now.getUTCMinutes()).padStart(2, '0');
                     const seconds = String(now.getUTCSeconds()).padStart(2, '0');
                     const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
-                    
-                    // PREVENTS SENDING CORES / DOM METRICS TO STREAMLIT RE-RENDER PARENT
-                    // SENDS TEXT STRING INSTEAD
                     Streamlit.setComponentValue(formattedTime);
                 }
 
@@ -700,6 +712,12 @@ if data:
                     const tbody = document.getElementById("table-body");
                     tbody.innerHTML = "";
                     globalDossiers = {};
+
+                    // NOTA ATIŞI: JS Tarafında Havayolu İzolasyonu Filtre Dizisi Oluşturma
+                    let allowedAirlines = [];
+                    if (isolationFilterRaw && isolationFilterRaw.trim() !== "") {
+                        allowedAirlines = isolationFilterRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+                    }
 
                     pilotsList.forEach(p => {
                         const callsign = p.callsign || "N/A";
@@ -712,6 +730,13 @@ if data:
                         
                         if (rulesFilter === "IFR Only" && fRules !== "I") return;
                         if (rulesFilter === "VFR Only" && fRules !== "V") return;
+
+                        // NOTA ATIŞI: JS Grid Üzerinde Canlı Havayolu Kod İzolasyon Kontrolü
+                        if (allowedAirlines.length > 0) {
+                            let csPrefixMatch = callsign.match(/^[A-Z]+/i);
+                            let csPrefix = csPrefixMatch ? csPrefixMatch[0].toUpperCase() : "";
+                            if (!allowedAirlines.includes(csPrefix)) return;
+                        }
 
                         const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         let isPhysHere = false;
@@ -783,7 +808,6 @@ if data:
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
                     
-                    // IF ELSE BLOKLARI KALDIRILDI - COŞUN HER KOŞULDA YEŞİL OLUYOR
                     badge.style.backgroundColor = "#143a24"; 
                     badge.style.color = "#22c55e"; 
                     badge.style.borderColor = "#22c55e40";
@@ -822,7 +846,6 @@ if data:
                     setTimeout(() => { notifier.style.display = "none"; }, 1500);
                 }
 
-                // INJECT STREAMLIT COMPONENT LIBS
                 const scriptStreamlit = document.createElement('script');
                 scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
                 document.head.appendChild(scriptStreamlit);
@@ -858,9 +881,9 @@ if data:
                 .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
-                .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
+                .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
+                .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
-            # --- CORRECTION: USE STREAMLIT NATIVE SAFARI WRAPPER VAL CAPTURING ---
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
@@ -929,7 +952,7 @@ with tab5:
             <ul>
                 <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
                 <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
-                <li><strong> Dynamic Telephony Engine:</strong> Currently optimizing the asynchronous API matcher to map ICAO prefixes to standardized airline callsigns.</li>
+                <li><strong> Dynamic Telephony Engine & Isolation:</strong> Enriched with asynchronous API matcher and premium ICAO fleet code isolation filter.</li>
             </ul>
         </div>
     </div>
