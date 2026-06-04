@@ -8,6 +8,9 @@ import json
 import re
 from shapely.geometry import shape, Point
 
+ # PLAN -> Add selcal and reg to the airframe, change it to airframe infos, and type reg and selcal 
+ # Additionally, add the time next to the "online min" box, in the format min | hour
+
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
@@ -609,7 +612,9 @@ if data:
                                 <div>
                                     <p class="v-label">Origin</p><p id="popOrigin" class="v-val"></p>
                                     <p class="v-label">Destination</p><p id="popDestination" class="v-val"></p>
-                                    <p class="v-label">Airframe</p><p id="popAirframe" class="v-val"></p>
+                                    <!-- Updated Airframe label and value holder -->
+                                    <p class="v-label">Airframe Info (Type/Reg/Selcal)</p>
+                                    <p id="popAirframe" class="v-val" style="color:#3b82f6; font-weight:bold;"></p>
                                 </div>
                             </div>
                             
