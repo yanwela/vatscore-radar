@@ -342,12 +342,6 @@ if data:
             cfg_col1, cfg_col2 = st.columns(2)
             with cfg_col1:
                 st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
-                # NOTA ATIŞI: Airline Call-Sign Isolation İsteri Ekleniyor
-                st.session_state.airline_isolation_filter = st.text_input(
-                    "✈️ Airline Call-Sign Isolation (ICAO):", 
-                    value=st.session_state.airline_isolation_filter,
-                    placeholder="e.g. THY, PGT, BAW (Leave empty for all)"
-                )
             with cfg_col2:
                 st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
@@ -391,13 +385,44 @@ if data:
             st.session_state.current_fir_prefix = new_prefix
             st.query_params["saved_fir"] = new_prefix
 
-        selected_option = st.selectbox(
-            "Choose Region/FIR Focus:", 
-            options=fir_options, 
-            index=calculated_index, 
-            key="main_fir_selectbox",
-            on_change=on_fir_change
-        )
+        # --- CONFIGURATION TOGGLE FOR PLAN A / PLAN B (image_314b65.png Reference) ---
+        # Set to True for White marked area (Plan A). Set to False for Red vertical split (Plan B).
+        USE_PLAN_A = True
+
+        if USE_PLAN_A:
+            # Plan A: White marked placement - Sequential stacked vertical layout
+            selected_option = st.selectbox(
+                "Choose Region/FIR Focus:", 
+                options=fir_options, 
+                index=calculated_index, 
+                key="main_fir_selectbox",
+                on_change=on_fir_change
+            )
+            
+            st.session_state.airline_isolation_filter = st.text_input(
+                "Airline Call-Sign Isolation (ICAO):", 
+                value=st.session_state.airline_isolation_filter,
+                placeholder="e.g. THY, PGT, BAW (Leave empty for all)",
+                key="main_airline_filter_input_a"
+            )
+        else:
+            # Plan B: Red marked split - 50/50 horizontal column split layout
+            col_fir_layout, col_airline_layout = st.columns([0.5, 0.5])
+            with col_fir_layout:
+                selected_option = st.selectbox(
+                    "Choose Region/FIR Focus:", 
+                    options=fir_options, 
+                    index=calculated_index, 
+                    key="main_fir_selectbox",
+                    on_change=on_fir_change
+                )
+            with col_airline_layout:
+                st.session_state.airline_isolation_filter = st.text_input(
+                    "Airline Call-Sign Isolation (ICAO):", 
+                    value=st.session_state.airline_isolation_filter,
+                    placeholder="e.g. THY, PGT, BAW (Leave empty for all)",
+                    key="main_airline_filter_input_b"
+                )
         
         selected_fir_prefix = st.session_state.current_fir_prefix
         current_fleet_filter = st.session_state.fleet_filter_selection
@@ -430,7 +455,6 @@ if data:
             if current_rules_filter == "IFR Only" and flight_rules != "I": continue
             if current_rules_filter == "VFR Only" and flight_rules != "V": continue
 
-            # NOTA ATIŞI: Python tarafında da listeyi süzerek performansı koruyoruz
             if current_isolation_filter.strip():
                 allowed_codes = [c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()]
                 import re
@@ -713,7 +737,6 @@ if data:
                     tbody.innerHTML = "";
                     globalDossiers = {};
 
-                    // NOTA ATIŞI: JS Tarafında Havayolu İzolasyonu Filtre Dizisi Oluşturma
                     let allowedAirlines = [];
                     if (isolationFilterRaw && isolationFilterRaw.trim() !== "") {
                         allowedAirlines = isolationFilterRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
@@ -731,7 +754,6 @@ if data:
                         if (rulesFilter === "IFR Only" && fRules !== "I") return;
                         if (rulesFilter === "VFR Only" && fRules !== "V") return;
 
-                        // NOTA ATIŞI: JS Grid Üzerinde Canlı Havayolu Kod İzolasyon Kontrolü
                         if (allowedAirlines.length > 0) {
                             let csPrefixMatch = callsign.match(/^[A-Z]+/i);
                             let csPrefix = csPrefixMatch ? csPrefixMatch[0].toUpperCase() : "";
