@@ -442,6 +442,7 @@ if data:
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
+            cid = str(p.get("cid", "N/A"))
             alt = p.get("altitude", 0)
             gs = p.get("groundspeed", 0)
             lat = p.get("latitude", 0.0)
@@ -479,7 +480,7 @@ if data:
             is_physically_here = False
             if lat and lon and target_fir_polygons:
                 for poly in target_fir_polygons:
-                    if is_point_in_polygon(lon, lat, poly):
+                    if Point(lon, lat).within(poly):
                         is_physically_here = True
                         break
 
@@ -966,7 +967,7 @@ if data:
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
-                .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "true" if include_arr_dep else "false")\
+                .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "false" if st.session_state.only_physical_inside else "true")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
