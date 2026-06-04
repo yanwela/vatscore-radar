@@ -920,7 +920,7 @@ if data:
             
             airlines_db = load_vatsim_radar_airlines()
             
-            # Watchlist Serialization
+            # Watchlist Serialization with Clean Multi-Target Split Logic
             vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
             vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
 
@@ -930,7 +930,7 @@ if data:
                 p_callsign = str(p.get("callsign", "")).upper()
                 if p_cid_str in vip_cid_array or p_callsign in vip_callsign_array:
                     anomalies.insert(0, {
-                        "Type": "VIP TARGET IDENTIFIED", 
+                        "Type": "🚨 VIP TARGET IDENTIFIED", 
                         "Callsign": p.get("callsign", "N/A"), 
                         "Details": f"Tracked Pilot CID: {p_cid_str} is live on network.", 
                         "Airframe": (p.get("flight_plan") or {}).get("aircraft", "Unknown").split("/")[0]
@@ -1004,7 +1004,7 @@ with tab4:
             st.session_state.vip_cids = st.text_input(
                 "Target Pilot CIDs (Comma Separated):",
                 value=st.session_state.vip_cids,
-                placeholder="e.g. 1863530, 1900122",
+                placeholder="e.g. 1863530, 1869429",
                 key="input_vip_cids"
             )
         with wl_c2:
