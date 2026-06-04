@@ -10,7 +10,7 @@ from shapely.geometry import shape, Point
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
-VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
+VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
 VATSIM_RADAR_AIRLINES_URL = "https://data.vFtsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"
 
@@ -212,8 +212,8 @@ def load_and_group_fir_boundaries():
                 properties = feature.get("properties", {})
                 geometry = feature.get("geometry", {})
                 
-                icao = properties.get("icao", properties.get("id", "")).upper().strip()
-                if not icao or len(icao) < 2:
+                icao = properties.get("id", properties.get("icao", "")).upper().strip()
+                if not icao:
                     continue
                 
                 prefix = icao if icao == "K" else icao[:2]
@@ -224,7 +224,10 @@ def load_and_group_fir_boundaries():
                 
                 try:
                     shapely_shape = shape(geometry)
-                    grouped_boundaries[prefix]["shapes"].append(shapely_shape)
+                    if shapely_shape.geom_type == 'MultiPolygon':
+                        grouped_boundaries[prefix]["shapes"].extend(list(shapely_shape.geoms))
+                    else:
+                        grouped_boundaries[prefix]["shapes"].append(shapely_shape)
                 except:
                     pass
     except:
@@ -438,7 +441,7 @@ if data:
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
 
-        target_fir_polygons = global_grouped_firs.get(selected_fir_prefix, {}).get("polygons", [])
+        target_fir_shapes = global_grouped_firs.get(selected_fir_prefix, {}).get("shapes", [])
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
@@ -469,7 +472,6 @@ if data:
 
             if current_isolation_filter.strip():
                 allowed_codes = [c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()]
-                import re
                 cs_prefix_match = re.match(r"^[A-Z]+", callsign.upper())
                 cs_prefix = cs_prefix_match.group(0) if cs_prefix_match else ""
                 if cs_prefix not in allowed_codes:
@@ -478,9 +480,10 @@ if data:
             matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
             is_physically_here = False
-            if lat and lon and target_fir_polygons:
-                for poly in target_fir_polygons:
-                    if Point(lon, lat).within(poly):
+            if lat and lon and target_fir_shapes:
+                aircraft_point = Point(lon, lat)
+                for fir_shape in target_fir_shapes:
+                    if aircraft_point.within(fir_shape):
                         is_physically_here = True
                         break
 
@@ -567,7 +570,7 @@ if data:
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
                                     <div id="progressBarFill" class="progress-bar-fill"></div>
-                                    <div id="progressPlaneIcon" class="progress-plane-icon">PLANE</div>
+                                    <div id="progressPlaneIcon" class="progress-plane-icon">&#9992;</div>
                                 </div>
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
@@ -630,7 +633,7 @@ if data:
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
-                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 12px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; color: #22c55e; font-weight: bold; font-family: sans-serif; }
+                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%); font-size: 16px; transition: left 0.4s ease; line-height: 1; color: #22c55e; font-weight: bold; }
 
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
