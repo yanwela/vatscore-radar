@@ -498,7 +498,7 @@ if data:
             if st.session_state.only_physical_inside:
                 include_aircraft = is_physically_here
             else:
-                include_aircraft = matches_flight_plan or is_physically_here
+                include_aircraft = matches_flight_plan
 
             if include_aircraft:
                 display_dep = dep if dep else "NO FPL"
