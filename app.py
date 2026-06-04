@@ -5,11 +5,13 @@ from collections import Counter
 from datetime import datetime
 import os
 import json
+import re
+from shapely.geometry import shape, Point
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatsim-data-geo/main/data/fir-boundaries.json"
-VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
+VATSIM_RADAR_AIRLINES_URL = "https://data.vFtsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"
 
 # Page Configuration
@@ -104,6 +106,10 @@ if "initialized" not in st.session_state:
     log_activity("Radar Dashboard Opened")
     st.session_state.initialized = True
 
+# Initialize VIP Watchlist Session State
+if "vip_watchlist" not in st.session_state:
+    st.session_state.vip_watchlist = []
+
 query_params = st.query_params
 is_admin_route = query_params.get("admin") == "true"
 
@@ -183,18 +189,6 @@ def load_vatsim_radar_airlines():
     except: pass
     return airlines_map
 
-# Ray-Casting Algoritması (Kütüphanesiz Nokta Poligonun İçinde mi Kontrolü)
-def is_point_in_polygon(x, y, poly):
-    num = len(poly)
-    j = num - 1
-    c = False
-    for i in range(num):
-        if ((poly[i][1] > y) != (poly[j][1] > y)) and \
-                (x < (poly[j][0] - poly[i][0]) * (y - poly[i][1]) / (poly[j][1] - poly[i][1] + 1e-9) + poly[i][0]):
-            c = not c
-        j = i
-    return c
-
 @st.cache_data(ttl=86400)
 def load_and_group_fir_boundaries():
     grouped_boundaries = {}
@@ -226,24 +220,19 @@ def load_and_group_fir_boundaries():
                 
                 if prefix not in grouped_boundaries:
                     name = fallback_names.get(prefix, f"{prefix} Airspace Zone")
-                    grouped_boundaries[prefix] = {"name": name, "polygons": []}
+                    grouped_boundaries[prefix] = {"name": name, "shapes": []}
                 
-                g_type = geometry.get("type")
-                coords = geometry.get("coordinates", [])
-                
-                if g_type == "Polygon":
-                    for ring in coords:
-                        grouped_boundaries[prefix]["polygons"].append(ring)
-                elif g_type == "MultiPolygon":
-                    for poly in coords:
-                        for ring in poly:
-                            grouped_boundaries[prefix]["polygons"].append(ring)
+                try:
+                    shapely_shape = shape(geometry)
+                    grouped_boundaries[prefix]["shapes"].append(shapely_shape)
+                except:
+                    pass
     except:
         pass
         
     for k, v in fallback_names.items():
         if k not in grouped_boundaries:
-            grouped_boundaries[k] = {"name": v, "polygons": []}
+            grouped_boundaries[k] = {"name": v, "shapes": []}
             
     return grouped_boundaries
 
@@ -319,24 +308,20 @@ def classify_aircraft(ac_type, callsign):
         "SU27", "SU35", "B52", "C17", "A400", "C130", "KC10", "K35R", 
         "E3TF", "B1B", "B2", "A10", "TOR", "H64", "UH60", "CH47", "NH90"
     }
-    if ac_type in military_types: return "⚔️ Military"
+    if ac_type in military_types: return "Military"
     military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
-    if callsign.startswith(military_prefixes) or "MIL" in callsign: return "⚔️ Military"
+    if callsign.startswith(military_prefixes) or "MIL" in callsign: return "Military"
         
     ga_types = {"C150", "C152", "C172", "C182", "C206", "C208", "P28A", "PA34", "DA40", "DA42", "SR22", "SR20", "E300", "DV20"}
-    if ac_type in ga_types: return "🛩️ General Aviation"
+    if ac_type in ga_types: return "General Aviation"
         
     biz_jets = {"GLF5", "GLF6", "CL60", "CRJ2", "C56X", "FA7X", "LJ45"}
-    if ac_type in biz_jets: return "💼 Business Jet"
+    if ac_type in biz_jets: return "Business Jet"
         
-    return "✈️ Commercial"
+    return "Commercial"
 
 if "last_js_sync_time" not in st.session_state:
     st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
-
-# Global Watchlist Initialize
-if "vip_watchlist" not in st.session_state:
-    st.session_state.vip_watchlist = []
 
 data = fetch_vatsim_data()
 global_grouped_firs = load_and_group_fir_boundaries()
@@ -385,7 +370,7 @@ if data:
             with cfg_col1:
                 st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
                 st.session_state.airline_isolation_filter = st.text_input(
-                    "✈️ Airline Call-Sign Isolation (ICAO):", 
+                    "Airline Call-Sign Isolation (ICAO):", 
                     value=st.session_state.airline_isolation_filter,
                     placeholder="e.g. THY, PGT, BAW (Leave empty for all)"
                 )
@@ -425,7 +410,7 @@ if data:
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
-        st.subheader("Selected FIR Focus")
+        st.subheader("✈️ Selected FIR Focus")
         
         def on_fir_change():
             new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
@@ -440,12 +425,11 @@ if data:
             on_change=on_fir_change
         )
         
-        # Sadece fiziksel olarak FIR içinde olanları filtrelemek için checkbox
         if "only_physical_inside" not in st.session_state:
             st.session_state.only_physical_inside = False
 
         st.session_state.only_physical_inside = st.checkbox(
-            "Sadece Hava Sahası Sınırları İçindeki Uçakları Göster (FPL Bağımsız)",
+            "📍 Only Show Aircraft Inside Airspace Boundaries (Ignore Departure/Arrival FPL)",
             value=st.session_state.only_physical_inside
         )
         
@@ -454,7 +438,6 @@ if data:
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
 
-        # Secili hava sahasinin tum cokgen poligon kumesini al
         target_fir_polygons = global_grouped_firs.get(selected_fir_prefix, {}).get("polygons", [])
 
         for p in pilots:
@@ -491,20 +474,15 @@ if data:
                 if cs_prefix not in allowed_codes:
                     continue
 
-            # 1. Kontrol: Ucagin ucus plani bu bolgeyle mi iliskili?
             matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
-            # 2. Kontrol: Ucak anlik koordinatiyla cografi poligon sinirlarinin tam icinde mi? (Ray-Casting)
             is_physically_here = False
             if lat and lon and target_fir_polygons:
                 for poly in target_fir_polygons:
-                    if is_point_in_polygon(lon, lat, poly):  # GeoJSON formati: [lon, lat] siralamasindadir
+                    if is_point_in_polygon(lon, lat, poly):
                         is_physically_here = True
                         break
 
-            # FILTRELEME MANTIGI:
-            # Checkbox isaretliyse SADECE fiziksel olarak iceride olanlari alir (is_physically_here).
-            # Isaretli degilse eski mantıkta oldugu gibi FPL eslesmesi veya fiziksel varlik yeterlidir.
             if st.session_state.only_physical_inside:
                 include_aircraft = is_physically_here
             else:
@@ -519,6 +497,28 @@ if data:
                     "Aircraft": ac_type if fplan.get("aircraft") else "Unknown",
                     "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
                     "FlightRules": flight_rules
+                })
+
+            if alt > max_alt: max_alt = alt; highest_p = p
+            if gs > max_gs: max_gs = gs; fastest_p = p
+            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
+            if logon and logon < min_logon: min_logon = logon; veteran_p = p
+
+            if str(p.get("transponder")) == "7700": 
+                anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+            if gs > 1150: 
+                anomalies.append({"Type": "⚠️ Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+            if category == "Military": 
+                anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment sector track", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+            
+            if callsign in st.session_state.vip_watchlist or cid in st.session_state.vip_watchlist:
+                anomalies.insert(0, {
+                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED", 
+                    "Callsign": f"{callsign} (CID: {cid})", 
+                    "Details": f"Tracked Target Online - Route: {dep}->{arr}", 
+                    "Airframe": ac_type, 
+                    "Altitude": alt, 
+                    "Speed": gs
                 })
 
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
@@ -543,14 +543,14 @@ if data:
             
             raw_html_template = """
             <div id="vatscore-custom-container">
-                <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
+                <div id="sync-notification">Syncing Live VATSIM data...</div>
                 <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
 
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
+                                <span class="v-modal-title">Telemetry Dossier Decoder</span>
                             </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
@@ -561,12 +561,12 @@ if data:
                             </div>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
-                            <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
+                            <p class="v-label" style="margin-bottom: 6px;">Live Flight Trajectory & Distance Progress</p>
                             <div class="progress-wrapper">
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
                                     <div id="progressBarFill" class="progress-bar-fill"></div>
-                                    <div id="progressPlaneIcon" class="progress-plane-icon">✈️</div>
+                                    <div id="progressPlaneIcon" class="progress-plane-icon">PLANE</div>
                                 </div>
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
@@ -577,28 +577,28 @@ if data:
 
                             <div class="v-grid">
                                 <div>
-                                    <p class="v-label">👤 Pilot Name</p><p id="popName" class="v-val"></p>
-                                    <p class="v-label">🆔 VATSIM CID</p><p id="popCid" class="v-val"></p>
-                                    <p class="v-label">🎖️ VATSIM Ratings</p><p id="popCombinedRating" class="v-val" style="color:#3b82f6; font-weight:600;"></p>
+                                    <p class="v-label">Pilot Name</p><p id="popName" class="v-val"></p>
+                                    <p class="v-label">VATSIM CID</p><p id="popCid" class="v-val"></p>
+                                    <p class="v-label">VATSIM Ratings</p><p id="popCombinedRating" class="v-val" style="color:#3b82f6; font-weight:600;"></p>
                                 </div>
                                 <div>
-                                    <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
-                                    <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
-                                    <p class="v-label">📡 Squawk Code</p><p id="popSquawkBox" class="v-val" style="color:#e2e8f0; font-family:monospace; font-weight:bold;"></p>
+                                    <p class="v-label">Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
+                                    <p class="v-label">VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
+                                    <p class="v-label">Squawk Code</p><p id="popSquawkBox" class="v-val" style="color:#e2e8f0; font-family:monospace; font-weight:bold;"></p>
                                 </div>
                                 <div>
-                                    <p class="v-label">🛫 Origin</p><p id="popOrigin" class="v-val"></p>
-                                    <p class="v-label">🛬 Destination</p><p id="popDestination" class="v-val"></p>
-                                    <p class="v-label">✈️ Airframe</p><p id="popAirframe" class="v-val"></p>
+                                    <p class="v-label">Origin</p><p id="popOrigin" class="v-val"></p>
+                                    <p class="v-label">Destination</p><p id="popDestination" class="v-val"></p>
+                                    <p class="v-label">Airframe</p><p id="popAirframe" class="v-val"></p>
                                 </div>
                             </div>
                             
-                            <p class="v-label" style="margin-top:14px;">🎙️ Airline Identity (Airline Name - Callsign)</p>
+                            <p class="v-label" style="margin-top:14px;">Airline Identity (Airline Name - Callsign)</p>
                             <div class="telephony-premium-box">
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
 
-                            <p class="v-label" style="margin-top:14px;">🗺️ Filed Route String</p>
+                            <p class="v-label" style="margin-top:14px;">Filed Route String</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -629,7 +629,7 @@ if data:
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
-                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
+                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 12px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; color: #22c55e; font-weight: bold; font-family: sans-serif; }
 
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -677,6 +677,7 @@ if data:
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
                 const rulesFilter = "RULES_FILTER_PLACEHOLDER";
                 const isolationFilterRaw = "ISOLATION_FILTER_PLACEHOLDER";
+                const includeArrDepJs = INCLUDE_ARR_DEP_PLACEHOLDER;
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -688,71 +689,80 @@ if data:
                         fillBar.style.width = "0%"; planeIcon.style.left = "0%"; return;
                     }
                     
-                    const depPoint = airportsDatabase[depIcao.toUpperCase()];
-                    const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
-                    
-                    if (!depPoint || !arrPoint) {
-                        txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
-                        fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
-                    }
-                    
-                    const lat1 = depPoint.latitude_deg || depPoint.latitude;
-                    const lon1 = depPoint.longitude_deg || depPoint.longitude;
-                    const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
-                    const lon2 = arrPoint.longitude_deg || arrPoint.longitude;
-                    
-                    function toRad(v) { return v * Math.PI / 180; }
-                    function getDistanceNM(la1, lo1, la2, lo2) {
-                        let R = 6371; 
-                        let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
-                        let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
-                        let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                        return (R * c) * 0.539957; 
-                    }
-                    
-                    let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
-                    let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
-                    let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
-                    
-                    if (flownNM > totalNM) flownNM = totalNM;
-                    if (remainingNM < 5) flownNM = totalNM;
+                    try {
+                        const depPoint = airportsDatabase[depIcao.toUpperCase()];
+                        const arrPoint = airportsDatabase[arrIcao.toUpperCase()];
+                        
+                        if (!depPoint || !arrPoint) {
+                            txtBox.innerText = "Coordinates Missing (NM Tracker Offline)";
+                            fillBar.style.width = "50%"; planeIcon.style.left = "50%"; return;
+                        }
+                        
+                        const lat1 = depPoint.latitude_deg || depPoint.latitude;
+                        const lon1 = depPoint.longitude_deg || depPoint.longitude;
+                        const lat2 = arrPoint.latitude_deg || arrPoint.latitude;
+                        const lon2 = arrPoint.longitude_deg || arrPoint.longitude;
+                        
+                        function toRad(v) { return v * Math.PI / 180; }
+                        function getDistanceNM(la1, lo1, la2, lo2) {
+                            let R = 6371; 
+                            let dLat = toRad(la2 - la1); let dLon = toRad(lo2 - lo1);
+                            let a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                            let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                            return (R * c) * 0.539957; 
+                        }
+                        
+                        let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
+                        let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
+                        let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
+                        
+                        if (flownNM > totalNM) flownNM = totalNM;
+                        if (remainingNM < 5) flownNM = totalNM;
 
-                    let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
-                    if (pct > 100) pct = 100; if (pct < 0) pct = 0;
+                        let pct = totalNM > 0 ? Math.round((flownNM / totalNM) * 100) : 0;
+                        if (pct > 100) pct = 100; if (pct < 0) pct = 0;
 
-                    fillBar.style.width = pct + "%";
-                    planeIcon.style.left = pct + "%";
-                    
-                    txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                        fillBar.style.width = pct + "%";
+                        planeIcon.style.left = pct + "%";
+                        
+                        txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                    } catch (err) {
+                        txtBox.innerText = "Error Calculating Metrics";
+                    }
                 }
 
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
                     callsign = String(callsign).toUpperCase().trim();
                     const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
-                    if (milTypes.includes(acType)) return "⚔️ Military";
-                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "⚔️ Military";
+                    if (milTypes.includes(acType)) return "Military";
+                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "Military";
                     const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
-                    if (gaTypes.includes(acType)) return "🛩️ General Aviation";
-                    return "✈️ Commercial";
+                    if (gaTypes.includes(acType)) return "General Aviation";
+                    return "Commercial";
                 }
 
                 function fetchAirlineCompany(callsign) {
                     const callsignField = document.getElementById("airlineCallsignText");
                     callsignField.innerText = "GENERAL AVIATION / PRIVATE";
                     if (!callsign) return;
-                    let matches = callsign.match(/^[A-Z]+/i);
-                    let cleanPrefix = matches ? matches[0].toUpperCase() : "";
-                    if (cleanPrefix.length < 2) return;
                     
-                    if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
-                        let airlineData = localAirlinesDb[cleanPrefix];
-                        if (airlineData && airlineData.name && airlineData.callsign) {
-                            callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
-                        } else if (airlineData && airlineData.name) {
-                            callsignField.innerText = airlineData.name + " - " + cleanPrefix;
+                    try {
+                        let matches = callsign.match(/^[A-Z]+/i);
+                        let cleanPrefix = matches ? matches[0].toUpperCase() : "";
+                        if (cleanPrefix.length < 2) return;
+                        
+                        if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
+                            let airlineData = localAirlinesDb[cleanPrefix];
+                            if (airlineData && airlineData.name && airlineData.callsign) {
+                                callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
+                            } else if (airlineData && airlineData.name) {
+                                callsignField.innerText = airlineData.name + " - " + cleanPrefix;
+                            } else { callsignField.innerText = cleanPrefix; }
                         } else { callsignField.innerText = cleanPrefix; }
-                    } else { callsignField.innerText = cleanPrefix; }
+                    } catch (err) {
+                        callsignField.innerText = "IDENTITY CORRUPTED";
+                    }
                 }
 
                 function sendTimeToStreamlitBackend() {
@@ -792,7 +802,10 @@ if data:
                             if (!allowedAirlines.includes(csPrefix)) return;
                         }
 
-                        let matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
+                        let matchesPlan = false;
+                        if (includeArrDepJs) {
+                            matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
+                        }
                         
                         let isPhysHere = false;
                         if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
@@ -801,11 +814,13 @@ if data:
                             isPhysHere = true;
                         } else if (targetPrefix === "EG" && p.latitude && p.longitude && (p.latitude >= 49.0 && p.latitude <= 61.0) && (p.longitude >= -11.0 && p.longitude <= 2.0)) {
                             isPhysHere = true;
+                        } else if (p.latitude && p.longitude) {
+                            isPhysHere = true;
                         }
 
-                        if (matchesPlan || isPhysHere) {
+                        if (isPhysHere || matchesPlan) {
                             const rowData = {
-                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
+                                "Callsign": callsign, "Origin": dep || "NO FPL", "Destination": arr || "NO FPL",
                                 "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
                                 "Speed (KT)": p.groundspeed || 0, "Squawk": p.transponder || "0000"
                             };
@@ -825,7 +840,7 @@ if data:
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
                                 combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
-                                voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
+                                voice: p.has_voice ? "Voice Active" : "Text Only",
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
@@ -848,35 +863,45 @@ if data:
                 }
 
                 function openDossier(callsign) {
-                    const p = globalDossiers[callsign];
-                    if (!p) return;
-                    currentlyOpenCallsign = callsign;
+                    try {
+                        const p = globalDossiers[callsign];
+                        if (!p) return;
+                        currentlyOpenCallsign = callsign;
 
-                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
-                    document.getElementById("popName").innerText = p.name;
-                    document.getElementById("popCid").innerText = p.cid;
-                    document.getElementById("popCombinedRating").innerText = p.combined_rating;
-                    document.getElementById("popOnline").innerText = p.online;
-                    document.getElementById("popVoice").innerText = p.voice;
-                    document.getElementById("popSquawkBox").innerText = p.squawk;
-                    document.getElementById("popOrigin").innerText = p.origin;
-                    document.getElementById("popDestination").innerText = p.destination;
-                    document.getElementById("popAirframe").innerText = p.airframe;
-                    document.getElementById("popRoute").value = p.route;
+                        document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                        document.getElementById("popName").innerText = p.name;
+                        document.getElementById("popCid").innerText = p.cid;
+                        document.getElementById("popCombinedRating").innerText = p.combined_rating;
+                        document.getElementById("popOnline").innerText = p.online;
+                        document.getElementById("popVoice").innerText = p.voice;
+                        document.getElementById("popSquawkBox").innerText = p.squawk;
+                        document.getElementById("popOrigin").innerText = p.origin;
+                        document.getElementById("popDestination").innerText = p.destination;
+                        document.getElementById("popAirframe").innerText = p.airframe;
+                        document.getElementById("popRoute").value = p.route;
 
-                    const badge = document.getElementById("popRulesBadge");
-                    badge.innerText = p.rules;
-                    
-                    badge.style.backgroundColor = "#143a24"; 
-                    badge.style.color = "#22c55e"; 
-                    badge.style.borderColor = "#22c55e40";
+                        const badge = document.getElementById("popRulesBadge");
+                        badge.innerText = p.rules;
+                        
+                        badge.style.backgroundColor = "#143a24"; 
+                        badge.style.color = "#22c55e"; 
+                        badge.style.borderColor = "#22c55e40";
 
-                    document.getElementById("progressDeparture").innerText = p.origin;
-                    document.getElementById("progressArrival").innerText = p.destination;
+                        document.getElementById("progressDeparture").innerText = p.origin;
+                        document.getElementById("progressArrival").innerText = p.destination;
 
-                    updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
-                    fetchAirlineCompany(callsign);
-                    document.getElementById("dossierModal").style.display = "block";
+                        try {
+                            updateHaversineProgressMetrics(p.origin, p.destination, p.lat, p.lon);
+                        } catch (e) { console.log("Haversine sub-error ignored"); }
+
+                        try {
+                            fetchAirlineCompany(callsign);
+                        } catch (e) { console.log("Airline identification sub-error ignored"); }
+
+                        document.getElementById("dossierModal").style.display = "block";
+                    } catch (fatalErr) {
+                        console.log("Fatal crash intercepted in openDossier:", fatalErr);
+                    }
                 }
 
                 function closeModal() { 
@@ -897,7 +922,7 @@ if data:
                         if (data && data.pilots) {
                             buildTable(data.pilots);
                             sendTimeToStreamlitBackend();
-                            if (currentlyOpenOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
+                            if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
                                 openDossier(currentlyOpenCallsign);
                             }
                         }
@@ -941,6 +966,7 @@ if data:
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
+                .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "true" if include_arr_dep else "false")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
@@ -987,54 +1013,10 @@ with tab3:
         for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
 with tab4:
-    st.subheader("🛸 Live Anomaly Radar (X-Files)")
-    
-    # --- ANOMALY RADAR WATCHLIST EXPANDER SETTINGS ---
-    with st.expander("⚙️ Watchlist Settings", expanded=False):
-        st.markdown("##### 🎯 VIP & Target Management")
-        
-        w_col1, w_col2, w_col3 = st.columns([0.5, 0.25, 0.25])
-        with w_col1:
-            watchlist_input = st.text_input(
-                "Target Callsigns or CIDs (Comma Separated):", 
-                key="anomaly_watchlist_input", 
-                placeholder="e.g. 1863530, 1869429, THY1KD"
-            )
-        with w_col2:
-            st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            register_clicked = st.button("🚀 Register Targets", key="btn_reg_anomaly", use_container_width=True)
-        with w_col3:
-            st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            clear_clicked = st.button("🗑️ Wipe Database", key="btn_clear_anomaly", use_container_width=True)
-
-        if register_clicked and watchlist_input:
-            raw_targets = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
-            added_targets = []
-            
-            for target in raw_targets:
-                if target not in st.session_state.vip_watchlist:
-                    st.session_state.vip_watchlist.append(target)
-                    added_targets.append(target)
-            
-            if added_targets:
-                log_activity(f"Registered VIP Targets (Anomaly): {', '.join(added_targets)}")
-            st.rerun()
-
-        if clear_clicked:
-            st.session_state.vip_watchlist = []
-            log_activity("Cleared VIP Watchlist Database via Anomaly Settings")
-            st.rerun()
-
-        if st.session_state.vip_watchlist:
-            st.markdown("---")
-            st.caption(f"**Currently Tracked VIPs ({len(st.session_state.vip_watchlist)}):**")
-            st.code(", ".join(st.session_state.vip_watchlist))
-            
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Anomali listesini dataframe olarak basma alanı
-    if anomalies: 
-        st.dataframe(anomalies, use_container_width=True)
+    st.subheader("🛸 Live Anomaly Radar")
+    if anomalies:
+        df_anomalies = pd.DataFrame(anomalies)
+        st.dataframe(df_anomalies, use_container_width=True)
     else: 
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
@@ -1043,7 +1025,7 @@ with tab5:
     st.markdown("""
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
-        <div class="roadmap-title">Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
             Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
@@ -1051,7 +1033,7 @@ with tab5:
     </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
-        <div class="roadmap-title">Advanced Telemetry Tracking & Precision Filtering</div>
+        <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Active Development (June 2026)<br>
             Focusing on operational depth and data accuracy. Key milestones include:
