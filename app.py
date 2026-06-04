@@ -394,7 +394,8 @@ if data:
     max_alt, max_gs, min_gs = -1, -1, 9999
     min_logon = "9999-12-31"
 
-    fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items())]
+    defined_fir_prefixes = {"LT", "ED", "EG", "LF", "K", "OM", "LO", "LI", "LE"}
+    fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items()) if code in defined_fir_prefixes]
     
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
