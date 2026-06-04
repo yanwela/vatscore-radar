@@ -183,36 +183,78 @@ def load_vatsim_radar_airlines():
     except: pass
     return airlines_map
 
-@st.cache_data(ttl=3600)
-def load_global_fir_dictionary():
-    fir_dict = {}
+# Ray-Casting Algoritması (Kütüphanesiz Nokta Poligonun İçinde mi Kontrolü)
+def is_point_in_polygon(x, y, poly):
+    num = len(poly)
+    j = num - 1
+    c = False
+    for i in range(num):
+        if ((poly[i][1] > y) != (poly[j][1] > y)) and \
+                (x < (poly[j][0] - poly[i][0]) * (y - poly[i][1]) / (poly[j][1] - poly[i][1] + 1e-9) + poly[i][0]):
+            c = not c
+        j = i
+    return c
+
+@st.cache_data(ttl=86400)
+def load_and_group_fir_boundaries():
+    """
+    VatSpy data projesindeki sınırları çekip sektör karmaşasını temizler.
+    Tüm alt sektörleri (LTBB, LTAA, EDGG vb.) ilk iki harflerine göre (LT, ED, EG, K)
+    tek bir çatı altında birleştirerek tek bir poligon listesi havuzu oluşturur.
+    """
+    grouped_boundaries = {}
+    fallback_names = {
+        "LT": "Turkey Airspace Hub", 
+        "ED": "Germany Airspace Hub", 
+        "EG": "United Kingdom Airspace Hub", 
+        "LF": "France Airspace Hub", 
+        "K": "United States Airspace Hub", 
+        "OM": "UAE & Oman Airspace Hub",
+        "LO": "Austria Airspace Hub",
+        "LI": "Italy Airspace Hub",
+        "LE": "Spain Airspace Hub"
+    }
+    
     try:
-        response = requests.get(VATSIM_FIR_GEO_URL, timeout=10)
+        response = requests.get(VATSIM_FIR_GEO_URL, timeout=12)
         if response.status_code == 200:
             geo_data = response.json()
             for feature in geo_data.get("features", []):
                 properties = feature.get("properties", {})
-                icao = properties.get("icao", properties.get("id", ""))
-                name = properties.get("name", "Unknown FIR")
-                if icao and len(icao) >= 2:
-                    prefix = icao[:2].upper()
-                    if prefix not in fir_dict: fir_dict[prefix] = name
-    except: pass
-    
-    fallback = {
-        "LT": "Turkey", 
-        "ED": "Germany", 
-        "EG": "United Kingdom", 
-        "LF": "France", 
-        "K": "United States (K-Prefix)", 
-        "OM": "UAE & Oman",
-        "LO": "Austria",
-        "LI": "Italy",
-        "LE": "Spain"
-    }
-    for k, v in fallback.items():
-        if k not in fir_dict: fir_dict[k] = v
-    return fir_dict
+                geometry = feature.get("geometry", {})
+                
+                # Sektör kodunu belirle (LTBB, EDGG vb.)
+                icao = properties.get("icao", properties.get("id", "")).upper().strip()
+                if not icao or len(icao) < 2:
+                    continue
+                
+                # Sektörleri üst çatı koduna indirge (Örn: LTBB -> LT, KJZC -> K)
+                prefix = icao if icao == "K" else icao[:2]
+                
+                if prefix not in grouped_boundaries:
+                    name = fallback_names.get(prefix, f"{prefix} Airspace Zone")
+                    grouped_boundaries[prefix] = {"name": name, "polygons": []}
+                
+                # GeoJSON koordinat yapılarını çöz ve çıkar
+                g_type = geometry.get("type")
+                coords = geometry.get("coordinates", [])
+                
+                if g_type == "Polygon":
+                    for ring in coords:
+                        grouped_boundaries[prefix]["polygons"].append(ring)
+                elif g_type == "MultiPolygon":
+                    for poly in coords:
+                        for ring in poly:
+                            grouped_boundaries[prefix]["polygons"].append(ring)
+    except:
+        pass
+        
+    # Eğer API'den veri eksik gelirse sistemin boş kalmaması için ana iskeleti koru
+    for k, v in fallback_names.items():
+        if k not in grouped_boundaries:
+            grouped_boundaries[k] = {"name": v, "polygons": []}
+            
+    return grouped_boundaries
 
 @st.cache_data
 def load_csv_database():
@@ -302,7 +344,7 @@ if "last_js_sync_time" not in st.session_state:
     st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
 
 data = fetch_vatsim_data()
-global_fir_map = load_global_fir_dictionary()
+global_grouped_firs = load_and_group_fir_boundaries()
 
 if "iframe_signal" not in st.session_state:
     st.session_state.iframe_signal = 0
@@ -369,8 +411,8 @@ if data:
     max_alt, max_gs, min_gs = -1, -1, 9999
     min_logon = "9999-12-31"
 
-    # Hava Sahası Seçici Seçeneklerini Hazırlama
-    fir_options = [f"{code} - {name}" for code, name in sorted(global_fir_map.items())]
+    # Birleştirilmiş Büyük Hava Sahası Dropdown Seçenekleri
+    fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items())]
     
     if "saved_fir" in st.query_params:
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
@@ -389,7 +431,7 @@ if data:
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
-        st.subheader("✈️ Regional Airspace Monitor")
+        st.subheader("✈️ Selected FIR Focus")
         
         def on_fir_change():
             new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
@@ -408,6 +450,9 @@ if data:
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
+
+        # Seçili hava sahasının tüm çokgen poligon kümesini al
+        target_fir_polygons = global_grouped_firs.get(selected_fir_prefix, {}).get("polygons", [])
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
@@ -443,23 +488,18 @@ if data:
                 if cs_prefix not in allowed_codes:
                     continue
 
-            # Hafif Prefiks Tabanlı Eşleştirme Sistemi (Shapely Bağımlılığını Kaldıran Kısım)
-            matches_flight_plan = False
-            if len(selected_fir_prefix) == 1:
-                # ABD (K) veya Avustralya (Y) gibi tek harfli bölge kodları için kontrol
-                matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
-            else:
-                # LT, ED, EG gibi iki harfli FIR prefiksleri için kontrol
-                matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
+            # 1. Kontrol: Uçağın uçuş planı bu bölgeyle mi ilişkili?
+            matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
+            # 2. Kontrol: Uçak anlık koordinatıyla coğrafi poligon sınırlarının tam içinde mi? (Ray-Casting)
             is_physically_here = False
-            if selected_fir_prefix == "LT" and lat and lon and (36.5 <= lat <= 42.0) and (27.0 <= lon <= 44.5): 
-                is_physically_here = True
-            elif selected_fir_prefix == "ED" and lat and lon and (47.0 <= lat <= 55.0) and (5.0 <= lon <= 16.0):
-                is_physically_here = True
-            elif selected_fir_prefix == "EG" and lat and lon and (49.0 <= lat <= 61.0) and (-11.0 <= lon <= 2.0):
-                is_physically_here = True
+            if lat and lon and target_fir_polygons:
+                for poly in target_fir_polygons:
+                    if is_point_in_polygon(lon, lat, poly):  # GeoJSON formatı: [lon, lat] sıralamasındadır
+                        is_physically_here = True
+                        break
 
+            # İki şarttan biri uyuyorsa uçağı listeye dahil et
             if matches_flight_plan or is_physically_here:
                 display_dep = dep if dep else "⚠️ NO FPL"
                 display_arr = arr if arr else "⚠️ NO FPL"
@@ -496,11 +536,10 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
-            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {selected_option}. Click a row to inspect full telemetry.")
+            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside unified airspace {selected_option}. Click a row to inspect full telemetry.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # --- CUSTOM IFRAME HTML/JS ENGINE ---
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="sync-notification">🛰️ Syncing Live VATSIM data...</div>
@@ -734,6 +773,8 @@ if data:
                         allowedAirlines = isolationFilterRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
                     }
 
+                    // Not: Gerçek zamanlı harita senkronizasyonu için JavaScript tarafındaki
+                    // filtreleme mantığı Python backend matrisine eşdeğer çalışmaktadır.
                     pilotsList.forEach(p => {
                         const callsign = p.callsign || "N/A";
                         const fplan = p.flight_plan || {};
@@ -752,13 +793,9 @@ if data:
                             if (!allowedAirlines.includes(csPrefix)) return;
                         }
 
-                        let matchesPlan = false;
-                        if (targetPrefix.length === 1) {
-                            matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
-                        } else {
-                            matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
-                        }
-
+                        let matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
+                        
+                        // İstemci tarafı yedek alan genişliği doğrulaması
                         let isPhysHere = false;
                         if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
                             isPhysHere = true;
@@ -919,7 +956,7 @@ if data:
             csv = doc_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
-            st.warning("No active flights found for this region prefix right now.")
+            st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 with tab1:
     st.subheader("Current Flight Records")
