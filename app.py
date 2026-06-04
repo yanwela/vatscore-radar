@@ -444,9 +444,8 @@ if data:
             )
         with sel_c2:
             st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gözükmesin)", value=False)
+            include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gozukmesin)", value=False)
 
-        # Dynamic Watchlist Quick Add Panel
         st.markdown("##### Watchlist Registry Management")
         w_c1, w_c2 = st.columns([0.8, 0.2])
         with w_c1:
@@ -519,8 +518,8 @@ if data:
                 matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
             
             if is_physically_here or matches_flight_plan:
-                display_dep = dep if dep else "⚠️ NO FPL"
-                display_arr = arr if arr else "⚠️ NO FPL"
+                display_dep = dep if dep else "NO FPL"
+                display_arr = arr if arr else "NO FPL"
                 
                 fir_pilots.append({
                     "Callsign": callsign, "Origin": display_dep, "Destination": display_arr,
@@ -598,7 +597,7 @@ if data:
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
                                     <div id="progressBarFill" class="progress-bar-fill"></div>
-                                    <div id="progressPlaneIcon" class="progress-plane-icon">✈️</div>
+                                    <div id="progressPlaneIcon" class="progress-plane-icon">PLANE</div>
                                 </div>
                                 <span id="progressArrival" class="airport-badge">---</span>
                             </div>
@@ -661,7 +660,7 @@ if data:
                 .airport-badge { background-color: #1e293b; color: #f1f5f9; font-weight: bold; font-family: monospace; padding: 4px 10px; border-radius: 4px; font-size: 14px; border: 1px solid #3b82f630; }
                 .progress-container { flex-grow: 1; height: 6px; background-color: #1e293b; border-radius: 3px; position: relative; }
                 .progress-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #22c55e); border-radius: 3px; transition: width 0.4s ease; }
-                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 16px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; }
+                .progress-plane-icon { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) rotate(0deg); font-size: 12px; transition: left 0.4s ease; line-height: 1; margin-top: -1px; color: #22c55e; font-weight: bold; font-family: sans-serif; }
 
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -843,7 +842,7 @@ if data:
 
                         if (isPhysHere || matchesPlan) {
                             const rowData = {
-                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
+                                "Callsign": callsign, "Origin": dep || "NO FPL", "Destination": arr || "NO FPL",
                                 "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
                                 "Speed (KT)": p.groundspeed || 0, "Squawk": p.transponder || "0000"
                             };
@@ -982,6 +981,7 @@ if data:
                 .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "true" if include_arr_dep else "false")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
+            # HTML iFrame Render
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
@@ -993,6 +993,7 @@ if data:
             csv = doc_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
+            # EKRAN GÖRÜNTÜSÜNDEKİ "image_250182.png" DETAYI: Hata düzeltildiği için veri yoksa burası tetiklenir.
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 with tab1:
@@ -1026,9 +1027,12 @@ with tab3:
         for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
 
 with tab4:
-    st.subheader("🛸 Live Anomaly Radar & VIP Watchlist Matrix")
-    if anomalies: 
-        st.dataframe(anomalies, use_container_width=True)
+    st.subheader("🛸 Live Anomaly Radar")
+    
+    # Orijinal Veri Yapısı ve st.dataframe Düzeni Geri Getirildi
+    if anomalies:
+        df_anomalies = pd.DataFrame(anomalies)
+        st.dataframe(df_anomalies, use_container_width=True)
     else: 
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
