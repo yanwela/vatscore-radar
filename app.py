@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 import json
 import re
+from shapely.geometry import shape, Point
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -188,18 +189,6 @@ def load_vatsim_radar_airlines():
     except: pass
     return airlines_map
 
-# Ray-Casting Algorithm
-def is_point_in_polygon(x, y, poly):
-    num = len(poly)
-    j = num - 1
-    c = False
-    for i in range(num):
-        if ((poly[i][1] > y) != (poly[j][1] > y)) and \
-                (x < (poly[j][0] - poly[i][0]) * (y - poly[i][1]) / (poly[j][1] - poly[i][1] + 1e-9) + poly[i][0]):
-            c = not c
-        j = i
-    return c
-
 @st.cache_data(ttl=86400)
 def load_and_group_fir_boundaries():
     grouped_boundaries = {}
@@ -231,24 +220,19 @@ def load_and_group_fir_boundaries():
                 
                 if prefix not in grouped_boundaries:
                     name = fallback_names.get(prefix, f"{prefix} Airspace Zone")
-                    grouped_boundaries[prefix] = {"name": name, "polygons": []}
+                    grouped_boundaries[prefix] = {"name": name, "shapes": []}
                 
-                g_type = geometry.get("type")
-                coords = geometry.get("coordinates", [])
-                
-                if g_type == "Polygon":
-                    for ring in coords:
-                        grouped_boundaries[prefix]["polygons"].append(ring)
-                elif g_type == "MultiPolygon":
-                    for poly in coords:
-                        for ring in poly:
-                            grouped_boundaries[prefix]["polygons"].append(ring)
+                try:
+                    shapely_shape = shape(geometry)
+                    grouped_boundaries[prefix]["shapes"].append(shapely_shape)
+                except:
+                    pass
     except:
         pass
         
     for k, v in fallback_names.items():
         if k not in grouped_boundaries:
-            grouped_boundaries[k] = {"name": v, "polygons": []}
+            grouped_boundaries[k] = {"name": v, "shapes": []}
             
     return grouped_boundaries
 
@@ -446,22 +430,26 @@ if data:
             st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
             include_arr_dep = st.checkbox("Include Departure/Arrival Flights (Normalde Gozukmesin)", value=False)
 
-        st.markdown("##### Watchlist Registry Management")
+        st.markdown("### 🎛️ Watchlist Registry Management")
         w_c1, w_c2 = st.columns([0.8, 0.2])
         with w_c1:
             watchlist_input = st.text_input("Enter Target Callsign or CID to Monitor:", key="watchlist_input_box", placeholder="e.g. THY1KD or 1863530").upper().strip()
         with w_c2:
             st.write("<div style='padding-top:28px;'></div>", unsafe_allow_html=True)
-            if st.button("Register Target", use_container_width=True):
+            if st.button("🚀 Register Target", use_container_width=True):
                 if watchlist_input and watchlist_input not in st.session_state.vip_watchlist:
                     st.session_state.vip_watchlist.append(watchlist_input)
                     log_activity(f"Registered VIP Target: {watchlist_input}")
-                    st.success(f"Target Verified: {watchlist_input}")
+                    st.success(f"🎯 Target Verified: {watchlist_input}")
                     st.rerun()
 
         if st.session_state.vip_watchlist:
-            st.markdown("**Currently Monitored Targets:** " + ", ".join([f"`{x}`" for x in st.session_state.vip_watchlist]))
-            if st.button("Clear Watchlist Database"):
+            st.markdown("##### 📌 Monitored Signals")
+            cols_vip = st.columns(len(st.session_state.vip_watchlist) if len(st.session_state.vip_watchlist) < 6 else 6)
+            for idx, vip in enumerate(st.session_state.vip_watchlist):
+                with cols_vip[idx % 6]:
+                    st.info(f"🎯 **{vip}**")
+            if st.button("🗑️ Clear Watchlist Database", use_container_width=False):
                 st.session_state.vip_watchlist = []
                 st.rerun()
         
@@ -470,7 +458,7 @@ if data:
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
 
-        target_fir_polygons = global_grouped_firs.get(selected_fir_prefix, {}).get("polygons", [])
+        target_fir_shapes = global_grouped_firs.get(selected_fir_prefix, {}).get("shapes", [])
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
@@ -507,9 +495,10 @@ if data:
                     continue
 
             is_physically_here = False
-            if lat and lon and target_fir_polygons:
-                for poly in target_fir_polygons:
-                    if is_point_in_polygon(lon, lat, poly):
+            if lat and lon and target_fir_shapes:
+                point_obj = Point(lon, lat)
+                for boundary_shape in target_fir_shapes:
+                    if boundary_shape.contains(point_obj):
                         is_physically_here = True
                         break
 
@@ -533,18 +522,16 @@ if data:
             if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
             if logon and logon < min_logon: min_logon = logon; veteran_p = p
 
-            # Core Anomaly Engine Detections
             if str(p.get("transponder")) == "7700": 
-                anomalies.append({"Type": "EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+                anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
             if gs > 1150: 
-                anomalies.append({"Type": "Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+                anomalies.append({"Type": "⚠️ Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
             if category == "Military": 
-                anomalies.append({"Type": "Tactical Sortie", "Callsign": callsign, "Details": "Military deployment sector track", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+                anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment sector track", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
             
-            # Watchlist Anomaly Intersection
             if callsign in st.session_state.vip_watchlist or cid in st.session_state.vip_watchlist:
                 anomalies.insert(0, {
-                    "Type": "VIP WATCHLIST TARGET DETECTED", 
+                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED", 
                     "Callsign": f"{callsign} (CID: {cid})", 
                     "Details": f"Tracked Target Online - Route: {dep}->{arr}", 
                     "Airframe": ac_type, 
@@ -981,7 +968,6 @@ if data:
                 .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "true" if include_arr_dep else "false")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
-            # HTML iFrame Render
             iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
@@ -993,7 +979,6 @@ if data:
             csv = doc_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
-            # EKRAN GÖRÜNTÜSÜNDEKİ "image_250182.png" DETAYI: Hata düzeltildiği için veri yoksa burası tetiklenir.
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 with tab1:
@@ -1028,8 +1013,6 @@ with tab3:
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar")
-    
-    # Orijinal Veri Yapısı ve st.dataframe Düzeni Geri Getirildi
     if anomalies:
         df_anomalies = pd.DataFrame(anomalies)
         st.dataframe(df_anomalies, use_container_width=True)
