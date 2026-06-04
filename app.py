@@ -437,7 +437,7 @@ if data:
             value=st.session_state.only_physical_inside
         )
         
-        selected_fir_prefix = st.session_state.current_fir_prefix
+        selected_fir_prefix = selected_option.split(" - ")[0]
         current_fleet_filter = st.session_state.fleet_filter_selection
         current_rules_filter = st.session_state.rules_filter_selection
         current_isolation_filter = st.session_state.airline_isolation_filter
