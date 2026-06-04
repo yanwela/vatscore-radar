@@ -216,7 +216,7 @@ def load_and_group_fir_boundaries():
                 if not icao:
                     continue
                 
-                prefix = icao if icao == "K" else icao[:2]
+                prefix = "K" if icao.startswith("K") else icao[:2]
                 
                 if prefix not in grouped_boundaries:
                     name = fallback_names.get(prefix, f"{prefix} Airspace Zone")
@@ -811,16 +811,8 @@ if data:
                             matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
                         }
                         
-                        let isPhysHere = false;
-                        if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
-                            isPhysHere = true;
-                        } else if (targetPrefix === "ED" && p.latitude && p.longitude && (p.latitude >= 47.0 && p.latitude <= 55.0) && (p.longitude >= 5.0 && p.longitude <= 16.0)) {
-                            isPhysHere = true;
-                        } else if (targetPrefix === "EG" && p.latitude && p.longitude && (p.latitude >= 49.0 && p.latitude <= 61.0) && (p.longitude >= -11.0 && p.longitude <= 2.0)) {
-                            isPhysHere = true;
-                        } else if (p.latitude && p.longitude) {
-                            isPhysHere = true;
-                        }
+                        // Backend already filtered pilots by Shapely boundary check — all pilots in this list are physically inside the FIR
+                        let isPhysHere = p.latitude && p.longitude ? true : false;
 
                         if (isPhysHere || matchesPlan) {
                             const rowData = {
