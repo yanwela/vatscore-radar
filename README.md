@@ -12,7 +12,7 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 - [x] Airline Call-Sign Isolation: Expand standard FIR filters to support global ICAO airline codes, allowing users to explicitly isolate specific fleets (e.g., THY, PGT, BAW).
 - [x] Automated Telemetry Tagging "Flight Rules Box": Integrate automated IFR and VFR flight rule telemetry tags based on live flight plan data.
 - [x] Real-Time Haversine Distance Engine: Replace estimated progress tracking with a precise coordinate calculation framework based on the Haversine Formula, cross-referencing live positions against global airport databases.
-- [ ] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
+- [x] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
 - [ ] High-Availability Server Migration: Upgrade core network infrastructure to high-availability servers to support premium custom branding and stable user connections.
 
 ### Phase 3: The Ultimate Score, Analytics & Hyper-Personalization 
