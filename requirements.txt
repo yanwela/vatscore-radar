@@ -3,3 +3,4 @@ streamlit
 requests
 pandas
 user-agents
+shapely
