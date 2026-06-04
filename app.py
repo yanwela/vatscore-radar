@@ -189,21 +189,22 @@ def load_vatsim_radar_airlines():
     except: pass
     return airlines_map
 
+FIR_FALLBACK_NAMES = {
+    "LT": "Turkey Airspace Hub",
+    "ED": "Germany Airspace Hub",
+    "EG": "United Kingdom Airspace Hub",
+    "LF": "France Airspace Hub",
+    "K": "United States Airspace Hub",
+    "OM": "UAE & Oman Airspace Hub",
+    "LO": "Austria Airspace Hub",
+    "LI": "Italy Airspace Hub",
+    "LE": "Spain Airspace Hub"
+}
+
 @st.cache_data(ttl=86400)
-def load_and_group_fir_boundaries():
-    grouped_boundaries = {}
-    fallback_names = {
-        "LT": "Turkey Airspace Hub", 
-        "ED": "Germany Airspace Hub", 
-        "EG": "United Kingdom Airspace Hub", 
-        "LF": "France Airspace Hub", 
-        "K": "United States Airspace Hub", 
-        "OM": "UAE & Oman Airspace Hub",
-        "LO": "Austria Airspace Hub",
-        "LI": "Italy Airspace Hub",
-        "LE": "Spain Airspace Hub"
-    }
-    
+def load_fir_raw_geometries():
+    # Cache only raw GeoJSON geometry dicts — Shapely objects are not serializable by Streamlit cache
+    raw_groups = {}
     try:
         response = requests.get(VATSIM_FIR_GEO_URL, timeout=12)
         if response.status_code == 200:
@@ -211,32 +212,38 @@ def load_and_group_fir_boundaries():
             for feature in geo_data.get("features", []):
                 properties = feature.get("properties", {})
                 geometry = feature.get("geometry", {})
-                
                 icao = properties.get("id", properties.get("icao", "")).upper().strip()
                 if not icao:
                     continue
-                
                 prefix = "K" if icao.startswith("K") else icao[:2]
-                
-                if prefix not in grouped_boundaries:
-                    name = fallback_names.get(prefix, f"{prefix} Airspace Zone")
-                    grouped_boundaries[prefix] = {"name": name, "shapes": []}
-                
-                try:
-                    shapely_shape = shape(geometry)
-                    if shapely_shape.geom_type == 'MultiPolygon':
-                        grouped_boundaries[prefix]["shapes"].extend(list(shapely_shape.geoms))
-                    else:
-                        grouped_boundaries[prefix]["shapes"].append(shapely_shape)
-                except:
-                    pass
+                if prefix not in raw_groups:
+                    raw_groups[prefix] = []
+                if geometry:
+                    raw_groups[prefix].append(geometry)
     except:
         pass
-        
-    for k, v in fallback_names.items():
+    return raw_groups
+
+def load_and_group_fir_boundaries():
+    # Build Shapely shapes from cached raw geometries every run — avoids cache serialization bug
+    raw_groups = load_fir_raw_geometries()
+    grouped_boundaries = {}
+    for prefix, geom_list in raw_groups.items():
+        name = FIR_FALLBACK_NAMES.get(prefix, f"{prefix} Airspace Zone")
+        shapes = []
+        for geometry in geom_list:
+            try:
+                shapely_shape = shape(geometry)
+                if shapely_shape.geom_type == 'MultiPolygon':
+                    shapes.extend(list(shapely_shape.geoms))
+                else:
+                    shapes.append(shapely_shape)
+            except:
+                pass
+        grouped_boundaries[prefix] = {"name": name, "shapes": shapes}
+    for k, v in FIR_FALLBACK_NAMES.items():
         if k not in grouped_boundaries:
             grouped_boundaries[k] = {"name": v, "shapes": []}
-            
     return grouped_boundaries
 
 @st.cache_data
