@@ -302,7 +302,6 @@ if "last_js_sync_time" not in st.session_state:
 if "active_popup" not in st.session_state:
     st.session_state.active_popup = ""
 
-# TÜM SEKMELERİN ÜSTÜNDE GÖRÜNMEZ SAAT SENSÖRÜ VE AUTOMATED RERUN TETİKLEYİCİSİ
 js_timer_html = """
 <script>
     function sendTimeAndRefresh() {
@@ -322,20 +321,16 @@ js_timer_html = """
 </script>
 """
 
-# Tamamen görünmez ana döngü motoru
 iframe_output = st.components.v1.html(js_timer_html, height=0, width=0)
 
 if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in str(iframe_output):
-    # Eğer gelen veri bir uçak callsign lock komutu değilse saati tazeleyip rerun at
     if not iframe_output.startswith("LOCK:"):
         if iframe_output != st.session_state.last_js_sync_time:
             st.session_state.last_js_sync_time = iframe_output
             st.rerun()
     else:
-        # JS tarafı uçağa tıklayıp bir 'LOCK:THY1TA' fırlattıysa onu state'e kilitle
         st.session_state.active_popup = iframe_output.replace("LOCK:", "")
 
-# Data fetching setup
 data = fetch_vatsim_data()
 global_fir_map = load_global_fir_dictionary()
 
@@ -382,13 +377,13 @@ if data:
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
-    # METRİKLER - SADECE SAF ZULU SAATİ YAZAR
     col_stat1, col_stat2, col_stat3 = st.columns(3)
     with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
     with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
     with col_stat3: st.metric(label="System Status", value=st.session_state.last_js_sync_time)
 
     fir_pilots = []
+    js_ready_pilots_list = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
     highest_p, fastest_p, slowest_p, veteran_p = None, None, None, None
@@ -409,7 +404,6 @@ if data:
     current_fleet_filter = st.session_state.fleet_filter_selection
     current_rules_filter = st.session_state.rules_filter_selection
 
-    # Process core metrics
     for p in pilots:
         callsign = p.get("callsign", "N/A")
         alt = p.get("altitude", 0)
@@ -451,6 +445,7 @@ if data:
                 "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
                 "FlightRules": flight_rules
             })
+            js_ready_pilots_list.append(p)
 
         if alt > max_alt: max_alt = alt; highest_p = p
         if gs > max_gs: max_gs = gs; fastest_p = p
@@ -509,20 +504,19 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            # CUSTOM GRID RENDERER HTML
             raw_html_template = """
             <div id="vatscore-custom-container">
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
-                                <span id="popRulesBadge" class="v-rules-badge">IFR</span>
-                            </div>
+                            <span class="v-modal-title">🛰️ Telemetry Dossier Decoder</span>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
                         <div class="v-modal-body">
-                            <h4 id="popCallsign" style="color:#3b82f6; margin-top:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
+                            <div style="display: flex; align-items: center; gap: 12px; margin-top: 0; margin-bottom: 10px;">
+                                <h4 id="popCallsign" style="color:#3b82f6; margin:0; font-size:22px; font-family:'Segoe UI', sans-serif; font-weight: bold; letter-spacing:0.5px; font-style: italic;"></h4>
+                                <span id="popRulesBadge" class="v-rules-badge" style="margin-top: 2px;">IFR</span>
+                            </div>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
                             <p class="v-label" style="margin-bottom: 6px;">📍 Live Flight Trajectory & Distance Progress</p>
@@ -547,7 +541,7 @@ if data:
                                 </div>
                                 <div>
                                     <p class="v-label">🟢 Online Time</p><p id="popOnline" class="v-val" style="color:#22c55e; font-weight:bold;"></p>
-                                    <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b;"></p>
+                                    <p class="v-label">📻 VHF Comms & Frequency</p><p id="popVoice" class="v-val" style="color:#f59e0b; font-weight:bold;"></p>
                                     <p class="v-label">📡 Squawk Code</p><p id="popSquawkBox" class="v-val" style="color:#e2e8f0; font-family:monospace; font-weight:bold;"></p>
                                 </div>
                                 <div>
@@ -589,7 +583,6 @@ if data:
                 .radar-html-table tr:hover { background-color: #1e293b80; }
                 .radar-html-table td { padding: 12px 16px; color: #e2e8f0; vertical-align: middle; }
                 
-                /* INLINE FLIGHT RULES BOX - GÖRSELDEKİ TASARIM */
                 .callsign-cell-wrapper {
                     display: flex;
                     align-items: center;
@@ -634,7 +627,7 @@ if data:
                 }
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
-                .v-rules-badge { background-color: #1d3531; color: #22c55e; border: 1px solid #22c55e40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; }
+                .v-rules-badge { border: 1px solid transparent; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; display: inline-block; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
@@ -646,12 +639,10 @@ if data:
 
             <script>
                 let globalDossiers = {};
-                const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
                 const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
-                const rulesFilter = "RULES_FILTER_PLACEHOLDER";
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -733,60 +724,48 @@ if data:
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
                         const category = classifyAircraftLocal(acType, callsign);
                         const fRules = fplan.flight_rules || "I";
+
+                        const rowData = {
+                            "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
+                            "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
+                            "Speed (KT)": p.groundspeed || 0, "Squawk": p.transponder || "0000"
+                        };
+
+                        let onlineMins = "Unknown";
+                        if (p.logon_time) {
+                            onlineMins = Math.floor((new Date() - new Date(p.logon_time)) / 60000) + " Mins";
+                        }
+
+                        globalDossiers[callsign] = {
+                            name: p.name || "Anonymous", cid: p.cid || "N/A",
+                            combined_rating: "P Rating: " + (p.pilot_rating || 1), online: onlineMins,
+                            voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
+                            squawk: p.transponder || "0000", origin: rowData.Origin,
+                            destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
+                            lat: p.latitude || 0, lon: p.longitude || 0, rules: fRules === "V" ? "VFR" : "IFR"
+                        };
+
+                        const tr = document.createElement("tr");
+                        tr.onclick = () => openDossier(callsign);
                         
-                        if (rulesFilter === "IFR Only" && fRules !== "I") return;
-                        if (rulesFilter === "VFR Only" && fRules !== "V") return;
-
-                        const matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
-                        let isPhysHere = false;
-                        if (targetPrefix === "LT" && p.latitude && p.longitude && (p.latitude >= 36.5 && p.latitude <= 42.0) && (p.longitude >= 27.0 && p.longitude <= 44.5)) {
-                            isPhysHere = true;
-                        }
-
-                        if (matchesPlan || isPhysHere) {
-                            const rowData = {
-                                "Callsign": callsign, "Origin": dep || "⚠️ NO FPL", "Destination": arr || "⚠️ NO FPL",
-                                "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
-                                "Speed (KT)": p.groundspeed || 0, "Squawk": p.transponder || "0000"
-                            };
-
-                            let onlineMins = "Unknown";
-                            if (p.logon_time) {
-                                onlineMins = Math.floor((new Date() - new Date(p.logon_time)) / 60000) + " Mins";
+                        activeColumns.forEach(col => {
+                            const td = document.createElement("td");
+                            if (col === "Callsign") {
+                                const rulesClass = fRules === "V" ? "inline-rules-box vfr" : "inline-rules-box ifr";
+                                const rulesText = fRules === "V" ? "VFR" : "IFR";
+                                
+                                td.innerHTML = `
+                                    <div class="callsign-cell-wrapper">
+                                        <b style="color:#3b82f6; cursor:pointer;">${rowData[col]}</b>
+                                        <span class="${rulesClass}">${rulesText}</span>
+                                    </div>
+                                `;
+                            } else { 
+                                td.innerText = rowData[col]; 
                             }
-
-                            globalDossiers[callsign] = {
-                                name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                combined_rating: "P Rating: " + (p.pilot_rating || 1), online: onlineMins,
-                                voice: p.has_voice ? "🎙️ Voice Active" : "⌨️ Text Only",
-                                squawk: p.transponder || "0000", origin: rowData.Origin,
-                                destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
-                                lat: p.latitude || 0, lon: p.longitude || 0, rules: fRules === "V" ? "VFR" : "IFR"
-                            };
-
-                            const tr = document.createElement("tr");
-                            tr.onclick = () => openDossier(callsign);
-                            
-                            activeColumns.forEach(col => {
-                                const td = document.createElement("td");
-                                if (col === "Callsign") {
-                                    // IFR VFR Kutusunu Callsign hücresinin sağına tam görseldeki gibi gömüyoruz
-                                    const rulesClass = fRules === "V" ? "inline-rules-box vfr" : "inline-rules-box ifr";
-                                    const rulesText = fRules === "V" ? "VFR" : "IFR";
-                                    
-                                    td.innerHTML = `
-                                        <div class="callsign-cell-wrapper">
-                                            <b style="color:#3b82f6; cursor:pointer;">${rowData[col]}</b>
-                                            <span class="${rulesClass}">${rulesText}</span>
-                                        </div>
-                                    `;
-                                } else { 
-                                    td.innerText = rowData[col]; 
-                                }
-                                tr.appendChild(td);
-                            });
-                            tbody.appendChild(tr);
-                        }
+                            tr.appendChild(td);
+                        });
+                        tbody.appendChild(tr);
                     });
                 }
 
@@ -794,13 +773,12 @@ if data:
                     const p = globalDossiers[callsign];
                     if (!p) return;
                     
-                    // Python session_state'i sync etmesi için ana Streamlit iframe'ine bilgi uçur
                     window.parent.postMessage({
                         type: 'streamlit:setComponentValue',
                         value: 'LOCK:' + callsign
                     }, '*');
 
-                    document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
+                    document.getElementById("popCallsign").innerText = "Target Profile: " + callsign;
                     document.getElementById("popName").innerText = p.name;
                     document.getElementById("popCid").innerText = p.cid;
                     document.getElementById("popCombinedRating").innerText = p.combined_rating;
@@ -814,7 +792,6 @@ if data:
 
                     const badge = document.getElementById("popRulesBadge");
                     badge.innerText = p.rules;
-                    badge.className = p.rules === "VFR" ? "v-rules-badge" : "v-rules-badge"; // Stil eşitlemesi
                     if(p.rules === "VFR") {
                         badge.style.backgroundColor = "#3b2314"; badge.style.color = "#f59e0b"; badge.style.borderColor = "#f59e0b40";
                     } else {
@@ -849,13 +826,11 @@ if data:
             airlines_db = load_vatsim_radar_airlines()
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
-                .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", json.dumps(st.session_state.active_popup))\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
-                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
-                .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))
+                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(js_ready_pilots_list))\
+                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))
 
             st.components.v1.html(html_table_and_modal_code, height=600, scrolling=True)
             
