@@ -395,6 +395,7 @@ if data:
     with col_stat3: st.metric(label="Last Sync", value=f" {st.session_state.last_js_sync_time}")
 
     fir_pilots = []
+    filtered_pilots_raw = []
     dep_airports, arr_airports, aircraft_types = [], [], []
     anomalies = []
     highest_p, fastest_p, slowest_p, veteran_p = None, None, None, None
@@ -510,6 +511,7 @@ if data:
                     "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
                     "FlightRules": flight_rules
                 })
+                filtered_pilots_raw.append(p)
 
             if alt > max_alt: max_alt = alt; highest_p = p
             if gs > max_gs: max_gs = gs; fastest_p = p
@@ -921,14 +923,10 @@ if data:
                     const notifier = document.getElementById("sync-notification");
                     notifier.style.display = "block";
                     try {
-                        const res = await fetch("https://data.vatsim.net/v3/vatsim-data.json");
-                        const data = await res.json();
-                        if (data && data.pilots) {
-                            buildTable(data.pilots);
-                            sendTimeToStreamlitBackend();
-                            if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
-                                openDossier(currentlyOpenCallsign);
-                            }
+                        // Trigger Streamlit rerun via backend time sync — Python handles filtering and re-renders filtered data
+                        sendTimeToStreamlitBackend();
+                        if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
+                            openDossier(currentlyOpenCallsign);
                         }
                     } catch(e) { console.log(e); }
                     setTimeout(() => { notifier.style.display = "none"; }, 1500);
@@ -966,7 +964,7 @@ if data:
                 .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
                 .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
                 .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(pilots))\
+                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(filtered_pilots_raw))\
                 .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
                 .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
                 .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
