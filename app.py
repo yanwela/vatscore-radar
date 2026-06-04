@@ -109,6 +109,10 @@ if "initialized" not in st.session_state:
 # Initialize VIP Watchlist Session State
 if "vip_watchlist" not in st.session_state:
     st.session_state.vip_watchlist = []
+if "vip_cids" not in st.session_state:
+    st.session_state.vip_cids = ""
+if "vip_callsigns" not in st.session_state:
+    st.session_state.vip_callsigns = ""
 
 query_params = st.query_params
 is_admin_route = query_params.get("admin") == "true"
@@ -525,13 +529,15 @@ if data:
             if category == "Military": 
                 anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment sector track", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
             
-            if callsign in st.session_state.vip_watchlist or cid in st.session_state.vip_watchlist:
+            vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
+            vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
+            if cid in vip_cid_array or callsign in vip_callsign_array:
                 anomalies.insert(0, {
-                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED", 
-                    "Callsign": f"{callsign} (CID: {cid})", 
-                    "Details": f"Tracked Target Online - Route: {dep}->{arr}", 
-                    "Airframe": ac_type, 
-                    "Altitude": alt, 
+                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED",
+                    "Callsign": f"{callsign} (CID: {cid})",
+                    "Details": f"Tracked Pilot Online - Route: {dep}->{arr}",
+                    "Airframe": ac_type,
+                    "Altitude": alt,
                     "Speed": gs
                 })
 
@@ -1016,23 +1022,33 @@ with tab3:
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar")
+    with st.expander("⚙️ Open VIP Watchlist Controller", expanded=False):
+        st.markdown("#### Custom Surveillance Parameters")
+        wl_c1, wl_c2 = st.columns(2)
+        with wl_c1:
+            st.session_state.vip_cids = st.text_input(
+                "Target Pilot CIDs (Comma Separated):",
+                value=st.session_state.vip_cids,
+                placeholder="e.g. 1863530, 1869429",
+                key="input_vip_cids"
+            )
+        with wl_c2:
+            st.session_state.vip_callsigns = st.text_input(
+                "Target Tracking Callsigns (Comma Separated):",
+                value=st.session_state.vip_callsigns,
+                placeholder="e.g. THY123, PGT456",
+                key="input_vip_callsigns"
+            )
+        st.markdown("---")
     if anomalies:
         df_anomalies = pd.DataFrame(anomalies)
         st.dataframe(df_anomalies, use_container_width=True)
-    else: 
+    else:
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
 with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
-    <div class="roadmap-card">
-        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
-        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
-        <div class="roadmap-desc">
-            <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
-        </div>
-    </div>
     <div class="roadmap-card in-progress">
         <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
         <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
@@ -1043,7 +1059,19 @@ with tab5:
                 <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
                 <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
                 <li><strong> Dynamic Telephony Engine & Isolation:</strong> Enriched with asynchronous API matcher and premium ICAO fleet code isolation filter.</li>
+                <li><strong> FIR Boundary Engine Overhaul:</strong> Replaced legacy prefix-only matching with a dual-mode Shapely geometry system. Aircraft are now validated against official VATSIM GeoJSON boundaries, with a dedicated physical airspace toggle for strict coordinate-based filtering.</li>
+                <li><strong> Precision FIR Selectbox:</strong> Consolidated 200+ raw sector entries into a clean, country-level hub selector. All sub-sectors are merged under a single unified prefix, eliminating list clutter entirely.</li>
+                <li><strong> VIP Surveillance Watchlist:</strong> Deployed a live pilot tracking module inside the Anomaly Radar. Operators can inject target CIDs and callsigns for real-time interception alerts across the network.</li>
+                <li><strong> JS Render Pipeline Fix:</strong> Resolved a critical data bypass where the JS engine was independently fetching unfiltered VATSIM data, overriding all Python-side FIR filters on every 30-second sync cycle.</li>
             </ul>
+        </div>
+    </div>
+    <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 1: Completed</div>
+        <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Completed — May 31, 2026<br>
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
         </div>
     </div>
     """, unsafe_allow_html=True)
