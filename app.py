@@ -14,7 +14,7 @@ from shapely.geometry import shape, Point
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
-VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
+VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines.json"
 CSV_FILE_PATH = "airports.csv"
 
 # Page Configuration
