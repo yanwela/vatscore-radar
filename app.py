@@ -768,27 +768,31 @@ if data:
                 }
 
                 function fetchAirlineCompany(callsign) {
-                    const callsignField = document.getElementById("airlineCallsignText");
-                    callsignField.innerText = "GENERAL AVIATION / PRIVATE";
-                    if (!callsign) return;
-                    
-                    try {
-                        let matches = callsign.match(/^[A-Z]+/i);
-                        let cleanPrefix = matches ? matches[0].toUpperCase() : "";
-                        if (cleanPrefix.length < 2) return;
-                        
-                        if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
-                            let airlineData = localAirlinesDb[cleanPrefix];
-                            if (airlineData && airlineData.name && airlineData.callsign) {
-                                callsignField.innerText = airlineData.name + " - " + airlineData.callsign.toUpperCase();
-                            } else if (airlineData && airlineData.name) {
-                                callsignField.innerText = airlineData.name + " - " + cleanPrefix;
-                            } else { callsignField.innerText = cleanPrefix; }
-                        } else { callsignField.innerText = cleanPrefix; }
-                    } catch (err) {
-                        callsignField.innerText = "IDENTITY CORRUPTED";
-                    }
-                }
+    const callsignField = document.getElementById("airlineCallsignText");
+    callsignField.innerText = "GENERAL AVIATION / PRIVATE";
+    if (!callsign) return;
+    
+    try {
+        // Callsign içerisindeki ilk harf bloğunu yakala (Örn: THY123X -> THY)
+        let matches = callsign.match(/^[A-Z]+/i);
+        let cleanPrefix = matches ? matches[0].toUpperCase().trim() : "";
+        if (cleanPrefix.length < 2) return;
+        
+        if (localAirlinesDb && localAirlinesDb[cleanPrefix]) {
+            let airlineData = localAirlinesDb[cleanPrefix];
+            let name = airlineData.name || "Unknown Airline";
+            let telephony = airlineData.callsign || "UNKNOWN";
+            
+            // Eskiden tam olarak bu formatta havayolunun adını ve telsiz çağrı adını basıyorduk
+            callsignField.innerText = name + " (" + telephony.toUpperCase() + ")";
+        } else {
+            // Eğer veritabanında yoksa en azından ham prefix'i göster
+            callsignField.innerText = "AIRLINE: " + cleanPrefix;
+        }
+    } catch (err) {
+        callsignField.innerText = "IDENTITY CORRUPTED";
+    }
+}
 
                 function sendTimeToStreamlitBackend() {
                     const now = new Date();
