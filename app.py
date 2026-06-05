@@ -8,9 +8,6 @@ import json
 import re
 from shapely.geometry import shape, Point
 
- # PLAN -> Add selcal and reg to the airframe, change it to airframe infos, and type reg and selcal 
- # Additionally, add the time next to the "online min" box, in the format min | hour
-
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
@@ -581,6 +578,7 @@ if data:
                             <div style="display: flex; align-items: center; gap: 12px; margin-top:0; margin-bottom:14px;">
                                 <h4 id="popCallsign" style="color:#3b82f6; margin:0; font-size:22px; font-family:sans-serif; letter-spacing:0.5px; font-style: italic;"></h4>
                                 <span id="popRulesBadge" class="v-rules-badge">IFR</span>
+                                <span id="popSimBadge" class="v-sim-badge">SIM</span>
                             </div>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
@@ -612,9 +610,9 @@ if data:
                                 <div>
                                     <p class="v-label">Origin</p><p id="popOrigin" class="v-val"></p>
                                     <p class="v-label">Destination</p><p id="popDestination" class="v-val"></p>
-                                    <!-- Updated Airframe label and value holder -->
-                                    <p class="v-label">Airframe Info (Type/Reg/Selcal)</p>
-                                    <p id="popAirframe" class="v-val" style="color:#3b82f6; font-weight:bold;"></p>
+                                    <p class="v-label">Airframe Info</p><p id="popAirframe" class="v-val"></p>
+                                    <p class="v-label">Registration</p><p id="popReg" class="v-val" style="font-family:monospace;"></p>
+                                    <p class="v-label">SELCAL</p><p id="popSelcal" class="v-val" style="font-family:monospace;"></p>
                                 </div>
                             </div>
                             
@@ -683,6 +681,7 @@ if data:
                 .v-modal-header { padding: 16px 22px; background-color: #1e293b; border-top-left-radius: 11px; border-top-right-radius: 11px; display: flex; justify-content: space-between; align-items: center; }
                 .v-modal-title { color: #94a3b8; font-weight: bold; font-size: 15px; }
                 .v-rules-badge { background-color: #143a24; color: #22c55e; border: 1px solid #22c55e40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; }
+                .v-sim-badge { background-color: #1e1a2e; color: #a78bfa; border: 1px solid #a78bfa40; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; font-family: monospace; display: none; }
                 .v-close-btn { color: #94a3b8; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
@@ -845,7 +844,11 @@ if data:
                             let onlineMins = "Unknown";
                             if (p.logon_time) {
                                 const logDt = new Date(p.logon_time);
-                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
+                                const totalMins = Math.floor((new Date() - logDt) / 60000);
+                                const hrs = Math.floor(totalMins / 60);
+                                const mins = totalMins % 60;
+                                // Format as "42 min | 0 hr" or "5 min | 2 hr"
+                                onlineMins = mins + " min | " + hrs + " hr";
                             }
 
                             const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
@@ -861,7 +864,31 @@ if data:
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
-                                rules: fRules === "V" ? "VFR" : "IFR"
+                                rules: fRules === "V" ? "VFR" : "IFR",
+                                reg: (function(remarks) {
+                                    // Parse aircraft registration from remarks — common format: REG/TCABC or /REG/TC-ABC
+                                    if (!remarks) return "N/A";
+                                    const m = remarks.match(/REG\/([A-Z0-9\-]{2,10})/i);
+                                    return m ? m[1].toUpperCase() : "N/A";
+                                })(fplan.remarks || ""),
+                                selcal: (function(remarks) {
+                                    // Parse SELCAL code from remarks — common format: SEL/ABCD
+                                    if (!remarks) return "N/A";
+                                    const m = remarks.match(/SEL\/([A-Z]{4})/i);
+                                    return m ? m[1].toUpperCase() : "N/A";
+                                })(fplan.remarks || ""),
+                                sim: (function(remarks) {
+                                    // Parse simulator type from flight plan remarks
+                                    if (!remarks) return "";
+                                    const r = remarks.toUpperCase();
+                                    if (r.includes("SFB/MSFS") || r.includes("MSFS2020") || r.includes("MSFS 2020") || r.includes("MSFS2024") || r.includes("/MSFS") || r.includes("MSFS")) return "MSFS";
+                                    if (r.includes("SFB/XP") || r.includes("X-PLANE") || r.includes("XPLANE") || r.includes("/XP12") || r.includes("/XP11") || r.includes("XP12") || r.includes("XP11")) return "X-Plane";
+                                    if (r.includes("SFB/P3D") || r.includes("PREPAR3D") || r.includes("/P3D") || r.includes("P3D")) return "P3D";
+                                    if (r.includes("SFB/FS9") || r.includes("FS2004") || r.includes("FS9")) return "FS9";
+                                    if (r.includes("SFB/FSX") || r.includes("/FSX") || r.includes("FSX")) return "FSX";
+                                    if (r.includes("FLIGHTGEAR") || r.includes("FG")) return "FlightGear";
+                                    return "";
+                                })(fplan.remarks || "")
                             };
 
                             const tr = document.createElement("tr");
@@ -895,6 +922,8 @@ if data:
                         document.getElementById("popOrigin").innerText = p.origin;
                         document.getElementById("popDestination").innerText = p.destination;
                         document.getElementById("popAirframe").innerText = p.airframe;
+                        document.getElementById("popReg").innerText = p.reg;
+                        document.getElementById("popSelcal").innerText = p.selcal;
                         document.getElementById("popRoute").value = p.route;
 
                         const badge = document.getElementById("popRulesBadge");
@@ -903,6 +932,14 @@ if data:
                         badge.style.backgroundColor = "#143a24"; 
                         badge.style.color = "#22c55e"; 
                         badge.style.borderColor = "#22c55e40";
+
+                        const simBadge = document.getElementById("popSimBadge");
+                        if (p.sim) {
+                            simBadge.innerText = p.sim;
+                            simBadge.style.display = "inline-block";
+                        } else {
+                            simBadge.style.display = "none";
+                        }
 
                         document.getElementById("progressDeparture").innerText = p.origin;
                         document.getElementById("progressArrival").innerText = p.destination;
@@ -1068,6 +1105,8 @@ with tab5:
                 <li><strong> Precision FIR Selectbox:</strong> Consolidated 200+ raw sector entries into a clean, country-level hub selector. All sub-sectors are merged under a single unified prefix, eliminating list clutter entirely.</li>
                 <li><strong> VIP Surveillance Watchlist:</strong> Deployed a live pilot tracking module inside the Anomaly Radar. Operators can inject target CIDs and callsigns for real-time interception alerts across the network.</li>
                 <li><strong> JS Render Pipeline Fix:</strong> Resolved a critical data bypass where the JS engine was independently fetching unfiltered VATSIM data, overriding all Python-side FIR filters on every 30-second sync cycle.</li>
+                <li><strong> Simulator Detection Engine:</strong> Live simulator identification from flight plan remarks. Supports MSFS, X-Plane, P3D, FSX, FS9 and FlightGear — rendered as a dedicated badge in the Telemetry Dossier alongside the IFR/VFR indicator.</li>
+                <li><strong> Airframe Info Expansion:</strong> Telemetry Dossier upgraded with Registration and SELCAL fields parsed directly from pilot remarks. Online time display reformatted to min | hr split for precise session tracking.</li>
             </ul>
         </div>
     </div>
