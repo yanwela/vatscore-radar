@@ -8,9 +8,6 @@ import json
 import re
 from shapely.geometry import shape, Point
 
- # PLAN -> Add selcal and reg to the airframe, change it to airframe infos, and type reg and selcal 
- # Additionally, add the time next to the "online min" box, in the format min | hour
-
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
@@ -70,44 +67,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# White mode CSS override — injected dynamically, does not touch dark mode defaults
-if "white_mode" in st.session_state and st.session_state.white_mode:
-    st.markdown("""
-        <style>
-        .main, section[data-testid="stMain"], .block-container,
-        [data-testid="stAppViewContainer"], [data-testid="stVerticalBlock"] { background-color: #f8fafc !important; }
-        h1, h2, h3, h4, h5, h6 { color: #1e293b !important; }
-        p, label, .stMarkdown { color: #334155 !important; }
-        .stTabs [data-baseweb="tab-list"] { background-color: #e2e8f0 !important; }
-        .stTabs [data-baseweb="tab"] { background-color: #e2e8f0 !important; color: #475569 !important; }
-        .stTabs [aria-selected="true"] { color: #1d4ed8 !important; background-color: #f8fafc !important; }
-        .stTabs [data-baseweb="tab-panel"] { background-color: #f8fafc !important; }
-        div[data-testid="stMetricValue"] { color: #16a34a !important; }
-        div[data-testid="stMetricLabel"] { color: #475569 !important; }
-        [data-testid="stMetric"] { background-color: #e2e8f0 !important; border-radius: 8px; padding: 8px; }
-        [data-testid="stSelectbox"] > div > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
-        [data-testid="stSelectbox"] span { color: #1e293b !important; }
-        [role="listbox"] { background-color: #ffffff !important; }
-        [role="option"] { background-color: #ffffff !important; color: #1e293b !important; }
-        .stTextInput input { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
-        [data-testid="stMultiSelect"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
-        [data-testid="stMultiSelect"] span { color: #1e293b !important; }
-        [data-testid="stRadio"] label { color: #334155 !important; }
-        [data-testid="stCheckbox"] label { color: #334155 !important; }
-        [data-testid="stCheckbox"] span { background-color: #ffffff !important; border-color: #94a3b8 !important; }
-        [data-testid="stExpander"] { background-color: #e2e8f0 !important; border-color: #cbd5e1 !important; }
-        [data-testid="stExpander"] summary { color: #334155 !important; }
-        [data-testid="stDataFrame"] { background-color: #ffffff !important; }
-        [data-testid="stDataFrame"] th { background-color: #e2e8f0 !important; color: #1e293b !important; }
-        [data-testid="stDataFrame"] td { background-color: #ffffff !important; color: #334155 !important; }
-        [data-testid="stAlert"] { background-color: #dbeafe !important; color: #1e40af !important; }
-        .roadmap-card { background-color: #e2e8f0 !important; }
-        .roadmap-title { color: #1e293b !important; }
-        .roadmap-desc { color: #475569 !important; }
-        .signature-container { color: #64748b !important; border-top: 1px solid #cbd5e1 !important; }
-        </style>
-    """, unsafe_allow_html=True)
 
 # Admin Activity Logging System
 LOG_FILE = "radar_traffic_logs.csv"
@@ -417,7 +376,6 @@ if data:
     if "fleet_filter_selection" not in st.session_state: st.session_state.fleet_filter_selection = "All Flights"
     if "rules_filter_selection" not in st.session_state: st.session_state.rules_filter_selection = "All Rules"
     if "airline_isolation_filter" not in st.session_state: st.session_state.airline_isolation_filter = ""
-    if "white_mode" not in st.session_state: st.session_state.white_mode = False
 
     if st.session_state.show_panel:
         with st.container():
@@ -433,7 +391,6 @@ if data:
             with cfg_col2:
                 st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
-            st.session_state.white_mode = st.toggle("☀️ White Mode", value=st.session_state.white_mode)
             st.markdown("---")
 
     col_stat1, col_stat2, col_stat3 = st.columns(3)
