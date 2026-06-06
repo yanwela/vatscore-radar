@@ -7,6 +7,7 @@ import os
 import json
 import re
 from shapely.geometry import shape, Point
+import stats_engine
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -425,7 +426,7 @@ if data:
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "📊 User Stats & Analytics", "🚀 Project Roadmap"])
 
     with tab2:
         st.subheader("✈️ Selected FIR Focus")
@@ -1065,8 +1066,22 @@ with tab4:
         st.dataframe(df_anomalies, use_container_width=True)
     else:
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
-
+        
 with tab5:
+        st.markdown("<h2 style='text-align: center; color: #ffffff;'>CID BASED STATS & PERFORMANCE HUB</h2>", unsafe_allow_html=True)
+        st.write("---")
+        
+        search_cid = st.text_input("🔍 ENTER VATSIM CID TO GENERATE DOSSIER:", value="", placeholder="e.g. 1863530")
+        
+        if search_cid:
+            if search_cid.isdigit():
+                with st.spinner("Connecting to VATSIM Core & StatSim Servers..."):
+                    stats_engine.render_analytics_dashboard(search_cid)
+            else:
+                st.error("Please enter a valid numeric VATSIM CID.")
+        else:
+            st.info("💡 Enter a VATSIM CID above to construct global performance matrix, rating weights, and operational distribution charts.")
+with tab6:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
