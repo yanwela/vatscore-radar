@@ -75,21 +75,37 @@ st.markdown("""
 if "white_mode" in st.session_state and st.session_state.white_mode:
     st.markdown("""
         <style>
-        .main { background-color: #f8fafc !important; }
-        section[data-testid="stMain"] { background-color: #f8fafc !important; }
-        .block-container { background-color: #f8fafc !important; }
+        .main, section[data-testid="stMain"], .block-container,
+        [data-testid="stAppViewContainer"], [data-testid="stVerticalBlock"] { background-color: #f8fafc !important; }
         h1, h2, h3, h4, h5, h6 { color: #1e293b !important; }
-        p, span, div, label { color: #1e293b !important; }
-        .stTabs [data-baseweb="tab"] { color: #475569 !important; background-color: #e2e8f0 !important; }
-        .stTabs [aria-selected="true"] { color: #1d4ed8 !important; }
+        p, label, .stMarkdown { color: #334155 !important; }
+        .stTabs [data-baseweb="tab-list"] { background-color: #e2e8f0 !important; }
+        .stTabs [data-baseweb="tab"] { background-color: #e2e8f0 !important; color: #475569 !important; }
+        .stTabs [aria-selected="true"] { color: #1d4ed8 !important; background-color: #f8fafc !important; }
+        .stTabs [data-baseweb="tab-panel"] { background-color: #f8fafc !important; }
         div[data-testid="stMetricValue"] { color: #16a34a !important; }
         div[data-testid="stMetricLabel"] { color: #475569 !important; }
+        [data-testid="stMetric"] { background-color: #e2e8f0 !important; border-radius: 8px; padding: 8px; }
+        [data-testid="stSelectbox"] > div > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
+        [data-testid="stSelectbox"] span { color: #1e293b !important; }
+        [role="listbox"] { background-color: #ffffff !important; }
+        [role="option"] { background-color: #ffffff !important; color: #1e293b !important; }
+        .stTextInput input { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
+        [data-testid="stMultiSelect"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
+        [data-testid="stMultiSelect"] span { color: #1e293b !important; }
+        [data-testid="stRadio"] label { color: #334155 !important; }
+        [data-testid="stCheckbox"] label { color: #334155 !important; }
+        [data-testid="stCheckbox"] span { background-color: #ffffff !important; border-color: #94a3b8 !important; }
+        [data-testid="stExpander"] { background-color: #e2e8f0 !important; border-color: #cbd5e1 !important; }
+        [data-testid="stExpander"] summary { color: #334155 !important; }
+        [data-testid="stDataFrame"] { background-color: #ffffff !important; }
+        [data-testid="stDataFrame"] th { background-color: #e2e8f0 !important; color: #1e293b !important; }
+        [data-testid="stDataFrame"] td { background-color: #ffffff !important; color: #334155 !important; }
+        [data-testid="stAlert"] { background-color: #dbeafe !important; color: #1e40af !important; }
         .roadmap-card { background-color: #e2e8f0 !important; }
         .roadmap-title { color: #1e293b !important; }
         .roadmap-desc { color: #475569 !important; }
         .signature-container { color: #64748b !important; border-top: 1px solid #cbd5e1 !important; }
-        [data-testid="stExpander"] { background-color: #e2e8f0 !important; border-color: #cbd5e1 !important; }
-        .stTextInput input, .stMultiSelect div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
         </style>
     """, unsafe_allow_html=True)
 
