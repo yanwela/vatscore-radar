@@ -13,7 +13,7 @@ Our mission is to engineer the ultimate, high-fidelity data hub for the VATSIM n
 - [x] Automated Telemetry Tagging "Flight Rules Box": Integrate automated IFR and VFR flight rule telemetry tags based on live flight plan data.
 - [x] Real-Time Haversine Distance Engine: Replace estimated progress tracking with a precise coordinate calculation framework based on the Haversine Formula, cross-referencing live positions against global airport databases.
 - [x] VIP Watchlist System: Allow seamless, persistent tracking of specific airframes and pilot CIDs across active radar sessions.
-- [⏳] High-Availability Server Migration: Upgrade core network infrastructure to high-availability servers to support premium custom branding and stable user connections.
+- [] **[POSTPONED]** High-Availability Server Migration: Upgrade core network infrastructure to high-availability servers to support premium custom branding and stable user connections.
 
 ### Phase 3: The Ultimate Score, Analytics & Hyper-Personalization 
 - [ ] Localized Favorites Ecosystem: Enable virtual airline pilots and heavy-user enthusiasts to bookmark specific callsigns using session states and local storage architecture to pin favorite airframes cleanly at the top of the radar hierarchy.
