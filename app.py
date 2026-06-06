@@ -1068,12 +1068,12 @@ with tab4:
 with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
-    <div class="roadmap-card in-progress">
-        <div class="roadmap-badge" style="background-color: #f59e0b;">Phase 2: In Progress — Codename: "babybus"</div>
+    <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed — Codename: "babybus"</div>
         <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
         <div class="roadmap-desc">
-            <strong>Status:</strong> Active Development (June 2026)<br>
-            Focusing on operational depth and data accuracy. Key milestones include:
+            <strong>Status:</strong> Completed — June 6, 2026<br>
+            Focused on operational depth and data accuracy. Key milestones delivered:
             <ul>
                 <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
                 <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
@@ -1082,6 +1082,8 @@ with tab5:
                 <li><strong> Precision FIR Selectbox:</strong> Consolidated 200+ raw sector entries into a clean, country-level hub selector. All sub-sectors are merged under a single unified prefix, eliminating list clutter entirely.</li>
                 <li><strong> VIP Surveillance Watchlist:</strong> Deployed a live pilot tracking module inside the Anomaly Radar. Operators can inject target CIDs and callsigns for real-time interception alerts across the network.</li>
                 <li><strong> JS Render Pipeline Fix:</strong> Resolved a critical data bypass where the JS engine was independently fetching unfiltered VATSIM data, overriding all Python-side FIR filters on every 30-second sync cycle.</li>
+                <li><strong> Airframe Info Expansion:</strong> Telemetry Dossier upgraded with Registration and SELCAL fields parsed directly from pilot remarks, displayed in unified Type | Reg | SELCAL format. Online time reformatted to Min | Hour Min split for precise session tracking.</li>
+                <li><strong> Airlines DB Client-Side Migration:</strong> Moved airline identity resolution from server-side Python fetch to browser-side async fetch, eliminating 403 access failures on restricted hosting environments.</li>
             </ul>
         </div>
     </div>
