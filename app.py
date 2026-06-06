@@ -849,7 +849,11 @@ if data:
                             let onlineMins = "Unknown";
                             if (p.logon_time) {
                                 const logDt = new Date(p.logon_time);
-                                onlineMins = Math.floor((new Date() - logDt) / 60000) + " Mins";
+                                const totalMins = Math.floor((new Date() - logDt) / 60000);
+                                const hrs = Math.floor(totalMins / 60);
+                                const mins = totalMins % 60;
+                                // Format as "XXX Min | X Hour XX Min"
+                                onlineMins = totalMins + " Min | " + hrs + " Hour " + String(mins).padStart(2, "0") + " Min";
                             }
 
                             const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
@@ -865,7 +869,9 @@ if data:
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
-                                rules: fRules === "V" ? "VFR" : "IFR"
+                                rules: fRules === "V" ? "VFR" : "IFR",
+                                reg: (function(r) { if (!r) return ""; const m = r.match(/REG\/([A-Z0-9\-]{2,10})/i); return m ? m[1].toUpperCase() : ""; })(fplan.remarks || ""),
+                                selcal: (function(r) { if (!r) return ""; const m = r.match(/SEL\/([A-Z]{4})/i); return m ? m[1].toUpperCase() : ""; })(fplan.remarks || "")
                             };
 
                             const tr = document.createElement("tr");
@@ -898,7 +904,11 @@ if data:
                         document.getElementById("popSquawkBox").innerText = p.squawk;
                         document.getElementById("popOrigin").innerText = p.origin;
                         document.getElementById("popDestination").innerText = p.destination;
-                        document.getElementById("popAirframe").innerText = p.airframe;
+                        // Build airframe display as "Type | Reg | SELCAL" — show only available parts
+                        const airframeParts = [p.airframe];
+                        if (p.reg) airframeParts.push(p.reg);
+                        if (p.selcal) airframeParts.push(p.selcal);
+                        document.getElementById("popAirframe").innerText = airframeParts.join(" | ");
                         document.getElementById("popRoute").value = p.route;
 
                         const badge = document.getElementById("popRulesBadge");
