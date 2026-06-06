@@ -4,4 +4,3 @@ requests
 pandas
 user-agents
 shapely
-plotly
