@@ -369,7 +369,9 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
 
     if "show_panel" not in st.session_state: st.session_state.show_panel = False
-    if settings_clicked: st.session_state.show_panel = not st.session_state.show_panel
+    if settings_clicked:
+        st.session_state.show_panel = not st.session_state.show_panel
+        st.rerun()
 
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
@@ -993,7 +995,9 @@ if data:
                 .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "false" if st.session_state.only_physical_inside else "true")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            # Dynamic height: 48px per row, min 300, max 900
+            dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
+            iframe_output = st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
                 if iframe_output != st.session_state.get("last_js_sync_time", ""):
