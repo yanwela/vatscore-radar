@@ -7,7 +7,9 @@ import os
 import json
 import re
 from shapely.geometry import shape, Point
-import stats_engine
+
+ # PLAN -> Add selcal and reg to the airframe, change it to airframe infos, and type reg and selcal 
+ # Additionally, add the time next to the "online min" box, in the format min | hour
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -370,9 +372,7 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
 
     if "show_panel" not in st.session_state: st.session_state.show_panel = False
-    if settings_clicked:
-        st.session_state.show_panel = not st.session_state.show_panel
-        st.rerun()
+    if settings_clicked: st.session_state.show_panel = not st.session_state.show_panel
 
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
@@ -426,7 +426,7 @@ if data:
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "📊 User Stats & Analytics", "🚀 Project Roadmap"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
 
     with tab2:
         st.subheader("✈️ Selected FIR Focus")
@@ -996,9 +996,7 @@ if data:
                 .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "false" if st.session_state.only_physical_inside else "true")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
-            # Dynamic height: 48px per row, min 300, max 900
-            dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
+            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
                 if iframe_output != st.session_state.get("last_js_sync_time", ""):
@@ -1066,22 +1064,8 @@ with tab4:
         st.dataframe(df_anomalies, use_container_width=True)
     else:
         st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
-        
+
 with tab5:
-        st.markdown("<h2 style='text-align: center; color: #ffffff;'>CID BASED STATS & PERFORMANCE HUB</h2>", unsafe_allow_html=True)
-        st.write("---")
-        
-        search_cid = st.text_input("🔍 ENTER VATSIM CID TO GENERATE DOSSIER:", value="", placeholder="e.g. 1863530")
-        
-        if search_cid:
-            if search_cid.isdigit():
-                with st.spinner("Connecting to VATSIM Core & StatSim Servers..."):
-                    stats_engine.render_analytics_dashboard(search_cid)
-            else:
-                st.error("Please enter a valid numeric VATSIM CID.")
-        else:
-            st.info("💡 Enter a VATSIM CID above to construct global performance matrix, rating weights, and operational distribution charts.")
-with tab6:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
