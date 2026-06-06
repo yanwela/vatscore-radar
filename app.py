@@ -1,15 +1,14 @@
 import streamlit as st
 import requests
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import json
 import re
 from shapely.geometry import shape, Point
-
- # PLAN -> Add selcal and reg to the airframe, change it to airframe infos, and type reg and selcal 
- # Additionally, add the time next to the "online min" box, in the format min | hour
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -372,7 +371,9 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
 
     if "show_panel" not in st.session_state: st.session_state.show_panel = False
-    if settings_clicked: st.session_state.show_panel = not st.session_state.show_panel
+    if settings_clicked:
+        st.session_state.show_panel = not st.session_state.show_panel
+        st.rerun()
 
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
@@ -426,7 +427,7 @@ if data:
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap", "📊 CID Stats"])
 
     with tab2:
         st.subheader("✈️ Selected FIR Focus")
@@ -996,7 +997,9 @@ if data:
                 .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "false" if st.session_state.only_physical_inside else "true")\
                 .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
 
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=650, scrolling=True)
+            # Dynamic height: 48px per row, min 300, max 900
+            dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
+            iframe_output = st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
             
             if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
                 if iframe_output != st.session_state.get("last_js_sync_time", ""):
@@ -1008,6 +1011,58 @@ if data:
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
+
+
+# ─── CID Stats Helper Functions ──────────────────────────────────────────────────
+PILOT_RATINGS = {
+    0: "P0 - Observer", 1: "P1 - PPL", 3: "P2 - IR",
+    7: "P3 - CMEL", 15: "P4 - ATP", 31: "P5 - CTP", 63: "P6 - Ferry"
+}
+ATC_RATINGS = {
+    -1: "Inactive", 0: "OBS", 1: "S1", 2: "S2", 3: "S3",
+    4: "C1", 5: "C2", 6: "C3", 7: "I1", 8: "I2", 9: "I3", 10: "SUP", 11: "ADM"
+}
+MILITARY_RATINGS = {0: "None", 1: "M1", 2: "M2", 3: "M3"}
+VATSIM_CORE_API = "https://api.vatsim.net/v2"
+
+def fetch_cid_details(cid):
+    try:
+        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}", timeout=10)
+        return r.json() if r.status_code == 200 else None
+    except:
+        return None
+
+def fetch_cid_stats(cid):
+    try:
+        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/stats", timeout=10)
+        return r.json() if r.status_code == 200 else None
+    except:
+        return None
+
+def fetch_cid_flightplans(cid):
+    try:
+        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/flightplans", timeout=10)
+        return r.json() if r.status_code == 200 else []
+    except:
+        return []
+
+def fetch_cid_atcsessions(cid):
+    try:
+        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/atcsessions?limit=100&offset=0", timeout=10)
+        data = r.json() if r.status_code == 200 else {}
+        return data.get("items", []) if isinstance(data, dict) else []
+    except:
+        return []
+
+def stats_format_hours(minutes):
+    h = minutes // 60
+    m = minutes % 60
+    return f"{h}h {m:02d}m"
+
+def stats_prettify_aircraft(raw):
+    if not raw:
+        return "Unknown"
+    return raw.split("/")[0].strip().upper()
 
 with tab1:
     st.subheader("Current Flight Records")
@@ -1097,6 +1152,133 @@ with tab5:
     </div>
     """, unsafe_allow_html=True)
 
+with tab6:
+    st.subheader("📊 CID-Based Statistics Dashboard")
+
+    cid_input = st.text_input("Enter VATSIM CID", placeholder="e.g. 1863530", max_chars=10, key="cid_stats_input")
+
+    if cid_input and cid_input.strip().isdigit():
+        s_cid = cid_input.strip()
+        with st.spinner("Fetching data from VATSIM Core API..."):
+            s_details  = fetch_cid_details(s_cid)
+            s_stats    = fetch_cid_stats(s_cid)
+            s_fplans   = fetch_cid_flightplans(s_cid)
+            s_atcsess  = fetch_cid_atcsessions(s_cid)
+
+        if not s_details:
+            st.error(f"CID {s_cid} not found or API unavailable.")
+        else:
+            s_name_first   = s_details.get("name_first", "")
+            s_name_last    = s_details.get("name_last", "")
+            s_full_name    = f"{s_name_first} {s_name_last}".strip() or f"CID {s_cid}"
+            s_rating       = s_details.get("rating", 0)
+            s_pilot_rating = s_details.get("pilotrating", 0)
+            s_mil_rating   = s_details.get("militaryrating", 0)
+            s_reg_date     = s_details.get("reg_date", "")[:10]
+            s_division     = s_details.get("division_id", "N/A")
+            s_region       = s_details.get("region_id", "N/A")
+            s_atc_label    = ATC_RATINGS.get(s_rating, f"Rating {s_rating}")
+            s_pilot_label  = PILOT_RATINGS.get(s_pilot_rating, f"P{s_pilot_rating}")
+            s_mil_label    = MILITARY_RATINGS.get(s_mil_rating, "None")
+            s_pilot_mins   = s_stats.get("pilot", 0) if s_stats else 0
+            s_atc_mins     = s_stats.get("atc", 0)   if s_stats else 0
+
+            # Profile card
+            mil_badge = f'<span style="background:#2d1b4e;color:#a78bfa;border:1px solid #a78bfa40;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">MIL: {s_mil_label}</span>' if s_mil_rating > 0 else ""
+            st.markdown(f"""
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border:1px solid #1e3a5f;border-radius:12px;padding:24px 28px;margin-bottom:24px;">
+                    <div style="font-size:26px;font-weight:bold;color:#f8fafc;margin-bottom:4px;">{s_full_name}</div>
+                    <div style="font-size:13px;color:#64748b;font-family:monospace;margin-bottom:16px;">VATSIM CID: {s_cid} &nbsp;·&nbsp; {s_region} / {s_division} &nbsp;·&nbsp; Joined: {s_reg_date}</div>
+                    <span style="background:#172554;color:#3b82f6;border:1px solid #3b82f640;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">ATC: {s_atc_label}</span>
+                    <span style="background:#143a24;color:#22c55e;border:1px solid #22c55e40;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">PILOT: {s_pilot_label}</span>
+                    {mil_badge}
+                </div>
+            """, unsafe_allow_html=True)
+
+            # Top stats
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            for col, label, value, sub in [
+                (sc1, "Pilot Hours", stats_format_hours(s_pilot_mins), f"{s_pilot_mins} total minutes"),
+                (sc2, "ATC Hours",   stats_format_hours(s_atc_mins),   f"{s_atc_mins} total minutes"),
+                (sc3, "Recent Flights", str(len(s_fplans)),            "Last 50 on record"),
+                (sc4, "ATC Sessions",   str(len(s_atcsess)),           "Last 100 on record"),
+            ]:
+                with col:
+                    st.markdown(f"""
+                        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px 20px;text-align:center;margin-bottom:12px;">
+                            <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">{label}</div>
+                            <div style="font-size:22px;font-weight:bold;color:#22c55e;font-family:monospace;">{value}</div>
+                            <div style="font-size:11px;color:#475569;margin-top:2px;">{sub}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+            if s_fplans:
+                df_fp = pd.DataFrame(s_fplans)
+                df_fp["duration_min"]   = df_fp["hrsenroute"] * 60 + df_fp["minenroute"]
+                df_fp["aircraft_short"] = df_fp["aircraft"].apply(stats_prettify_aircraft)
+                df_fp["route_str"]      = df_fp["dep"].fillna("?") + " → " + df_fp["arr"].fillna("?")
+                df_fp["filed_dt"]       = pd.to_datetime(df_fp["filed"], errors="coerce", utc=True)
+
+                first_flight = df_fp["filed_dt"].min()
+                last_flight  = df_fp["filed_dt"].max()
+
+                col_left, col_right = st.columns(2)
+
+                with col_left:
+                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Most Flown Routes (Last 50)</p>", unsafe_allow_html=True)
+                    route_counts = Counter(df_fp["route_str"].tolist())
+                    routes_html = ""
+                    for route, count in route_counts.most_common(8):
+                        dep_r, arr_r = route.split(" → ")
+                        routes_html += f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:6px;padding:10px 14px;margin-bottom:6px;font-family:monospace;font-size:13px;display:flex;justify-content:space-between;"><span><span style=\"color:#3b82f6;font-weight:bold;\">{dep_r}</span> → <span style=\"color:#3b82f6;font-weight:bold;\">{arr_r}</span></span><span style=\"color:#22c55e;\">{count}x</span></div>'
+                    st.markdown(routes_html, unsafe_allow_html=True)
+
+                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;margin-top:16px;\'>Flight Timeline</p>", unsafe_allow_html=True)
+                    t1, t2 = st.columns(2)
+                    with t1:
+                        st.markdown(f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">First on Record</div><div style="font-size:15px;font-weight:bold;color:#22c55e;font-family:monospace;">{first_flight.strftime("%Y-%m-%d") if pd.notna(first_flight) else "N/A"}</div></div>', unsafe_allow_html=True)
+                    with t2:
+                        st.markdown(f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Latest on Record</div><div style="font-size:15px;font-weight:bold;color:#22c55e;font-family:monospace;">{last_flight.strftime("%Y-%m-%d") if pd.notna(last_flight) else "N/A"}</div></div>', unsafe_allow_html=True)
+
+                with col_right:
+                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Aircraft Distribution (ICAO Type)</p>", unsafe_allow_html=True)
+                    ac_counts = df_fp["aircraft_short"].value_counts().head(10).reset_index()
+                    ac_counts.columns = ["Aircraft", "Count"]
+                    fig_ac = px.bar(ac_counts, x="Count", y="Aircraft", orientation="h",
+                                    color="Count", color_continuous_scale=[[0,"#1e3a5f"],[1,"#3b82f6"]], template="plotly_dark")
+                    fig_ac.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                         margin=dict(l=0,r=0,t=0,b=0), height=300, showlegend=False,
+                                         coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
+                    fig_ac.update_traces(marker_line_width=0)
+                    st.plotly_chart(fig_ac, use_container_width=True)
+
+                st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Flight Duration Ranking (Longest → Shortest)</p>", unsafe_allow_html=True)
+                df_dur = df_fp[df_fp["duration_min"] > 0].sort_values("duration_min", ascending=False).head(20).copy()
+                df_dur["label"] = df_dur["route_str"] + " (" + df_dur["aircraft_short"] + ")"
+                fig_dur = px.bar(df_dur, x="duration_min", y="label", orientation="h",
+                                 color="duration_min", color_continuous_scale=[[0,"#143a24"],[1,"#22c55e"]], template="plotly_dark")
+                fig_dur.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                      margin=dict(l=0,r=0,t=0,b=0), height=420, showlegend=False,
+                                      coloraxis_showscale=False, yaxis=dict(autorange="reversed", title=""), xaxis=dict(title="Minutes"))
+                fig_dur.update_traces(marker_line_width=0)
+                st.plotly_chart(fig_dur, use_container_width=True)
+
+            if s_atc_mins > 0 and s_atcsess:
+                df_atc = pd.DataFrame(s_atcsess)
+                if "callsign" in df_atc.columns:
+                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Most Opened ATC Sectors</p>", unsafe_allow_html=True)
+                    atc_cnt = df_atc["callsign"].value_counts().head(12).reset_index()
+                    atc_cnt.columns = ["Position", "Sessions"]
+                    fig_atc = px.bar(atc_cnt, x="Sessions", y="Position", orientation="h",
+                                     color="Sessions", color_continuous_scale=[[0,"#172554"],[1,"#3b82f6"]], template="plotly_dark")
+                    fig_atc.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                          margin=dict(l=0,r=0,t=0,b=0), height=350, showlegend=False,
+                                          coloraxis_showscale=False, yaxis=dict(autorange="reversed", title=""), xaxis=dict(title="Sessions"))
+                    fig_atc.update_traces(marker_line_width=0)
+                    st.plotly_chart(fig_atc, use_container_width=True)
+    else:
+        st.info("Enter a valid numeric VATSIM CID above to load the dashboard.")
+
 if data:
     st.markdown("""
     <div class="signature-container">
@@ -1105,5 +1287,7 @@ if data:
         <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
     </div>
     """, unsafe_allow_html=True)
+
+
 else:
     st.error("Could not fetch data from VATSIM API. Please reload page.")
