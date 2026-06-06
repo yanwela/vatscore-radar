@@ -613,7 +613,6 @@ if data:
                                 <div>
                                     <p class="v-label">Origin</p><p id="popOrigin" class="v-val"></p>
                                     <p class="v-label">Destination</p><p id="popDestination" class="v-val"></p>
-                                    <!-- Updated Airframe label and value holder -->
                                     <p class="v-label">Airframe Info (Type/Reg/Selcal)</p>
                                     <p id="popAirframe" class="v-val" style="color:#3b82f6; font-weight:bold;"></p>
                                 </div>
@@ -1055,6 +1054,10 @@ def fetch_cid_atcsessions(cid):
         return []
 
 def stats_format_hours(minutes):
+    try:
+        minutes = int(float(minutes))
+    except (ValueError, TypeError):
+        minutes = 0
     h = minutes // 60
     m = minutes % 60
     return f"{h}h {m:02d}m"
