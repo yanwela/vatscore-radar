@@ -1015,7 +1015,7 @@ if data:
 # ─── CID Stats — statsim.net API ─────────────────────────────────────────────
 STATSIM_API  = "https://api.statsim.net/api"
 VATSIM_DATA_LIVE = "https://data.vatsim.net/v3/vatsim-data.json"
-HISTORY_FROM = "2015-01-01T00:00:00Z"
+HISTORY_FROM = "2015-01-01T00:00:00.000Z"
 
 ATC_RATINGS = {
     -1: "Inactive", 0: "OBS", 1: "S1", 2: "S2", 3: "S3",
@@ -1041,7 +1041,8 @@ def _sh():
 @st.cache_data(ttl=600, show_spinner=False)
 def statsim_flights(cid):
     from datetime import timezone as tz
-    now = datetime.now(tz.utc).isoformat()
+    _n = datetime.now(tz.utc)
+    now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
     try:
         r = requests.get(f"{STATSIM_API}/Flights/VatsimId",
                          params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
@@ -1056,7 +1057,8 @@ def statsim_flights(cid):
 @st.cache_data(ttl=600, show_spinner=False)
 def statsim_atc(cid):
     from datetime import timezone as tz
-    now = datetime.now(tz.utc).isoformat()
+    _n = datetime.now(tz.utc)
+    now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
     try:
         r = requests.get(f"{STATSIM_API}/Atcsessions/VatsimId",
                          params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
