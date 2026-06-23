@@ -1043,13 +1043,13 @@ def statsim_flights(cid):
     from datetime import timezone as tz
     _n = datetime.now(tz.utc)
     now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
+    # params= kullanmıyoruz: requests ':' -> '%3A' encode eder, statsim 400 verir
+    url = f"{STATSIM_API}/Flights/VatsimId?vatsimId={cid}&from={HISTORY_FROM}&to={now}"
     try:
-        r = requests.get(f"{STATSIM_API}/Flights/VatsimId",
-                         params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
-                         headers=_sh(), timeout=25)
+        r = requests.get(url, headers=_sh(), timeout=25)
         if r.status_code == 200:
             return r.json()
-        st.session_state["_cid_flights_err"] = str(r.status_code)
+        st.session_state["_cid_flights_err"] = f"{r.status_code}: {r.text[:200]}"
     except Exception as e:
         st.session_state["_cid_flights_err"] = str(e)
     return []
@@ -1059,13 +1059,13 @@ def statsim_atc(cid):
     from datetime import timezone as tz
     _n = datetime.now(tz.utc)
     now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
+    url = f"{STATSIM_API}/Atcsessions/VatsimId?vatsimId={cid}&from={HISTORY_FROM}&to={now}"
     try:
-        r = requests.get(f"{STATSIM_API}/Atcsessions/VatsimId",
-                         params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
-                         headers=_sh(), timeout=25)
+        r = requests.get(url, headers=_sh(), timeout=25)
         if r.status_code == 200:
             return r.json()
-    except: pass
+    except:
+        pass
     return []
 
 @st.cache_data(ttl=30, show_spinner=False)
