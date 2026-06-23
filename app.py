@@ -1012,61 +1012,143 @@ if data:
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 
-# ─── CID Stats Helper Functions ──────────────────────────────────────────────────
-PILOT_RATINGS = {
-    0: "P0 - Observer", 1: "P1 - PPL", 3: "P2 - IR",
-    7: "P3 - CMEL", 15: "P4 - ATP", 31: "P5 - CTP", 63: "P6 - Ferry"
-}
+# ─── CID Stats — statsim.net API ─────────────────────────────────────────────
+STATSIM_API  = "https://api.statsim.net/api"
+VATSIM_DATA_LIVE = "https://data.vatsim.net/v3/vatsim-data.json"
+HISTORY_FROM = "2015-01-01T00:00:00Z"
+
 ATC_RATINGS = {
     -1: "Inactive", 0: "OBS", 1: "S1", 2: "S2", 3: "S3",
     4: "C1", 5: "C2", 6: "C3", 7: "I1", 8: "I2", 9: "I3", 10: "SUP", 11: "ADM"
 }
 MILITARY_RATINGS = {0: "None", 1: "M1", 2: "M2", 3: "M3"}
-VATSIM_CORE_API = "https://api.vatsim.net/v2"
 
-def fetch_cid_details(cid):
+def decode_pilot_rating(v):
+    try: v = int(v)
+    except: return "P0"
+    if v >= 63: return "P6 · Ferry"
+    if v >= 31: return "P5 · CTP"
+    if v >= 15: return "P4 · ATP"
+    if v >= 7:  return "P3 · CMEL"
+    if v >= 3:  return "P2 · IR"
+    if v >= 1:  return "P1 · PPL"
+    return "P0 · New"
+
+def _sh():
+    key = st.secrets.get("STATSIM_API_KEY", "")
+    return {"X-API-Key": key, "accept": "application/json", "User-Agent": "VatScore/3.0"}
+
+@st.cache_data(ttl=600, show_spinner=False)
+def statsim_flights(cid):
+    from datetime import timezone as tz
+    now = datetime.now(tz.utc).isoformat()
     try:
-        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}", timeout=10)
-        return r.json() if r.status_code == 200 else None
-    except:
-        return None
+        r = requests.get(f"{STATSIM_API}/Flights/VatsimId",
+                         params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
+                         headers=_sh(), timeout=25)
+        if r.status_code == 200:
+            return r.json()
+        st.session_state["_cid_flights_err"] = str(r.status_code)
+    except Exception as e:
+        st.session_state["_cid_flights_err"] = str(e)
+    return []
 
-def fetch_cid_stats(cid):
+@st.cache_data(ttl=600, show_spinner=False)
+def statsim_atc(cid):
+    from datetime import timezone as tz
+    now = datetime.now(tz.utc).isoformat()
     try:
-        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/stats", timeout=10)
-        return r.json() if r.status_code == 200 else None
-    except:
-        return None
+        r = requests.get(f"{STATSIM_API}/Atcsessions/VatsimId",
+                         params={"vatsimId": cid, "from": HISTORY_FROM, "to": now},
+                         headers=_sh(), timeout=25)
+        if r.status_code == 200:
+            return r.json()
+    except: pass
+    return []
 
-def fetch_cid_flightplans(cid):
+@st.cache_data(ttl=30, show_spinner=False)
+def live_pilot_lookup(cid):
     try:
-        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/flightplans", timeout=10)
-        return r.json() if r.status_code == 200 else []
-    except:
-        return []
+        r = requests.get(VATSIM_DATA_LIVE, timeout=10)
+        if r.status_code == 200:
+            for p in r.json().get("pilots", []):
+                if str(p.get("cid","")) == cid:
+                    return p
+    except: pass
+    return None
 
-def fetch_cid_atcsessions(cid):
-    try:
-        r = requests.get(f"{VATSIM_CORE_API}/members/{cid}/atcsessions?limit=100&offset=0", timeout=10)
-        data = r.json() if r.status_code == 200 else {}
-        return data.get("items", []) if isinstance(data, dict) else []
-    except:
-        return []
+def _parse_dt(s):
+    if not s: return pd.NaT
+    try: return pd.to_datetime(s, utc=True)
+    except: return pd.NaT
 
-def stats_format_hours(minutes):
-    try:
-        minutes = int(float(minutes))
-    except (ValueError, TypeError):
-        minutes = 0
-    h = minutes // 60
-    m = minutes % 60
-    return f"{h}h {m:02d}m"
+def _fmt(minutes):
+    try: m = int(round(float(minutes)))
+    except: m = 0
+    return f"{m//60}s {m%60:02d}dk" if m >= 60 else f"{m}dk"
 
-def stats_prettify_aircraft(raw):
-    if not raw:
-        return "Unknown"
-    return raw.split("/")[0].strip().upper()
+def _icao(raw):
+    if not raw: return "ZZZZ"
+    return str(raw).split("/")[0].strip().upper() or "ZZZZ"
 
+_MFR = [
+    ("Airbus",     ("A30","A31","A32","A33","A34","A35","A38","A19","A20","A21","A22")),
+    ("Boeing",     ("B73","B74","B75","B76","B77","B78","B71","B72","B38","B39","737","747","757","767","777","787")),
+    ("Embraer",    ("E17","E19","E75","E55","E50","ERJ","E13","E14","E29","E45")),
+    ("Bombardier", ("CRJ","CR2","CR7","CR9","CL6","DH8","DHC","Q40")),
+    ("ATR",        ("AT4","AT5","AT7","AT8")),
+    ("Cessna",     ("C17","C20","C21","C25","C42","C50","C51","C52","C55","C56","C68","C72","C75","C82")),
+    ("Cirrus",     ("SR2","SR22","S22T")),
+    ("Diamond",    ("DA4","DA6","DA2","DA7","DV2")),
+    ("Piper",      ("P28","PA2","PA3","PA4","PA6")),
+    ("McDonnell",  ("MD8","MD9","MD1","DC8","DC9")),
+    ("Pilatus",    ("PC12","PC24","PC6","PC7")),
+]
+def _mfr(t):
+    t = t.upper()
+    for name, pfx in _MFR:
+        if t.startswith(pfx): return name
+    if t.startswith("A"): return "Airbus"
+    if t.startswith("B"): return "Boeing"
+    return "Diğer"
+
+# Renk paleti
+_INK    = "#0a0e1a"
+_PANEL  = "#10141f"
+_LINE   = "#1f2937"
+_MUTED  = "#5b6b82"
+_TEXT   = "#e8eef7"
+_CYAN   = "#22d3ee"
+_VIO    = "#8b5cf6"
+_AMBER  = "#fbbf24"
+_GREEN  = "#34d399"
+_ROSE   = "#fb7185"
+_PF     = dict(family="ui-monospace,'Cascadia Code',monospace", color=_TEXT, size=11)
+
+def _bare(fig, h=200):
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      margin=dict(l=0,r=0,t=6,b=0), height=h, font=_PF,
+                      showlegend=False, coloraxis_showscale=False)
+    fig.update_xaxes(gridcolor=_LINE, zeroline=False, title="")
+    fig.update_yaxes(gridcolor=_LINE, zeroline=False, title="")
+    return fig
+
+def _kpi(label, val, sub, color):
+    return f"""<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:10px;
+      padding:16px 18px;text-align:center;">
+      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+                  color:{_MUTED};font-weight:700;">{label}</div>
+      <div style="font-size:24px;font-weight:800;line-height:1.1;margin-top:6px;
+                  color:{color};font-variant-numeric:tabular-nums;">{val}</div>
+      <div style="font-size:11px;color:{_MUTED};margin-top:4px;">{sub}</div></div>"""
+
+def _sec(title):
+    st.markdown(f'<div style="font-size:13px;font-weight:700;color:{_TEXT};letter-spacing:.5px;'
+                f'display:flex;align-items:center;gap:8px;margin:20px 0 10px;">'
+                f'<span style="width:3px;height:16px;background:{_CYAN};display:inline-block;border-radius:2px;"></span>'
+                f'{title}</div>', unsafe_allow_html=True)
+
+# ─── Mevcut tab1,tab3,tab4,tab5 ──────────────────────────────────────────────
 with tab1:
     st.subheader("Current Flight Records")
     leader_data = []
@@ -1103,19 +1185,9 @@ with tab4:
         st.markdown("#### Custom Surveillance Parameters")
         wl_c1, wl_c2 = st.columns(2)
         with wl_c1:
-            st.session_state.vip_cids = st.text_input(
-                "Target Pilot CIDs (Comma Separated):",
-                value=st.session_state.vip_cids,
-                placeholder="e.g. 1863530, 1869429",
-                key="input_vip_cids"
-            )
+            st.session_state.vip_cids = st.text_input("Target Pilot CIDs (Comma Separated):", value=st.session_state.vip_cids, placeholder="e.g. 1863530, 1869429", key="input_vip_cids")
         with wl_c2:
-            st.session_state.vip_callsigns = st.text_input(
-                "Target Tracking Callsigns (Comma Separated):",
-                value=st.session_state.vip_callsigns,
-                placeholder="e.g. THY123, PGT456",
-                key="input_vip_callsigns"
-            )
+            st.session_state.vip_callsigns = st.text_input("Target Tracking Callsigns (Comma Separated):", value=st.session_state.vip_callsigns, placeholder="e.g. THY123, PGT456", key="input_vip_callsigns")
         st.markdown("---")
     if anomalies:
         df_anomalies = pd.DataFrame(anomalies)
@@ -1136,12 +1208,8 @@ with tab5:
                 <li><strong> Real-Time Haversine Engine:</strong> Successfully integrated precise distance calculations and a dynamic progress bar within the telemetry dossier.</li>
                 <li><strong> Flight Rule Identification:</strong> Completed the deployment of the integrated IFR/VFR Rule Box for instant flight type classification.</li>
                 <li><strong> Dynamic Telephony Engine & Isolation:</strong> Enriched with asynchronous API matcher and premium ICAO fleet code isolation filter.</li>
-                <li><strong> FIR Boundary Engine Overhaul:</strong> Replaced legacy prefix-only matching with a dual-mode Shapely geometry system. Aircraft are now validated against official VATSIM GeoJSON boundaries, with a dedicated physical airspace toggle for strict coordinate-based filtering.</li>
-                <li><strong> Precision FIR Selectbox:</strong> Consolidated 200+ raw sector entries into a clean, country-level hub selector. All sub-sectors are merged under a single unified prefix, eliminating list clutter entirely.</li>
-                <li><strong> VIP Surveillance Watchlist:</strong> Deployed a live pilot tracking module inside the Anomaly Radar. Operators can inject target CIDs and callsigns for real-time interception alerts across the network.</li>
-                <li><strong> JS Render Pipeline Fix:</strong> Resolved a critical data bypass where the JS engine was independently fetching unfiltered VATSIM data, overriding all Python-side FIR filters on every 30-second sync cycle.</li>
-                <li><strong> Airframe Info Expansion:</strong> Telemetry Dossier upgraded with Registration and SELCAL fields parsed directly from pilot remarks, displayed in unified Type | Reg | SELCAL format. Online time reformatted to Min | Hour Min split for precise session tracking.</li>
-                <li><strong> Airlines DB Client-Side Migration:</strong> Moved airline identity resolution from server-side Python fetch to browser-side async fetch, eliminating 403 access failures on restricted hosting environments.</li>
+                <li><strong> FIR Boundary Engine Overhaul:</strong> Replaced legacy prefix-only matching with a dual-mode Shapely geometry system.</li>
+                <li><strong> VIP Surveillance Watchlist:</strong> Deployed a live pilot tracking module inside the Anomaly Radar.</li>
             </ul>
         </div>
     </div>
@@ -1150,137 +1218,303 @@ with tab5:
         <div class="roadmap-title">✈️ Custom HTML/JS Grid Engine & Flight Detail Insight System</div>
         <div class="roadmap-desc">
             <strong>Status:</strong> Completed — May 31, 2026<br>
-            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection. Users can now access detailed flight plan strings, pilot profiles, and communication frequency metadata through an integrated native JavaScript modal.
+            Implementation of a high-performance HTML/JS grid engine enabling real-time telemetry inspection.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — CID STATS (statsim.net)
+# ══════════════════════════════════════════════════════════════════════════════
 with tab6:
-    st.subheader("📊 CID-Based Statistics Dashboard")
+    from datetime import timedelta as _td
 
-    cid_input = st.text_input("Enter VATSIM CID", placeholder="e.g. 1863530", max_chars=10, key="cid_stats_input")
+    st.markdown(f"""
+    <style>
+    .vs-chip{{display:inline-block;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.5px;font-family:monospace;}}
+    .vs-route{{display:flex;justify-content:space-between;align-items:center;
+               padding:9px 14px;border-radius:7px;margin-bottom:6px;
+               background:{_INK};border:1px solid {_LINE};}}
+    .vs-route .ap{{font-size:14px;font-weight:700;letter-spacing:1px;}}
+    </style>""", unsafe_allow_html=True)
 
-    if cid_input and cid_input.strip().isdigit():
-        s_cid = cid_input.strip()
-        with st.spinner("Fetching data from VATSIM Core API..."):
-            s_details  = fetch_cid_details(s_cid)
-            s_stats    = fetch_cid_stats(s_cid)
-            s_fplans   = fetch_cid_flightplans(s_cid)
-            s_atcsess  = fetch_cid_atcsessions(s_cid)
+    st.markdown(f'<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:2px;">VatScore · Dossier</div>', unsafe_allow_html=True)
+    st.markdown(f'<h3 style="margin-top:0;color:{_TEXT};font-weight:800;">CID İstatistikleri</h3>', unsafe_allow_html=True)
 
-        if not s_details:
-            st.error(f"CID {s_cid} not found or API unavailable.")
+    cid_input = st.text_input("VATSIM CID", placeholder="örn. 1481801",
+                               max_chars=10, key="cid_stats_input", label_visibility="collapsed")
+
+    if not (cid_input and cid_input.strip().isdigit()):
+        st.info("Bir VATSIM CID gir — tüm uçuş ve ATC geçmişi çekilir.")
+        st.stop()
+
+    cid = cid_input.strip()
+
+    with st.spinner("Tüm geçmiş çekiliyor (statsim.net)…"):
+        flights_raw = statsim_flights(cid)
+        atc_raw     = statsim_atc(cid)
+        lp          = live_pilot_lookup(cid)
+
+    # ── Profil: sadece live feed'den (VATSIM Core key'e gerek yok) ────────────
+    lp_name   = ""
+    lp_rating = 0
+    lp_pilot_r= 0
+    if lp:
+        lp_name    = lp.get("name", "")
+        lp_rating  = lp.get("rating", 0)
+        lp_pilot_r = lp.get("pilot_rating", 0)
+
+    atc_lbl   = ATC_RATINGS.get(int(lp_rating), f"R{lp_rating}") if lp else "—"
+    pilot_lbl = decode_pilot_rating(lp_pilot_r) if lp else "—"
+
+    # Online rozeti
+    online_badge = ""
+    if lp:
+        cs = lp.get("callsign","")
+        online_badge = f'<span class="vs-chip" style="background:#062e25;color:{_GREEN};border:1px solid #0c5;margin-left:10px;vertical-align:middle;">● CANLI · {cs}</span>'
+
+    # Rating chip'leri sadece online ise göster (live feed'den geliyor)
+    rating_chips = ""
+    if lp:
+        rating_chips = f"""
+        <span class="vs-chip" style="background:#0c2a3a;color:{_CYAN};border:1px solid {_CYAN}40;">PILOT {pilot_lbl}</span>
+        <span class="vs-chip" style="background:#1e1633;color:{_VIO};border:1px solid {_VIO}40;margin-left:8px;">ATC {atc_lbl}</span>"""
+
+    display_name = lp_name or f"CID {cid}"
+
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,{_PANEL} 0%,{_INK} 100%);
+                border:1px solid {_LINE};border-left:4px solid {_CYAN};
+                border-radius:10px;padding:22px 24px;margin-bottom:22px;
+                font-family:ui-monospace,'Cascadia Code',monospace;">
+      <div style="font-size:24px;font-weight:800;color:{_TEXT};margin-bottom:3px;">
+        {display_name}{online_badge}
+      </div>
+      <div style="font-size:12px;color:{_MUTED};margin-bottom:{'14px' if lp else '0'};">
+        CID {cid}{"  ·  Uçuş sayısı: "+str(len(flights_raw)) if flights_raw else ""}
+      </div>
+      {rating_chips}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not flights_raw:
+        err = st.session_state.get("_cid_flights_err","")
+        if err:
+            st.error(f"statsim.net'ten veri çekilemedi (hata: {err}). Secrets'taki STATSIM_API_KEY'i kontrol et.")
         else:
-            s_name_first   = s_details.get("name_first", "")
-            s_name_last    = s_details.get("name_last", "")
-            s_full_name    = f"{s_name_first} {s_name_last}".strip() or f"CID {s_cid}"
-            s_rating       = s_details.get("rating", 0)
-            s_pilot_rating = s_details.get("pilotrating", 0)
-            s_mil_rating   = s_details.get("militaryrating", 0)
-            s_reg_date     = s_details.get("reg_date", "")[:10]
-            s_division     = s_details.get("division_id", "N/A")
-            s_region       = s_details.get("region_id", "N/A")
-            s_atc_label    = ATC_RATINGS.get(s_rating, f"Rating {s_rating}")
-            s_pilot_label  = PILOT_RATINGS.get(s_pilot_rating, f"P{s_pilot_rating}")
-            s_mil_label    = MILITARY_RATINGS.get(s_mil_rating, "None")
-            s_pilot_mins   = s_stats.get("pilot", 0) if s_stats else 0
-            s_atc_mins     = s_stats.get("atc", 0)   if s_stats else 0
+            st.info("Bu CID için uçuş kaydı bulunamadı.")
+        st.stop()
 
-            # Profile card
-            mil_badge = f'<span style="background:#2d1b4e;color:#a78bfa;border:1px solid #a78bfa40;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">MIL: {s_mil_label}</span>' if s_mil_rating > 0 else ""
-            st.markdown(f"""
-                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border:1px solid #1e3a5f;border-radius:12px;padding:24px 28px;margin-bottom:24px;">
-                    <div style="font-size:26px;font-weight:bold;color:#f8fafc;margin-bottom:4px;">{s_full_name}</div>
-                    <div style="font-size:13px;color:#64748b;font-family:monospace;margin-bottom:16px;">VATSIM CID: {s_cid} &nbsp;·&nbsp; {s_region} / {s_division} &nbsp;·&nbsp; Joined: {s_reg_date}</div>
-                    <span style="background:#172554;color:#3b82f6;border:1px solid #3b82f640;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">ATC: {s_atc_label}</span>
-                    <span style="background:#143a24;color:#22c55e;border:1px solid #22c55e40;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:bold;font-family:monospace;margin-right:8px;">PILOT: {s_pilot_label}</span>
-                    {mil_badge}
-                </div>
-            """, unsafe_allow_html=True)
+    # ── DataFrame ──────────────────────────────────────────────────────────────
+    df = pd.DataFrame(flights_raw)
+    df["dep"]         = df.get("departure",   pd.Series(dtype=str)).fillna("????").str.upper()
+    df["arr"]         = df.get("destination", pd.Series(dtype=str)).fillna("????").str.upper()
+    df["ac"]          = df.get("aircraft",    pd.Series(dtype=str)).apply(_icao)
+    df["mfr"]         = df["ac"].apply(_mfr)
+    df["route"]       = df["dep"] + "→" + df["arr"]
+    df["dep_dt"]      = df.get("departed",  pd.Series(dtype=str)).apply(_parse_dt)
+    df["arr_dt"]      = df.get("arrived",   pd.Series(dtype=str)).apply(_parse_dt)
+    df["logon_dt"]    = df.get("loggedOn",  pd.Series(dtype=str)).apply(_parse_dt)
+    df["when"]        = df["dep_dt"].fillna(df["logon_dt"])
+    dur               = (df["arr_dt"] - df["dep_dt"]).dt.total_seconds() / 60
+    df["dur_min"]     = dur.where(dur > 0).fillna(0)
+    total_flights     = len(df)
 
-            # Top stats
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            for col, label, value, sub in [
-                (sc1, "Pilot Hours", stats_format_hours(s_pilot_mins), f"{s_pilot_mins} total minutes"),
-                (sc2, "ATC Hours",   stats_format_hours(s_atc_mins),   f"{s_atc_mins} total minutes"),
-                (sc3, "Recent Flights", str(len(s_fplans)),            "Last 50 on record"),
-                (sc4, "ATC Sessions",   str(len(s_atcsess)),           "Last 100 on record"),
-            ]:
-                with col:
-                    st.markdown(f"""
-                        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px 20px;text-align:center;margin-bottom:12px;">
-                            <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">{label}</div>
-                            <div style="font-size:22px;font-weight:bold;color:#22c55e;font-family:monospace;">{value}</div>
-                            <div style="font-size:11px;color:#475569;margin-top:2px;">{sub}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
+    # ── Zaman filtresi ─────────────────────────────────────────────────────────
+    now_utc = datetime.now(timezone.utc)
+    tf = st.radio("", ["Tümü","Son 1 Ay","Son 6 Ay","Bu Yıl","Son 1 Yıl"],
+                  horizontal=True, key="cid_tf", label_visibility="collapsed")
+    cutoff = {"Son 1 Ay": now_utc-_td(days=30), "Son 6 Ay": now_utc-_td(days=182),
+              "Bu Yıl": now_utc.replace(month=1,day=1,hour=0,minute=0,second=0,microsecond=0),
+              "Son 1 Yıl": now_utc-_td(days=365)}.get(tf)
+    dff = df[df["when"] >= cutoff].copy() if cutoff else df.copy()
+    st.caption(f"**{len(dff)}** uçuş gösteriliyor · toplam **{total_flights}** kayıt")
 
-            if s_fplans:
-                df_fp = pd.DataFrame(s_fplans)
-                df_fp["duration_min"]   = df_fp["hrsenroute"] * 60 + df_fp["minenroute"]
-                df_fp["aircraft_short"] = df_fp["aircraft"].apply(stats_prettify_aircraft)
-                df_fp["route_str"]      = df_fp["dep"].fillna("?") + " → " + df_fp["arr"].fillna("?")
-                df_fp["filed_dt"]       = pd.to_datetime(df_fp["filed"], errors="coerce", utc=True)
+    # ── KPI şeridi ─────────────────────────────────────────────────────────────
+    uniq_ap = [a for a in pd.unique(dff[["dep","arr"]].values.ravel()) if a not in ("????","")]
+    fl_dur  = dff[dff["dur_min"] > 0]["dur_min"]
+    avg_dur = int(fl_dur.mean()) if len(fl_dur) else 0
+    k1,k2,k3,k4,k5 = st.columns(5)
+    with k1: st.markdown(_kpi("Uçuş", f"{len(dff)}", f"/{total_flights} tüm zaman", _CYAN), unsafe_allow_html=True)
+    with k2: st.markdown(_kpi("Ort. Süre", _fmt(avg_dur), "süresi hesaplanan", _GREEN), unsafe_allow_html=True)
+    with k3: st.markdown(_kpi("Havalimanı", f"{len(uniq_ap)}", "farklı meydan", _AMBER), unsafe_allow_html=True)
+    with k4: st.markdown(_kpi("Uçak Tipi", f"{dff['ac'].nunique()}", "ICAO type", _ROSE), unsafe_allow_html=True)
+    with k5: st.markdown(_kpi("ATC Oturum", f"{len(atc_raw)}", "tüm geçmiş", _VIO), unsafe_allow_html=True)
 
-                first_flight = df_fp["filed_dt"].min()
-                last_flight  = df_fp["filed_dt"].max()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-                col_left, col_right = st.columns(2)
+    # ── Panel 1: Aktivite grafiği + İlk/Son ────────────────────────────────────
+    _sec("Aktivite")
+    a1, a2 = st.columns([0.7, 0.3])
+    with a1:
+        dm = dff.dropna(subset=["when"]).copy()
+        if len(dm):
+            dm["month"] = dm["when"].dt.to_period("M").astype(str)
+            mc = dm.groupby("month").size().reset_index(name="n")
+            fig = px.area(mc, x="month", y="n", template="plotly_dark")
+            fig.update_traces(line=dict(color=_CYAN, width=2), fill="tozeroy",
+                              fillcolor=f"rgba(34,211,238,0.10)", mode="lines")
+            _bare(fig, 210); fig.update_xaxes(tickangle=-45, tickfont=dict(size=9))
+            st.plotly_chart(fig, use_container_width=True)
+    with a2:
+        first_f = df["when"].min(); last_f = df["when"].max()
+        fmt = "%d.%m.%Y"
+        st.markdown(f"""
+<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:8px;padding:16px;">
+  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">İlk Uçuş</div>
+  <div style="color:{_TEXT};font-family:monospace;font-size:14px;margin-bottom:12px;">{first_f.strftime(fmt) if pd.notna(first_f) else '—'}</div>
+  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">Son Uçuş</div>
+  <div style="color:{_CYAN};font-family:monospace;font-size:14px;margin-bottom:12px;">{last_f.strftime(fmt) if pd.notna(last_f) else '—'}</div>
+  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">Ort. Uçuş Süresi</div>
+  <div style="color:{_AMBER};font-family:monospace;font-size:18px;font-weight:800;">{_fmt(avg_dur)}</div>
+</div>""", unsafe_allow_html=True)
 
-                with col_left:
-                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Most Flown Routes (Last 50)</p>", unsafe_allow_html=True)
-                    route_counts = Counter(df_fp["route_str"].tolist())
-                    routes_html = ""
-                    for route, count in route_counts.most_common(8):
-                        dep_r, arr_r = route.split(" → ")
-                        routes_html += f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:6px;padding:10px 14px;margin-bottom:6px;font-family:monospace;font-size:13px;display:flex;justify-content:space-between;"><span><span style=\"color:#3b82f6;font-weight:bold;\">{dep_r}</span> → <span style=\"color:#3b82f6;font-weight:bold;\">{arr_r}</span></span><span style=\"color:#22c55e;\">{count}x</span></div>'
-                    st.markdown(routes_html, unsafe_allow_html=True)
+    # ── Panel 2: Fleet ─────────────────────────────────────────────────────────
+    _sec("Filo")
+    f1, f2 = st.columns(2)
+    with f1:
+        mc2 = dff["mfr"].value_counts().head(7).reset_index(); mc2.columns=["mfr","n"]
+        fig = px.pie(mc2, names="mfr", values="n", hole=0.55, template="plotly_dark",
+                     color_discrete_sequence=[_CYAN,_VIO,_GREEN,_AMBER,_ROSE,"#60a5fa","#a78bfa"])
+        fig.update_traces(textposition="outside", textinfo="label+percent",
+                          textfont=dict(size=10,color=_TEXT),
+                          marker=dict(line=dict(color=_INK,width=2)))
+        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+                          margin=dict(l=0,r=0,t=0,b=0),height=230,showlegend=False,font=_PF,
+                          annotations=[dict(text=f"<b>{dff['mfr'].nunique()}</b><br>üretici",
+                                            x=0.5,y=0.5,font=dict(size=13,color=_MUTED),showarrow=False)])
+        st.plotly_chart(fig, use_container_width=True)
+    with f2:
+        ac2 = dff["ac"].value_counts().head(8).reset_index(); ac2.columns=["ac","n"]
+        fig = px.bar(ac2, x="n", y="ac", orientation="h", template="plotly_dark",
+                     color="n", color_continuous_scale=[[0,"#0c2a3a"],[1,_CYAN]])
+        fig.update_traces(marker_line_width=0, opacity=0.95,
+                          text=ac2["n"], textposition="outside", textfont=dict(color=_MUTED,size=10))
+        _bare(fig, 230); fig.update_yaxes(autorange="reversed", tickfont=dict(size=11))
+        st.plotly_chart(fig, use_container_width=True)
 
-                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;margin-top:16px;\'>Flight Timeline</p>", unsafe_allow_html=True)
-                    t1, t2 = st.columns(2)
-                    with t1:
-                        st.markdown(f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">First on Record</div><div style="font-size:15px;font-weight:bold;color:#22c55e;font-family:monospace;">{first_flight.strftime("%Y-%m-%d") if pd.notna(first_flight) else "N/A"}</div></div>', unsafe_allow_html=True)
-                    with t2:
-                        st.markdown(f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px;text-align:center;"><div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">Latest on Record</div><div style="font-size:15px;font-weight:bold;color:#22c55e;font-family:monospace;">{last_flight.strftime("%Y-%m-%d") if pd.notna(last_flight) else "N/A"}</div></div>', unsafe_allow_html=True)
+    # ── Panel 3: En uzun uçuşlar ───────────────────────────────────────────────
+    _sec("En Uzun Uçuşlar")
+    s1, s2 = st.columns([0.35, 0.65])
+    with s1: min_h = st.slider("Min. süre (saat)", 0, 14, 0, key="cid_min_h")
+    with s2: top_n = st.slider("Adet", 5, 30, 12, key="cid_top_n")
 
-                with col_right:
-                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Aircraft Distribution (ICAO Type)</p>", unsafe_allow_html=True)
-                    ac_counts = df_fp["aircraft_short"].value_counts().head(10).reset_index()
-                    ac_counts.columns = ["Aircraft", "Count"]
-                    fig_ac = px.bar(ac_counts, x="Count", y="Aircraft", orientation="h",
-                                    color="Count", color_continuous_scale=[[0,"#1e3a5f"],[1,"#3b82f6"]], template="plotly_dark")
-                    fig_ac.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                         margin=dict(l=0,r=0,t=0,b=0), height=300, showlegend=False,
-                                         coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
-                    fig_ac.update_traces(marker_line_width=0)
-                    st.plotly_chart(fig_ac, use_container_width=True)
-
-                st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Flight Duration Ranking (Longest → Shortest)</p>", unsafe_allow_html=True)
-                df_dur = df_fp[df_fp["duration_min"] > 0].sort_values("duration_min", ascending=False).head(20).copy()
-                df_dur["label"] = df_dur["route_str"] + " (" + df_dur["aircraft_short"] + ")"
-                fig_dur = px.bar(df_dur, x="duration_min", y="label", orientation="h",
-                                 color="duration_min", color_continuous_scale=[[0,"#143a24"],[1,"#22c55e"]], template="plotly_dark")
-                fig_dur.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                      margin=dict(l=0,r=0,t=0,b=0), height=420, showlegend=False,
-                                      coloraxis_showscale=False, yaxis=dict(autorange="reversed", title=""), xaxis=dict(title="Minutes"))
-                fig_dur.update_traces(marker_line_width=0)
-                st.plotly_chart(fig_dur, use_container_width=True)
-
-            if s_atc_mins > 0 and s_atcsess:
-                df_atc = pd.DataFrame(s_atcsess)
-                if "callsign" in df_atc.columns:
-                    st.markdown("<p style=\'font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1.5px;border-bottom:1px solid #1e293b;padding-bottom:6px;\'>Most Opened ATC Sectors</p>", unsafe_allow_html=True)
-                    atc_cnt = df_atc["callsign"].value_counts().head(12).reset_index()
-                    atc_cnt.columns = ["Position", "Sessions"]
-                    fig_atc = px.bar(atc_cnt, x="Sessions", y="Position", orientation="h",
-                                     color="Sessions", color_continuous_scale=[[0,"#172554"],[1,"#3b82f6"]], template="plotly_dark")
-                    fig_atc.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                          margin=dict(l=0,r=0,t=0,b=0), height=350, showlegend=False,
-                                          coloraxis_showscale=False, yaxis=dict(autorange="reversed", title=""), xaxis=dict(title="Sessions"))
-                    fig_atc.update_traces(marker_line_width=0)
-                    st.plotly_chart(fig_atc, use_container_width=True)
+    dl = dff[(dff["dur_min"] >= min_h*60) & (dff["dur_min"]>0)].sort_values("dur_min",ascending=False).head(top_n).copy()
+    if len(dl):
+        dl["lbl"] = dl["route"] + "  " + dl["ac"]
+        dl["hm"]  = dl["dur_min"].apply(_fmt)
+        fig = px.bar(dl, x="dur_min", y="lbl", orientation="h", template="plotly_dark",
+                     color="dur_min", color_continuous_scale=[[0,"#0c2e26"],[1,_GREEN]], custom_data=["hm"])
+        fig.update_traces(marker_line_width=0, opacity=0.95,
+                          hovertemplate="%{y}<br>%{customdata[0]}<extra></extra>",
+                          text=dl["hm"], textposition="outside", textfont=dict(color=_MUTED,size=10))
+        _bare(fig, max(260,len(dl)*30)); fig.update_yaxes(autorange="reversed",tickfont=dict(size=11))
+        fig.update_xaxes(title="dakika")
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Enter a valid numeric VATSIM CID above to load the dashboard.")
+        st.info("Bu filtreyle süre verisi olan uçuş yok. (statsim bazı uçuşlarda departed/arrived vermez)")
+
+    # ── Panel 4: Rotalar ───────────────────────────────────────────────────────
+    _sec("Rotalar")
+    r1, r2 = st.columns(2)
+    rc = Counter(dff[dff["route"]!="????→????"]["route"].tolist())
+
+    with r1:
+        st.markdown(f'<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:8px;">En Çok Uçulan</div>', unsafe_allow_html=True)
+        mx = rc.most_common(1)[0][1] if rc else 1
+        html = ""
+        for route, cnt in rc.most_common(7):
+            d2, a2 = route.split("→")
+            w = int(cnt/mx*100)
+            html += f"""<div class="vs-route">
+              <span class="ap"><span style="color:{_CYAN}">{d2}</span><span style="color:{_MUTED};margin:0 6px;">→</span><span style="color:{_CYAN}">{a2}</span></span>
+              <span style="display:flex;align-items:center;gap:8px;">
+                <span style="width:50px;height:4px;background:{_LINE};border-radius:2px;overflow:hidden;display:inline-block;">
+                  <span style="display:block;height:4px;width:{w}%;background:{_CYAN};"></span></span>
+                <span class="vs-chip" style="background:#0c2a3a;color:{_CYAN};padding:2px 8px;">{cnt}×</span>
+              </span></div>"""
+        st.markdown(html or f"<div style='color:{_MUTED}'>Veri yok</div>", unsafe_allow_html=True)
+
+    with r2:
+        st.markdown(f'<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:8px;">En İlginç (Nadir & Uzun)</div>', unsafe_allow_html=True)
+        dr = dff[dff["route"]!="????→????"].copy()
+        dr["freq"] = dr["route"].map(rc)
+        dr = dr[dr["dur_min"]>30].sort_values(["freq","dur_min"],ascending=[True,False]).head(6)
+        if len(dr):
+            rh = ""
+            for _, row in dr.iterrows():
+                d2,a2 = row["route"].split("→")
+                rh += f"""<div class="vs-route" style="border-left:2px solid {_AMBER};">
+                  <span class="ap"><span style="color:{_AMBER}">{d2}</span><span style="color:{_MUTED};margin:0 6px;">→</span><span style="color:{_AMBER}">{a2}</span></span>
+                  <span style="font-size:11px;color:{_MUTED};font-family:monospace;">{row['ac']} · {_fmt(row['dur_min'])}</span></div>"""
+            st.markdown(rh, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='color:{_MUTED};font-size:12px;'>Süre verisi yeterli değil</div>", unsafe_allow_html=True)
+
+        if len(dff):
+            top_ac  = dff["ac"].value_counts().idxmax()
+            top_mfr = dff["mfr"].value_counts().idxmax()
+            top_cnt = int(dff["ac"].value_counts().max())
+            st.markdown(f"""<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:8px;
+              padding:14px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+              <div><div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;">Favori Uçak</div>
+              <div style="font-size:20px;font-weight:800;color:{_GREEN};font-family:monospace;">{top_ac}
+              <span style="font-size:12px;color:{_MUTED};font-weight:400;">· {top_mfr}</span></div></div>
+              <span class="vs-chip" style="background:#0c2e26;color:{_GREEN};">{top_cnt} uçuş</span>
+            </div>""", unsafe_allow_html=True)
+
+    # ── Panel 5: ATC ───────────────────────────────────────────────────────────
+    if atc_raw:
+        _sec("ATC Sektör Mastery")
+        da = pd.DataFrame(atc_raw)
+        da["on"]  = da.get("loggedOn",  pd.Series(dtype=str)).apply(_parse_dt)
+        da["off"] = da.get("loggedOff", pd.Series(dtype=str)).apply(_parse_dt)
+        da["dur_min"] = ((da["off"]-da["on"]).dt.total_seconds()/60).clip(lower=0).fillna(0)
+        da["cs"] = da.get("callsign", pd.Series(dtype=str)).fillna("???").str.upper()
+
+        atc_tf = st.radio("", ["Tümü","Bu Yıl","Son 6 Ay"], horizontal=True,
+                          key="cid_atc_tf", label_visibility="collapsed")
+        if atc_tf == "Bu Yıl":
+            da = da[da["on"] >= now_utc.replace(month=1,day=1,hour=0,minute=0,second=0,microsecond=0)]
+        elif atc_tf == "Son 6 Ay":
+            da = da[da["on"] >= now_utc - _td(days=182)]
+
+        total_atc_min = da["dur_min"].sum()
+        g1,g2,g3 = st.columns(3)
+        with g1: st.markdown(_kpi("Oturum", f"{len(da)}", "kayıt", _VIO), unsafe_allow_html=True)
+        with g2: st.markdown(_kpi("Toplam Süre", _fmt(total_atc_min), "kontrol süresi", _VIO), unsafe_allow_html=True)
+        with g3: st.markdown(_kpi("Pozisyon", f"{da['cs'].nunique()}", "farklı sektör", _VIO), unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            pos = da.groupby("cs")["dur_min"].sum().sort_values(ascending=False).head(12).reset_index()
+            pos["hm"] = pos["dur_min"].apply(_fmt)
+            fig = px.bar(pos, x="dur_min", y="cs", orientation="h", template="plotly_dark",
+                         color="dur_min", color_continuous_scale=[[0,"#1e1633"],[1,_VIO]], custom_data=["hm"])
+            fig.update_traces(marker_line_width=0, opacity=0.95,
+                              hovertemplate="%{y}<br>%{customdata[0]}<extra></extra>")
+            _bare(fig, 360); fig.update_yaxes(autorange="reversed",tickfont=dict(size=11))
+            fig.update_xaxes(title="dakika")
+            st.plotly_chart(fig, use_container_width=True)
+        with c2:
+            def _stype(cs):
+                cs = str(cs).upper()
+                for s,n in (("_CTR","CTR"),("_APP","APP"),("_DEP","APP"),("_TWR","TWR"),("_GND","GND"),("_DEL","DEL"),("_FSS","FSS")):
+                    if s in cs: return n
+                return "Diğer"
+            da["tip"] = da["cs"].apply(_stype)
+            tc = da.groupby("tip")["dur_min"].sum().reset_index(); tc.columns=["tip","dur"]
+            fig = px.pie(tc, names="tip", values="dur", hole=0.55, template="plotly_dark",
+                         color_discrete_sequence=[_VIO,_CYAN,_GREEN,_AMBER,_ROSE,"#60a5fa"])
+            fig.update_traces(textposition="outside", textinfo="label+percent",
+                              textfont=dict(size=11,color=_TEXT),
+                              marker=dict(line=dict(color=_INK,width=2)))
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+                              margin=dict(l=0,r=0,t=0,b=0),height=360,showlegend=False,font=_PF,
+                              annotations=[dict(text="sektör<br>tipi",x=0.5,y=0.5,
+                                                font=dict(size=12,color=_MUTED),showarrow=False)])
+            st.plotly_chart(fig, use_container_width=True)
 
 if data:
     st.markdown("""
@@ -1290,7 +1524,6 @@ if data:
         <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
     </div>
     """, unsafe_allow_html=True)
-
 
 else:
     st.error("Could not fetch data from VATSIM API. Please reload page.")
