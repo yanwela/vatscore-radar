@@ -32,7 +32,7 @@ Phase 3 delivers on the core promise of turning VatScore from a simple radar int
 - [x] Network-Wide Auto-Refresh Engine: Replaced a silently non-functional JS sync bridge with a proper scoped-fragment architecture — Leaderboard, Global Stats, Anomaly Radar, and the network counters now refresh live in the background every 20 seconds without disturbing in-progress input anywhere else on the page.
 - [x] Rating Accuracy Overhaul: Corrected the ATC and pilot rating decoders to match VATSIM's official rating tables exactly, eliminating a long-standing off-by-one misclassification (e.g., a real S1 controller no longer reads as S2).
 - [x] Security & Stability Hardening: Closed a stored-XSS vector in pilot-supplied name fields, fixed an app-wide crash on missing secrets configuration, and removed several dead/never-functional code paths inherited from earlier phases.
-- [ ] Localized Favorites Ecosystem and the network-wide Leaderboard Ranking Badge (#xxxxx) are carried over to Phase 4 below — no reliable public data source exists yet for a true cross-network ranking, and favorites/local-storage pinning is being redesigned alongside the upcoming White Mode UI. **POSTPONED TO PHASE 4!**
+- [ ] Localized Favorites Ecosystem and the network-wide Leaderboard Ranking Badge (#xxxxx) are carried over to Phase 4 below — no reliable public data source exists yet for a true cross-network ranking, and favorites/local-storage pinning is being redesigned alongside the upcoming White Mode UI! **POSTPONED TO PHASE 4!**
 
 ### Phase 4: Admin Infrastructure and Branding
 - [ ] Hourly Analytics Profiles: Upgrade the encrypted VatScore HQ control room with analytical chart integration to model peak server connection hours graph-by-graph.
