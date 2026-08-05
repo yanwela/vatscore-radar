@@ -8,17 +8,28 @@ from datetime import datetime, timezone
 import os
 import json
 import re
+from html import escape as html_escape
 from shapely.geometry import shape, Point
+
+def get_secret(key, default=""):
+    # st.secrets.get() raises StreamlitSecretNotFoundError (instead of
+    # returning the default) when no secrets.toml exists at all, which
+    # would otherwise crash the whole app on first load.
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
+VATSIM_TRANSCEIVERS_URL = "https://data.vatsim.net/v3/transceivers-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
 VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"
 
 # Page Configuration
 st.set_page_config(
-    page_title="VatScore Web — Premium ScoreRadar", 
+    page_title="VatScoreRadar",
     page_icon="⚡", 
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -31,13 +42,20 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     div[data-testid="stDecoration"] {display: none;}
-    [data-testid="sidebarNav"] {display: none !important;}
-    div[data-testid="stSidebar"] {display: none !important;}
-    .main { background-color: #0f111a; }
-    h1 { color: #3b82f6; font-family: 'Segoe UI', sans-serif; }
-    .stTabs [data-baseweb="tab"] { color: #94a3b8; font-size: 16px; }
-    .stTabs [data-baseweb="tab"]:hover { color: #3b82f6; }
-    .stTabs [aria-selected="true"] { color: #3b82f6 !important; font-weight: bold; }
+    [data-testid="stSidebarNav"] {display: none !important;}
+    [data-testid="stSidebar"] {display: none !important;}
+    /* Streamlit dropped the semantic .main/.stTabs classes in favor of
+       data-testid + hashed emotion classes; target those instead, and
+       force with !important since the framework's own generated rules
+       otherwise win the specificity/cascade-order fight. */
+    [data-testid="stAppViewContainer"], [data-testid="stApp"] { background-color: #0f111a !important; }
+    h1 { color: #3b82f6 !important; font-family: 'Segoe UI', sans-serif; }
+    [data-testid="stTabs"] [data-baseweb="tab"] { color: #94a3b8; font-size: 16px; }
+    [data-testid="stTabs"] [data-baseweb="tab"]:hover { color: #3b82f6; }
+    [data-testid="stTabs"] [aria-selected="true"] { color: #3b82f6 !important; font-weight: bold; }
+    /* Hidden helper link that the CID Stats tab's watcher script clicks to
+       actually navigate — see the tab6 block below. */
+    div[data-testid="stPageLink"]:has(a[href="CID_Stats"]) { display: none; }
     div[data-testid="stMetricValue"] { color: #22c55e; }
     .signature-container {
         text-align: right; font-family: 'Consolas', monospace; color: #475569; font-size: 12px;
@@ -72,7 +90,7 @@ st.markdown("""
 
 # Admin Activity Logging System
 LOG_FILE = "radar_traffic_logs.csv"
-ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "")
 
 def init_log_file():
     if not os.path.exists(LOG_FILE):
@@ -125,9 +143,12 @@ if is_admin_route:
 
     if not st.session_state.admin_authenticated:
         st.title("🛡️ VatScore HQ Security Login")
+        if not ADMIN_PASSWORD:
+            st.error("Admin access is not configured. Set ADMIN_PASSWORD in .streamlit/secrets.toml to enable this panel.")
+            st.stop()
         passwd_input = st.text_input("Enter Master Admin Password:", type="password")
         if st.button("Authorize Connection"):
-            if passwd_input == ADMIN_PASSWORD:
+            if passwd_input and passwd_input == ADMIN_PASSWORD:
                 st.session_state.admin_authenticated = True
                 st.success("Access Granted.")
                 st.rerun()
@@ -159,14 +180,14 @@ if is_admin_route:
             btn_c1, btn_c2 = st.columns([0.8, 0.2])
             with btn_c1: st.subheader("👥 Live Session Logs")
             with btn_c2:
-                if st.button("🗑️ Wipe Logs", use_container_width=True):
+                if st.button("🗑️ Wipe Logs", width='stretch'):
                     os.remove(LOG_FILE)
                     init_log_file()
                     st.rerun()
                     
             df_display = df_logs.sort_values(by="Timestamp", ascending=False).copy()
             df_display['Timestamp'] = df_display['Timestamp'].dt.strftime('%H:%M:%S || %Y-%m-%d')
-            st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], use_container_width=True)
+            st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], width='stretch')
         st.stop()
 
 @st.cache_data(ttl=15)
@@ -176,6 +197,25 @@ def fetch_vatsim_data():
         if r.status_code == 200: return r.json()
     except: pass
     return None
+
+@st.cache_data(ttl=15)
+def fetch_pilot_frequencies():
+    # VATSIM's main data feed has no per-pilot frequency field — it lives in this
+    # separate transceivers feed instead, keyed by callsign, frequency in Hz.
+    freq_map = {}
+    try:
+        r = requests.get(VATSIM_TRANSCEIVERS_URL, timeout=10)
+        if r.status_code == 200:
+            for entry in r.json():
+                callsign = entry.get("callsign")
+                transceivers = entry.get("transceivers") or []
+                if callsign and transceivers:
+                    hz = transceivers[0].get("frequency")
+                    if hz:
+                        freq_map[callsign] = f"{hz / 1_000_000:.3f}"
+    except Exception:
+        pass
+    return freq_map
 
 @st.cache_data(ttl=86400)
 def load_vatsim_radar_airlines():
@@ -216,16 +256,20 @@ def load_fir_raw_geometries():
         if response.status_code == 200:
             geo_data = response.json()
             for feature in geo_data.get("features", []):
-                properties = feature.get("properties", {})
-                geometry = feature.get("geometry", {})
-                icao = properties.get("id", properties.get("icao", "")).upper().strip()
-                if not icao:
+                try:
+                    properties = feature.get("properties", {}) or {}
+                    geometry = feature.get("geometry", {})
+                    icao = str(properties.get("id") or properties.get("icao") or "").upper().strip()
+                    if not icao:
+                        continue
+                    prefix = "K" if icao.startswith("K") else icao[:2]
+                    if prefix not in raw_groups:
+                        raw_groups[prefix] = []
+                    if geometry:
+                        raw_groups[prefix].append(geometry)
+                except Exception:
+                    # One malformed feature shouldn't drop every FIR after it.
                     continue
-                prefix = "K" if icao.startswith("K") else icao[:2]
-                if prefix not in raw_groups:
-                    raw_groups[prefix] = []
-                if geometry:
-                    raw_groups[prefix].append(geometry)
     except:
         pass
     return raw_groups
@@ -264,17 +308,16 @@ def load_csv_database():
             lon_col = 'longitude' if 'longitude' in df.columns else 'longitude_deg' if 'longitude_deg' in df.columns else 'lon'
             
             df[icao_col] = df[icao_col].astype(str).str.upper().str.strip()
-            
-            res_dict = {}
-            for _, row in df.iterrows():
-                icao_code = row[icao_col]
-                res_dict[icao_code] = {
-                    "latitude_deg": float(row[lat_col]),
-                    "longitude_deg": float(row[lon_col]),
-                    "latitude": float(row[lat_col]),
-                    "longitude": float(row[lon_col])
-                }
-            return res_dict
+            df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
+            df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
+            df = df.dropna(subset=[lat_col, lon_col])
+
+            # Vectorized instead of iterrows(): ~28k airport rows built via zip()
+            # over numpy arrays rather than one Python-level loop iteration per row.
+            return {
+                icao: {"latitude_deg": lat, "longitude_deg": lon, "latitude": lat, "longitude": lon}
+                for icao, lat, lon in zip(df[icao_col], df[lat_col], df[lon_col])
+            }
         except: pass
     return {}
 
@@ -315,6 +358,12 @@ def get_coordinates_from_library(pilots_list):
         
     return coords_map
 
+def js_safe(value):
+    # json.dumps produces a properly quoted/escaped JS literal; the extra
+    # replace defangs "</script>" so untrusted strings (pilot remarks,
+    # callsigns, URL query params) can't break out of the <script> block.
+    return json.dumps(value).replace("</", "<\\/")
+
 def classify_aircraft(ac_type, callsign):
     ac_type = str(ac_type).upper().strip()
     callsign = str(callsign).upper().strip()
@@ -326,34 +375,28 @@ def classify_aircraft(ac_type, callsign):
     }
     if ac_type in military_types: return "Military"
     military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
-    if callsign.startswith(military_prefixes) or "MIL" in callsign: return "Military"
+    if callsign.startswith(military_prefixes): return "Military"
         
     ga_types = {"C150", "C152", "C172", "C182", "C206", "C208", "P28A", "PA34", "DA40", "DA42", "SR22", "SR20", "E300", "DV20"}
     if ac_type in ga_types: return "General Aviation"
         
-    biz_jets = {"GLF5", "GLF6", "CL60", "CRJ2", "C56X", "FA7X", "LJ45"}
+    biz_jets = {"GLF5", "GLF6", "CL60", "C56X", "FA7X", "LJ45"}
     if ac_type in biz_jets: return "Business Jet"
         
     return "Commercial"
 
-if "last_js_sync_time" not in st.session_state:
-    st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
-
 data = fetch_vatsim_data()
 global_grouped_firs = load_and_group_fir_boundaries()
-
-if "iframe_signal" not in st.session_state:
-    st.session_state.iframe_signal = 0
 
 if data:
     pilots = data.get("pilots", [])
     controllers = data.get("controllers", [])
-    
+
     airports_coords_map = get_coordinates_from_library(pilots)
 
     title_col, refresh_col, emoji_col = st.columns([0.88, 0.06, 0.06])
-    with title_col: st.title("⚡ VATSCORE // Premium Score Radar")
-    
+    with title_col: st.title("VatScoreRadar")
+
     with refresh_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
         st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
@@ -361,8 +404,6 @@ if data:
         st.markdown('</div>', unsafe_allow_html=True)
         if refresh_clicked:
             fetch_vatsim_data.clear()
-            st.session_state.iframe_signal += 1
-            st.session_state.last_js_sync_time = datetime.utcnow().strftime('%H:%M:%S Z')
     
     with emoji_col:
         st.write("<div style='padding-top:25px;'></div>", unsafe_allow_html=True)
@@ -373,7 +414,6 @@ if data:
     if "show_panel" not in st.session_state: st.session_state.show_panel = False
     if settings_clicked:
         st.session_state.show_panel = not st.session_state.show_panel
-        st.rerun()
 
     all_columns = ["Origin", "Destination", "Aircraft", "Category", "Altitude (FT)", "Speed (KT)", "Squawk"]
     if "visible_columns" not in st.session_state: st.session_state.visible_columns = all_columns.copy()
@@ -397,18 +437,18 @@ if data:
                 st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
             st.markdown("---")
 
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
-    with col_stat1: st.metric(label="Total Live Pilots Worldwide", value=len(pilots))
-    with col_stat2: st.metric(label="Total Active ATCs", value=len(controllers))
-    with col_stat3: st.metric(label="Last Sync", value=f" {st.session_state.last_js_sync_time}")
+    @st.fragment(run_every=20)
+    def render_network_counts():
+        d = fetch_vatsim_data()
+        nc_col1, nc_col2, nc_col3 = st.columns(3)
+        with nc_col1: st.metric(label="Total Live Pilots Worldwide", value=len(d.get("pilots", [])) if d else len(pilots))
+        with nc_col2: st.metric(label="Total Active ATCs", value=len(d.get("controllers", [])) if d else len(controllers))
+        with nc_col3: st.metric(label="Last Sync", value=f" {datetime.now(timezone.utc).strftime('%H:%M:%S Z')}")
+
+    render_network_counts()
 
     fir_pilots = []
     filtered_pilots_raw = []
-    dep_airports, arr_airports, aircraft_types = [], [], []
-    anomalies = []
-    highest_p, fastest_p, slowest_p, veteran_p = None, None, None, None
-    max_alt, max_gs, min_gs = -1, -1, 9999
-    min_logon = "9999-12-31"
 
     defined_fir_prefixes = {"LT", "ED", "EG", "LF", "K", "OM", "LO", "LI", "LE"}
     fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items()) if code in defined_fir_prefixes]
@@ -427,7 +467,142 @@ if data:
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
 
+    # These three tabs are read-only network-wide views (no interactive filters of
+    # their own besides simple display toggles), so each gets its own fragment that
+    # independently re-fetches (cached, so cheap) and redraws itself every 20s.
+    # Fragments only rerun their own body — everything outside them (FIR Focus
+    # controls, settings panel, VIP watchlist inputs) is untouched by the tick.
+    @st.fragment(run_every=20)
+    def render_leaderboard():
+        d = fetch_vatsim_data()
+        lb_pilots = d.get("pilots", []) if d else []
+
+        highest_p = fastest_p = slowest_p = veteran_p = None
+        max_alt, max_gs, min_gs = -1, -1, 9999
+        min_logon = "9999-12-31"
+        for p in lb_pilots:
+            alt = p.get("altitude", 0)
+            gs = p.get("groundspeed", 0)
+            logon = p.get("logon_time", "")
+            if alt > max_alt: max_alt = alt; highest_p = p
+            if gs > max_gs: max_gs = gs; fastest_p = p
+            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
+            if logon and logon < min_logon: min_logon = logon; veteran_p = p
+
+        st.subheader("Current Flight Records")
+        leader_data = []
+        if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
+        if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
+        if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
+        if veteran_p:
+            _veteran_logon = pd.to_datetime(veteran_p.get('logon_time', ''), utc=True, errors="coerce")
+            _veteran_since = _veteran_logon.strftime("%d.%m.%Y %H:%M UTC") if pd.notna(_veteran_logon) else "Unknown"
+            leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {_veteran_since}", "Pilot": veteran_p.get('name')})
+        st.table(leader_data)
+
+    @st.fragment(run_every=20)
+    def render_global_stats():
+        d = fetch_vatsim_data()
+        gs_pilots = d.get("pilots", []) if d else []
+        gs_controllers = d.get("controllers", []) if d else []
+
+        dep_airports, arr_airports, aircraft_types = [], [], []
+        for p in gs_pilots:
+            fplan = p.get("flight_plan") or {}
+            dep = fplan.get("departure", "").strip().upper()
+            arr = fplan.get("arrival", "").strip().upper()
+            ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
+            if dep: dep_airports.append(dep)
+            if arr: arr_airports.append(arr)
+            if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
+
+        st.subheader("Global Network Insights")
+        col_g1, col_g2, col_g3 = st.columns(3)
+        with col_g1:
+            st.markdown("### 📍 Busiest Hubs")
+            hub_view = st.radio("Select Focus:", ["🛫 Top Departures", "🛬 Top Arrivals"], horizontal=True, label_visibility="collapsed")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if "Departures" in hub_view:
+                st.write("**Top Flight Departures Currently:**")
+                for k, v in Counter(dep_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
+            else:
+                st.write("**Top Flight Arrivals Currently:**")
+                for k, v in Counter(arr_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
+        with col_g2:
+            st.markdown("### ✈️ Fleet Distribution")
+            for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
+        with col_g3:
+            st.markdown("### 👑 Busiest Airspaces (ATC)")
+            atc_pos = [a.get("callsign", "").split("_")[0] for a in gs_controllers if "_" in a.get("callsign", "")]
+            for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}` : {v} open frequencies")
+
+    @st.fragment(run_every=20)
+    def render_anomaly_table():
+        d = fetch_vatsim_data()
+        an_pilots = d.get("pilots", []) if d else []
+        vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
+        vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
+
+        anomalies = []
+        for p in an_pilots:
+            callsign = p.get("callsign", "N/A")
+            cid = str(p.get("cid", "N/A"))
+            alt = p.get("altitude", 0)
+            gs = p.get("groundspeed", 0)
+            fplan = p.get("flight_plan") or {}
+            dep = fplan.get("departure", "").strip().upper()
+            arr = fplan.get("arrival", "").strip().upper()
+            ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
+
+            if str(p.get("transponder")) == "7700":
+                anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+            if gs > 1150:
+                anomalies.append({"Type": "⚠️ Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+            if cid in vip_cid_array or callsign in vip_callsign_array:
+                anomalies.insert(0, {
+                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED",
+                    "Callsign": f"{callsign} (CID: {cid})",
+                    "Details": f"Tracked Pilot Online - Route: {dep}->{arr}",
+                    "Airframe": ac_type,
+                    "Altitude": alt,
+                    "Speed": gs
+                })
+
+        if anomalies:
+            df_anomalies = pd.DataFrame(anomalies)
+            st.dataframe(df_anomalies, width='stretch')
+        else:
+            st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap", "📊 CID Stats"])
+
+    # st.tabs() has no on-click callback and renders every tab's body on every
+    # run regardless of which one is visible, so tab6 can't just call
+    # st.switch_page() directly (it would redirect immediately on every load).
+    # Instead: a real (but hidden) page_link provides the actual navigation
+    # target, and a tiny watcher script inside tab6 clicks it the moment this
+    # tab's panel actually becomes visible on screen.
+    st.page_link("pages/1_CID_Stats.py", label="CID Stats", icon="📊")
+
+    with tab6:
+        st.components.v1.html("""
+        <script>
+            let wasVisible = false;
+            setInterval(() => {
+                // offsetParent is null when this iframe (or any ancestor, i.e. the
+                // tab panel) has display:none — unlike a bounding-rect check, this
+                // isn't fooled by the iframe's own explicit height=0.
+                const isVisible = window.frameElement.offsetParent !== null;
+                if (isVisible && !wasVisible) {
+                    const link = window.parent.document.querySelector(
+                        'a[data-testid="stPageLink-NavLink"][href*="CID_Stats"]'
+                    );
+                    if (link) link.click();
+                }
+                wasVisible = isVisible;
+            }, 150);
+        </script>
+        """, height=0)
 
     with tab2:
         st.subheader("✈️ Selected FIR Focus")
@@ -462,21 +637,15 @@ if data:
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
-            cid = str(p.get("cid", "N/A"))
             alt = p.get("altitude", 0)
             gs = p.get("groundspeed", 0)
             lat = p.get("latitude", 0.0)
             lon = p.get("longitude", 0.0)
-            logon = p.get("logon_time", "")
             fplan = p.get("flight_plan") or {}
             dep = fplan.get("departure", "").strip().upper()
             arr = fplan.get("arrival", "").strip().upper()
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
             flight_rules = fplan.get("flight_rules", "I")
-
-            if dep: dep_airports.append(dep)
-            if arr: arr_airports.append(arr)
-            if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
 
             category = classify_aircraft(ac_type, callsign)
             if current_fleet_filter == "Commercial Only" and category != "Commercial": continue
@@ -494,20 +663,19 @@ if data:
                 if cs_prefix not in allowed_codes:
                     continue
 
-            matches_flight_plan = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
-            
-            is_physically_here = False
-            if lat and lon and target_fir_shapes:
-                aircraft_point = Point(lon, lat)
-                for fir_shape in target_fir_shapes:
-                    if aircraft_point.within(fir_shape):
-                        is_physically_here = True
-                        break
-
             if st.session_state.only_physical_inside:
+                # Shapely point-in-polygon checks are the expensive part of this loop,
+                # so only run them when the result can actually change the outcome.
+                is_physically_here = False
+                if lat and lon and target_fir_shapes:
+                    aircraft_point = Point(lon, lat)
+                    for fir_shape in target_fir_shapes:
+                        if aircraft_point.within(fir_shape):
+                            is_physically_here = True
+                            break
                 include_aircraft = is_physically_here
             else:
-                include_aircraft = matches_flight_plan
+                include_aircraft = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
 
             if include_aircraft:
                 display_dep = dep if dep else "NO FPL"
@@ -519,31 +687,10 @@ if data:
                     "Category": category, "Altitude (FT)": alt, "Speed (KT)": gs, "Squawk": p.get("transponder", "0000"),
                     "FlightRules": flight_rules
                 })
+                # Ship the server-computed category with the raw pilot so the JS
+                # table doesn't have to (incompletely) re-derive it client-side.
+                p["_category"] = category
                 filtered_pilots_raw.append(p)
-
-            if alt > max_alt: max_alt = alt; highest_p = p
-            if gs > max_gs: max_gs = gs; fastest_p = p
-            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
-            if logon and logon < min_logon: min_logon = logon; veteran_p = p
-
-            if str(p.get("transponder")) == "7700": 
-                anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
-            if gs > 1150: 
-                anomalies.append({"Type": "⚠️ Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
-            if category == "Military": 
-                anomalies.append({"Type": "⚔️ Tactical Sortie", "Callsign": callsign, "Details": "Military deployment sector track", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
-            
-            vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
-            vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
-            if cid in vip_cid_array or callsign in vip_callsign_array:
-                anomalies.insert(0, {
-                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED",
-                    "Callsign": f"{callsign} (CID: {cid})",
-                    "Details": f"Tracked Pilot Online - Route: {dep}->{arr}",
-                    "Airframe": ac_type,
-                    "Altitude": alt,
-                    "Speed": gs
-                })
 
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
@@ -565,16 +712,13 @@ if data:
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
-            raw_html_template = """
+            raw_html_template = r"""
             <div id="vatscore-custom-container">
-                <div id="sync-notification">Syncing Live VATSIM data...</div>
-                <div id="signal-receiver" data-sig="SIGNAL_STAMP_PLACEHOLDER" style="display:none;"></div>
-
                 <div id="dossierModal" class="v-modal">
                     <div class="v-modal-content">
                         <div class="v-modal-header">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span class="v-modal-title">Telemetry Dossier Decoder</span>
+                                <span class="v-modal-title">Flight Record</span>
                             </div>
                             <span class="v-close-btn" onclick="closeModal()">&times;</span>
                         </div>
@@ -623,7 +767,7 @@ if data:
                                 <span id="airlineCallsignText" class="telephony-text">GENERAL AVIATION</span>
                             </div>
 
-                            <p class="v-label" style="margin-top:14px;">Filed Route String</p>
+                            <p class="v-label" style="margin-top:14px;">Filed Route</p>
                             <textarea id="popRoute" class="v-textarea" readonly></textarea>
                         </div>
                     </div>
@@ -659,20 +803,7 @@ if data:
                 .telephony-premium-box { background-color: #141724; border: 1px solid #1e293b; padding: 12px 16px; border-radius: 6px; display: flex; align-items: center; }
                 .telephony-text { font-size: 15px; font-weight: bold; color: #22c55e; letter-spacing: 0.5px; text-transform: uppercase; }
 
-                #sync-notification {
-                    position: fixed; bottom: 20px; left: 20px; background-color: #1e293b;
-                    color: #3b82f6; padding: 10px 16px; border-radius: 30px; border: 1px solid #3b82f650;
-                    font-size: 12px; font-weight: bold; font-family: monospace; z-index: 999999;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none;
-                    animation: pulse-blue 1.5s infinite ease-in-out;
-                }
-                @keyframes pulse-blue {
-                    0% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-                    70% { opacity: 1; box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                    100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-                }
-
-                .v-modal { 
+                .v-modal {
                     display: none; position: fixed; z-index: 99999999; left: 0; top: 0; width: 100vw; height: 100vh; 
                     background-color: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
                 }
@@ -695,14 +826,11 @@ if data:
             <script>
                 let globalDossiers = {};
                 let currentlyOpenCallsign = null;
-                const targetPrefix = "TARGET_PREFIX_PLACEHOLDER";
                 const activeColumns = ACTIVE_COLS_PLACEHOLDER;
-                const autoOpenCallsign = "AUTO_OPEN_CALLSIGN_PLACEHOLDER";
+                const autoOpenCallsign = AUTO_OPEN_CALLSIGN_PLACEHOLDER;
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
-                const localAirlinesDb = AIRLINES_DB_PLACEHOLDER; 
-                const rulesFilter = "RULES_FILTER_PLACEHOLDER";
-                const isolationFilterRaw = "ISOLATION_FILTER_PLACEHOLDER";
-                const includeArrDepJs = INCLUDE_ARR_DEP_PLACEHOLDER;
+                const localAirlinesDb = AIRLINES_DB_PLACEHOLDER;
+                const pilotFrequencies = FREQUENCIES_DB_PLACEHOLDER;
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -756,12 +884,38 @@ if data:
                     }
                 }
 
+                // Mirrors Python's decode_pilot_rating(): pilot_rating is a cumulative
+                // bitmask (1,3,7,15,31,63), NOT a plain 0-5 sequential index.
+                function decodePilotRatingLocal(v) {
+                    v = parseInt(v, 10);
+                    if (isNaN(v)) return "P0";
+                    if (v >= 63) return "P6";
+                    if (v >= 31) return "P5";
+                    if (v >= 15) return "P4";
+                    if (v >= 7) return "P3";
+                    if (v >= 3) return "P2";
+                    if (v >= 1) return "P1";
+                    return "P0";
+                }
+
+                // Mirrors the VATSIM controller rating scale (must match ATC_RATINGS in pages/1_CID_Stats.py).
+                // Per vatsim.dev's official rating table: OBS starts at 1, not 0
+                // (0 is Suspended), so every tier is shifted up by one.
+                const ATC_RATINGS_LOCAL = {
+                    "-1": "Inactive", 0: "Suspended", 1: "OBS", 2: "S1", 3: "S2", 4: "S3",
+                    5: "C1", 6: "C2", 7: "C3", 8: "I1", 9: "I2", 10: "I3",
+                    11: "SUP", 12: "ADM"
+                };
+                function decodeAtcRatingLocal(v) {
+                    return ATC_RATINGS_LOCAL[v] !== undefined ? ATC_RATINGS_LOCAL[v] : "OBS";
+                }
+
                 function classifyAircraftLocal(acType, callsign) {
                     acType = String(acType).toUpperCase().trim();
                     callsign = String(callsign).toUpperCase().trim();
                     const milTypes = ["F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "C17", "A400", "C130"];
                     if (milTypes.includes(acType)) return "Military";
-                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.includes("MIL")) return "Military";
+                    if (callsign.startsWith("TUR") || callsign.startsWith("RCH") || callsign.startsWith("MIL")) return "Military";
                     const gaTypes = ["C172", "C152", "PA28", "DA40", "DA42"];
                     if (gaTypes.includes(acType)) return "General Aviation";
                     return "Commercial";
@@ -794,52 +948,25 @@ if data:
     }
 }
 
-                function sendTimeToStreamlitBackend() {
-                    const now = new Date();
-                    const hours = String(now.getUTCHours()).padStart(2, '0');
-                    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-                    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-                    const formattedTime = hours + ":" + minutes + ":" + seconds + " Z";
-                    Streamlit.setComponentValue(formattedTime);
-                }
-
                 function buildTable(pilotsList) {
                     const tbody = document.getElementById("table-body");
                     tbody.innerHTML = "";
                     globalDossiers = {};
 
-                    let allowedAirlines = [];
-                    if (isolationFilterRaw && isolationFilterRaw.trim() !== "") {
-                        allowedAirlines = isolationFilterRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
-                    }
-
+                    // pilotsList is already filtered server-side (fleet, rules, isolation,
+                    // FIR boundary match). No need to re-filter here.
                     pilotsList.forEach(p => {
                         const callsign = p.callsign || "N/A";
                         const fplan = p.flight_plan || {};
                         const dep = (fplan.departure || "").trim().toUpperCase();
                         const arr = (fplan.arrival || "").trim().toUpperCase();
                         const acType = (fplan.aircraft || "").split("/")[0] || "N/A";
-                        const category = classifyAircraftLocal(acType, callsign);
+                        // Prefer the server-computed category; classifyAircraftLocal is
+                        // only a fallback for older cached data that lacks it.
+                        const category = p._category || classifyAircraftLocal(acType, callsign);
                         const fRules = fplan.flight_rules || "I";
-                        
-                        if (rulesFilter === "IFR Only" && fRules !== "I") return;
-                        if (rulesFilter === "VFR Only" && fRules !== "V") return;
 
-                        if (allowedAirlines.length > 0) {
-                            let csPrefixMatch = callsign.match(/^[A-Z]+/i);
-                            let csPrefix = csPrefixMatch ? csPrefixMatch[0].toUpperCase() : "";
-                            if (!allowedAirlines.includes(csPrefix)) return;
-                        }
-
-                        let matchesPlan = false;
-                        if (includeArrDepJs) {
-                            matchesPlan = String(dep).startsWith(targetPrefix) || String(arr).startsWith(targetPrefix);
-                        }
-                        
-                        // Backend already filtered pilots by Shapely boundary check — all pilots in this list are physically inside the FIR
-                        let isPhysHere = p.latitude && p.longitude ? true : false;
-
-                        if (isPhysHere || matchesPlan) {
+                        {
                             const rowData = {
                                 "Callsign": callsign, "Origin": dep || "NO FPL", "Destination": arr || "NO FPL",
                                 "Aircraft": acType, "Category": category, "Altitude (FT)": p.altitude || 0,
@@ -856,16 +983,17 @@ if data:
                                 onlineMins = totalMins + " Min | " + hrs + " Hour " + String(mins).padStart(2, "0") + " Min";
                             }
 
-                            const pRatings = {0:"OBS", 1:"P1", 2:"P2", 3:"P3", 4:"P4", 5:"P5"};
-                            const aRatings = {0:"OBS", 1:"S1", 2:"S2", 3:"S3", 4:"C1", 5:"C2", 6:"C3", 7:"INS", 8:"INS+", 9:"SUP", 10:"ADM"};
-                            
-                            const pRatingText = pRatings[p.pilot_rating] || "P1";
-                            const aRatingText = aRatings[p.rating] || "OBS";
+                            const pRatingText = decodePilotRatingLocal(p.pilot_rating);
+                            const aRatingText = decodeAtcRatingLocal(p.rating);
 
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
                                 combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
-                                voice: p.has_voice ? "Voice Active" : "Text Only",
+                                voice: (() => {
+                                    const status = p.has_voice ? "Voice Active" : "Text Only";
+                                    const freq = pilotFrequencies[callsign];
+                                    return freq ? (status + " · " + freq) : status;
+                                })(),
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
@@ -944,67 +1072,31 @@ if data:
                     if (e.target == document.getElementById("dossierModal")) closeModal(); 
                 }
 
-                async function updateData() {
-                    const notifier = document.getElementById("sync-notification");
-                    notifier.style.display = "block";
-                    try {
-                        // Trigger Streamlit rerun via backend time sync — Python handles filtering and re-renders filtered data
-                        sendTimeToStreamlitBackend();
-                        if (currentlyOpenCallsign && globalDossiers[currentlyOpenCallsign]) {
-                            openDossier(currentlyOpenCallsign);
-                        }
-                    } catch(e) { console.log(e); }
-                    setTimeout(() => { notifier.style.display = "none"; }, 1500);
-                }
-
-                const scriptStreamlit = document.createElement('script');
-                scriptStreamlit.src = "https://cdn.jsdelivr.net/npm/@streamlit/component-lib@1.4.0/dist/index.min.js";
-                document.head.appendChild(scriptStreamlit);
-
                 const initialData = INITIAL_DATA_PLACEHOLDER;
                 buildTable(initialData);
 
                 if (autoOpenCallsign && autoOpenCallsign !== "") {
                     setTimeout(() => { openDossier(autoOpenCallsign); }, 250);
                 }
-
-                setInterval(() => {
-                    const el = document.getElementById("signal-receiver");
-                    const currentSig = el.getAttribute("data-sig");
-                    if (window.lastKnownSig !== undefined && window.lastKnownSig !== currentSig) {
-                        updateData();
-                    }
-                    window.lastKnownSig = currentSig;
-                }, 500);
-
-                setInterval(updateData, 30000);
             </script>
             """
             
             airlines_db = load_vatsim_radar_airlines()
-            
+            pilot_frequencies = fetch_pilot_frequencies()
+
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
-                .replace("TARGET_PREFIX_PLACEHOLDER", str(selected_fir_prefix))\
-                .replace("ACTIVE_COLS_PLACEHOLDER", json.dumps(active_cols))\
-                .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", st.session_state.active_popup)\
-                .replace("AIRPORTS_DB_PLACEHOLDER", json.dumps(airports_coords_map))\
-                .replace("INITIAL_DATA_PLACEHOLDER", json.dumps(filtered_pilots_raw))\
-                .replace("SIGNAL_STAMP_PLACEHOLDER", str(st.session_state.iframe_signal))\
-                .replace("AIRLINES_DB_PLACEHOLDER", json.dumps(airlines_db))\
-                .replace("RULES_FILTER_PLACEHOLDER", str(current_rules_filter))\
-                .replace("INCLUDE_ARR_DEP_PLACEHOLDER", "false" if st.session_state.only_physical_inside else "true")\
-                .replace("ISOLATION_FILTER_PLACEHOLDER", str(current_isolation_filter))
+                .replace("ACTIVE_COLS_PLACEHOLDER", js_safe(active_cols))\
+                .replace("AUTO_OPEN_CALLSIGN_PLACEHOLDER", js_safe(st.session_state.active_popup))\
+                .replace("AIRPORTS_DB_PLACEHOLDER", js_safe(airports_coords_map))\
+                .replace("INITIAL_DATA_PLACEHOLDER", js_safe(filtered_pilots_raw))\
+                .replace("AIRLINES_DB_PLACEHOLDER", js_safe(airlines_db))\
+                .replace("FREQUENCIES_DB_PLACEHOLDER", js_safe(pilot_frequencies))
 
             # Dynamic height: 48px per row, min 300, max 900
             dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
-            iframe_output = st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
-            
-            if iframe_output and isinstance(iframe_output, str) and "DeltaGenerator" not in iframe_output:
-                if iframe_output != st.session_state.get("last_js_sync_time", ""):
-                    st.session_state.last_js_sync_time = iframe_output
-                    st.rerun()
-            
+            st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
+
             st.markdown("<br>", unsafe_allow_html=True)
             csv = doc_fir.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
@@ -1012,174 +1104,12 @@ if data:
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 
-# ─── CID Stats — statsim.net API ─────────────────────────────────────────────
-STATSIM_API  = "https://api.statsim.net/api"
-VATSIM_DATA_LIVE = "https://data.vatsim.net/v3/vatsim-data.json"
-HISTORY_FROM = "2015-01-01T00:00:00.000Z"
-
-ATC_RATINGS = {
-    -1: "Inactive", 0: "OBS", 1: "S1", 2: "S2", 3: "S3",
-    4: "C1", 5: "C2", 6: "C3", 7: "I1", 8: "I2", 9: "I3", 10: "SUP", 11: "ADM"
-}
-MILITARY_RATINGS = {0: "None", 1: "M1", 2: "M2", 3: "M3"}
-
-def decode_pilot_rating(v):
-    try: v = int(v)
-    except: return "P0"
-    if v >= 63: return "P6 · Ferry"
-    if v >= 31: return "P5 · CTP"
-    if v >= 15: return "P4 · ATP"
-    if v >= 7:  return "P3 · CMEL"
-    if v >= 3:  return "P2 · IR"
-    if v >= 1:  return "P1 · PPL"
-    return "P0 · New"
-
-def _sh():
-    key = st.secrets.get("STATSIM_API_KEY", "")
-    return {"X-API-Key": key, "accept": "application/json", "User-Agent": "VatScore/3.0"}
-
-@st.cache_data(ttl=600, show_spinner=False)
-def statsim_flights(cid):
-    from datetime import timezone as tz
-    _n = datetime.now(tz.utc)
-    now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
-    # params= kullanmıyoruz: requests ':' -> '%3A' encode eder, statsim 400 verir
-    url = f"{STATSIM_API}/Flights/VatsimId?vatsimId={cid}&from={HISTORY_FROM}&to={now}"
-    try:
-        r = requests.get(url, headers=_sh(), timeout=25)
-        if r.status_code == 200:
-            return r.json()
-        st.session_state["_cid_flights_err"] = f"{r.status_code}: {r.text[:200]}"
-    except Exception as e:
-        st.session_state["_cid_flights_err"] = str(e)
-    return []
-
-@st.cache_data(ttl=600, show_spinner=False)
-def statsim_atc(cid):
-    from datetime import timezone as tz
-    _n = datetime.now(tz.utc)
-    now = _n.strftime("%Y-%m-%dT%H:%M:%S.") + f"{_n.microsecond//1000:03d}Z"
-    url = f"{STATSIM_API}/Atcsessions/VatsimId?vatsimId={cid}&from={HISTORY_FROM}&to={now}"
-    try:
-        r = requests.get(url, headers=_sh(), timeout=25)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        pass
-    return []
-
-@st.cache_data(ttl=30, show_spinner=False)
-def live_pilot_lookup(cid):
-    try:
-        r = requests.get(VATSIM_DATA_LIVE, timeout=10)
-        if r.status_code == 200:
-            for p in r.json().get("pilots", []):
-                if str(p.get("cid","")) == cid:
-                    return p
-    except: pass
-    return None
-
-def _parse_dt(s):
-    if not s: return pd.NaT
-    try: return pd.to_datetime(s, utc=True)
-    except: return pd.NaT
-
-def _fmt(minutes):
-    try: m = int(round(float(minutes)))
-    except: m = 0
-    return f"{m//60}s {m%60:02d}dk" if m >= 60 else f"{m}dk"
-
-def _icao(raw):
-    if not raw: return "ZZZZ"
-    return str(raw).split("/")[0].strip().upper() or "ZZZZ"
-
-_MFR = [
-    ("Airbus",     ("A30","A31","A32","A33","A34","A35","A38","A19","A20","A21","A22")),
-    ("Boeing",     ("B73","B74","B75","B76","B77","B78","B71","B72","B38","B39","737","747","757","767","777","787")),
-    ("Embraer",    ("E17","E19","E75","E55","E50","ERJ","E13","E14","E29","E45")),
-    ("Bombardier", ("CRJ","CR2","CR7","CR9","CL6","DH8","DHC","Q40")),
-    ("ATR",        ("AT4","AT5","AT7","AT8")),
-    ("Cessna",     ("C17","C20","C21","C25","C42","C50","C51","C52","C55","C56","C68","C72","C75","C82")),
-    ("Cirrus",     ("SR2","SR22","S22T")),
-    ("Diamond",    ("DA4","DA6","DA2","DA7","DV2")),
-    ("Piper",      ("P28","PA2","PA3","PA4","PA6")),
-    ("McDonnell",  ("MD8","MD9","MD1","DC8","DC9")),
-    ("Pilatus",    ("PC12","PC24","PC6","PC7")),
-]
-def _mfr(t):
-    t = t.upper()
-    for name, pfx in _MFR:
-        if t.startswith(pfx): return name
-    if t.startswith("A"): return "Airbus"
-    if t.startswith("B"): return "Boeing"
-    return "Diğer"
-
-# Renk paleti
-_INK    = "#0a0e1a"
-_PANEL  = "#10141f"
-_LINE   = "#1f2937"
-_MUTED  = "#5b6b82"
-_TEXT   = "#e8eef7"
-_CYAN   = "#22d3ee"
-_VIO    = "#8b5cf6"
-_AMBER  = "#fbbf24"
-_GREEN  = "#34d399"
-_ROSE   = "#fb7185"
-_PF     = dict(family="ui-monospace,'Cascadia Code',monospace", color=_TEXT, size=11)
-
-def _bare(fig, h=200):
-    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      margin=dict(l=0,r=0,t=6,b=0), height=h, font=_PF,
-                      showlegend=False, coloraxis_showscale=False)
-    fig.update_xaxes(gridcolor=_LINE, zeroline=False, title="")
-    fig.update_yaxes(gridcolor=_LINE, zeroline=False, title="")
-    return fig
-
-def _kpi(label, val, sub, color):
-    return f"""<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:10px;
-      padding:16px 18px;text-align:center;">
-      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
-                  color:{_MUTED};font-weight:700;">{label}</div>
-      <div style="font-size:24px;font-weight:800;line-height:1.1;margin-top:6px;
-                  color:{color};font-variant-numeric:tabular-nums;">{val}</div>
-      <div style="font-size:11px;color:{_MUTED};margin-top:4px;">{sub}</div></div>"""
-
-def _sec(title):
-    st.markdown(f'<div style="font-size:13px;font-weight:700;color:{_TEXT};letter-spacing:.5px;'
-                f'display:flex;align-items:center;gap:8px;margin:20px 0 10px;">'
-                f'<span style="width:3px;height:16px;background:{_CYAN};display:inline-block;border-radius:2px;"></span>'
-                f'{title}</div>', unsafe_allow_html=True)
-
 # ─── Mevcut tab1,tab3,tab4,tab5 ──────────────────────────────────────────────
 with tab1:
-    st.subheader("Current Flight Records")
-    leader_data = []
-    if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
-    if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
-    if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
-    if veteran_p: leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {veteran_p.get('logon_time','')[11:16]} UTC", "Pilot": veteran_p.get('name')})
-    st.table(leader_data)
+    render_leaderboard()
 
 with tab3:
-    st.subheader("Global Network Insights")
-    col_g1, col_g2, col_g3 = st.columns(3)
-    with col_g1:
-        st.markdown("### 📍 Busiest Hubs")
-        hub_view = st.radio("Select Focus:", ["🛫 Top Departures", "🛬 Top Arrivals"], horizontal=True, label_visibility="collapsed")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if "Departures" in hub_view:
-            st.write("**Top Flight Departures Currently:**")
-            for k, v in Counter(dep_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
-        else:
-            st.write("**Top Flight Arrivals Currently:**")
-            for k, v in Counter(arr_airports).most_common(5): st.write(f"• `{k}`: {v} flights")
-    with col_g2:
-        st.markdown("### ✈️ Fleet Distribution")
-        for k, v in Counter(aircraft_types).most_common(7): st.write(f"• **{k}** : {v} aircraft")
-    with col_g3:
-        st.markdown("### 👑 Busiest Airspaces (ATC)")
-        atc_pos = [a.get("callsign", "").split("_")[0] for a in controllers if "_" in a.get("callsign", "")]
-        for k, v in Counter(atc_pos).most_common(4): st.write(f"• `{k}_CTR` : {v} open frequencies")
+    render_global_stats()
 
 with tab4:
     st.subheader("🛸 Live Anomaly Radar")
@@ -1187,19 +1117,32 @@ with tab4:
         st.markdown("#### Custom Surveillance Parameters")
         wl_c1, wl_c2 = st.columns(2)
         with wl_c1:
-            st.session_state.vip_cids = st.text_input("Target Pilot CIDs (Comma Separated):", value=st.session_state.vip_cids, placeholder="e.g. 1863530, 1869429", key="input_vip_cids")
+            st.text_input("Target Pilot CIDs (Comma Separated):", placeholder="e.g. 1863530, 1869429", key="vip_cids")
         with wl_c2:
-            st.session_state.vip_callsigns = st.text_input("Target Tracking Callsigns (Comma Separated):", value=st.session_state.vip_callsigns, placeholder="e.g. THY123, PGT456", key="input_vip_callsigns")
+            st.text_input("Target Tracking Callsigns (Comma Separated):", placeholder="e.g. THY123, PGT456", key="vip_callsigns")
         st.markdown("---")
-    if anomalies:
-        df_anomalies = pd.DataFrame(anomalies)
-        st.dataframe(df_anomalies, use_container_width=True)
-    else:
-        st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+    render_anomaly_table()
 
 with tab5:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
+    <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 3: Completed</div>
+        <div class="roadmap-title">📊 The Ultimate Score, Analytics & Hyper-Personalization</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Completed — August 5, 2026<br>
+            Turned VatScore from a live radar into a full performance analytics hub. Key milestones delivered:
+            <ul>
+                <li><strong> Dedicated CID Intelligence Hub:</strong> Replaced the flat CID Stats tab with a fully independent stats page, reachable via a seamless single-click native tab.</li>
+                <li><strong> Full-History statsim.net Integration:</strong> Chunked, parallelized fetch pipeline that works around statsim.net's 31-day query ceiling to pull a pilot's entire history in seconds.</li>
+                <li><strong> Fleet, Route & Airline Intelligence:</strong> Manufacturer distribution, longest-flight rankings with hour/NM sliders, most-flown route/aircraft/airline, and a "most interesting route" algorithm.</li>
+                <li><strong> ATC Sector Mastery Module:</strong> Per-position ATC session analytics with All Time / This Year / This Month ranking.</li>
+                <li><strong> Real VHF Frequency Telemetry:</strong> Live COM frequency data sourced directly from VATSIM's official transceivers feed.</li>
+                <li><strong> Network-Wide Auto-Refresh Engine:</strong> Scoped-fragment architecture keeps Leaderboard, Global Stats, and Anomaly Radar live without disturbing in-progress input elsewhere.</li>
+                <li><strong> Rating Accuracy Overhaul:</strong> ATC and pilot rating decoders now match VATSIM's official tables exactly, fixing a long-standing off-by-one misclassification.</li>
+            </ul>
+        </div>
+    </div>
     <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 2: Completed — Codename: "babybus"</div>
         <div class="roadmap-title">📢 Advanced Telemetry Tracking & Precision Filtering</div>
@@ -1225,303 +1168,10 @@ with tab5:
     </div>
     """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — CID STATS (statsim.net)
-# ══════════════════════════════════════════════════════════════════════════════
-with tab6:
-    from datetime import timedelta as _td
-
-    st.markdown(f"""
-    <style>
-    .vs-chip{{display:inline-block;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.5px;font-family:monospace;}}
-    .vs-route{{display:flex;justify-content:space-between;align-items:center;
-               padding:9px 14px;border-radius:7px;margin-bottom:6px;
-               background:{_INK};border:1px solid {_LINE};}}
-    .vs-route .ap{{font-size:14px;font-weight:700;letter-spacing:1px;}}
-    </style>""", unsafe_allow_html=True)
-
-    st.markdown(f'<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:2px;">VatScore · Dossier</div>', unsafe_allow_html=True)
-    st.markdown(f'<h3 style="margin-top:0;color:{_TEXT};font-weight:800;">CID İstatistikleri</h3>', unsafe_allow_html=True)
-
-    cid_input = st.text_input("VATSIM CID", placeholder="örn. 1481801",
-                               max_chars=10, key="cid_stats_input", label_visibility="collapsed")
-
-    if not (cid_input and cid_input.strip().isdigit()):
-        st.info("Bir VATSIM CID gir — tüm uçuş ve ATC geçmişi çekilir.")
-        st.stop()
-
-    cid = cid_input.strip()
-
-    with st.spinner("Tüm geçmiş çekiliyor (statsim.net)…"):
-        flights_raw = statsim_flights(cid)
-        atc_raw     = statsim_atc(cid)
-        lp          = live_pilot_lookup(cid)
-
-    # ── Profil: sadece live feed'den (VATSIM Core key'e gerek yok) ────────────
-    lp_name   = ""
-    lp_rating = 0
-    lp_pilot_r= 0
-    if lp:
-        lp_name    = lp.get("name", "")
-        lp_rating  = lp.get("rating", 0)
-        lp_pilot_r = lp.get("pilot_rating", 0)
-
-    atc_lbl   = ATC_RATINGS.get(int(lp_rating), f"R{lp_rating}") if lp else "—"
-    pilot_lbl = decode_pilot_rating(lp_pilot_r) if lp else "—"
-
-    # Online rozeti
-    online_badge = ""
-    if lp:
-        cs = lp.get("callsign","")
-        online_badge = f'<span class="vs-chip" style="background:#062e25;color:{_GREEN};border:1px solid #0c5;margin-left:10px;vertical-align:middle;">● CANLI · {cs}</span>'
-
-    # Rating chip'leri sadece online ise göster (live feed'den geliyor)
-    rating_chips = ""
-    if lp:
-        rating_chips = f"""
-        <span class="vs-chip" style="background:#0c2a3a;color:{_CYAN};border:1px solid {_CYAN}40;">PILOT {pilot_lbl}</span>
-        <span class="vs-chip" style="background:#1e1633;color:{_VIO};border:1px solid {_VIO}40;margin-left:8px;">ATC {atc_lbl}</span>"""
-
-    display_name = lp_name or f"CID {cid}"
-
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,{_PANEL} 0%,{_INK} 100%);
-                border:1px solid {_LINE};border-left:4px solid {_CYAN};
-                border-radius:10px;padding:22px 24px;margin-bottom:22px;
-                font-family:ui-monospace,'Cascadia Code',monospace;">
-      <div style="font-size:24px;font-weight:800;color:{_TEXT};margin-bottom:3px;">
-        {display_name}{online_badge}
-      </div>
-      <div style="font-size:12px;color:{_MUTED};margin-bottom:{'14px' if lp else '0'};">
-        CID {cid}{"  ·  Uçuş sayısı: "+str(len(flights_raw)) if flights_raw else ""}
-      </div>
-      {rating_chips}
-    </div>
-    """, unsafe_allow_html=True)
-
-    if not flights_raw:
-        err = st.session_state.get("_cid_flights_err","")
-        if err:
-            st.error(f"statsim.net'ten veri çekilemedi (hata: {err}). Secrets'taki STATSIM_API_KEY'i kontrol et.")
-        else:
-            st.info("Bu CID için uçuş kaydı bulunamadı.")
-        st.stop()
-
-    # ── DataFrame ──────────────────────────────────────────────────────────────
-    df = pd.DataFrame(flights_raw)
-    df["dep"]         = df.get("departure",   pd.Series(dtype=str)).fillna("????").str.upper()
-    df["arr"]         = df.get("destination", pd.Series(dtype=str)).fillna("????").str.upper()
-    df["ac"]          = df.get("aircraft",    pd.Series(dtype=str)).apply(_icao)
-    df["mfr"]         = df["ac"].apply(_mfr)
-    df["route"]       = df["dep"] + "→" + df["arr"]
-    df["dep_dt"]      = df.get("departed",  pd.Series(dtype=str)).apply(_parse_dt)
-    df["arr_dt"]      = df.get("arrived",   pd.Series(dtype=str)).apply(_parse_dt)
-    df["logon_dt"]    = df.get("loggedOn",  pd.Series(dtype=str)).apply(_parse_dt)
-    df["when"]        = df["dep_dt"].fillna(df["logon_dt"])
-    dur               = (df["arr_dt"] - df["dep_dt"]).dt.total_seconds() / 60
-    df["dur_min"]     = dur.where(dur > 0).fillna(0)
-    total_flights     = len(df)
-
-    # ── Zaman filtresi ─────────────────────────────────────────────────────────
-    now_utc = datetime.now(timezone.utc)
-    tf = st.radio("", ["Tümü","Son 1 Ay","Son 6 Ay","Bu Yıl","Son 1 Yıl"],
-                  horizontal=True, key="cid_tf", label_visibility="collapsed")
-    cutoff = {"Son 1 Ay": now_utc-_td(days=30), "Son 6 Ay": now_utc-_td(days=182),
-              "Bu Yıl": now_utc.replace(month=1,day=1,hour=0,minute=0,second=0,microsecond=0),
-              "Son 1 Yıl": now_utc-_td(days=365)}.get(tf)
-    dff = df[df["when"] >= cutoff].copy() if cutoff else df.copy()
-    st.caption(f"**{len(dff)}** uçuş gösteriliyor · toplam **{total_flights}** kayıt")
-
-    # ── KPI şeridi ─────────────────────────────────────────────────────────────
-    uniq_ap = [a for a in pd.unique(dff[["dep","arr"]].values.ravel()) if a not in ("????","")]
-    fl_dur  = dff[dff["dur_min"] > 0]["dur_min"]
-    avg_dur = int(fl_dur.mean()) if len(fl_dur) else 0
-    k1,k2,k3,k4,k5 = st.columns(5)
-    with k1: st.markdown(_kpi("Uçuş", f"{len(dff)}", f"/{total_flights} tüm zaman", _CYAN), unsafe_allow_html=True)
-    with k2: st.markdown(_kpi("Ort. Süre", _fmt(avg_dur), "süresi hesaplanan", _GREEN), unsafe_allow_html=True)
-    with k3: st.markdown(_kpi("Havalimanı", f"{len(uniq_ap)}", "farklı meydan", _AMBER), unsafe_allow_html=True)
-    with k4: st.markdown(_kpi("Uçak Tipi", f"{dff['ac'].nunique()}", "ICAO type", _ROSE), unsafe_allow_html=True)
-    with k5: st.markdown(_kpi("ATC Oturum", f"{len(atc_raw)}", "tüm geçmiş", _VIO), unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Panel 1: Aktivite grafiği + İlk/Son ────────────────────────────────────
-    _sec("Aktivite")
-    a1, a2 = st.columns([0.7, 0.3])
-    with a1:
-        dm = dff.dropna(subset=["when"]).copy()
-        if len(dm):
-            dm["month"] = dm["when"].dt.to_period("M").astype(str)
-            mc = dm.groupby("month").size().reset_index(name="n")
-            fig = px.area(mc, x="month", y="n", template="plotly_dark")
-            fig.update_traces(line=dict(color=_CYAN, width=2), fill="tozeroy",
-                              fillcolor=f"rgba(34,211,238,0.10)", mode="lines")
-            _bare(fig, 210); fig.update_xaxes(tickangle=-45, tickfont=dict(size=9))
-            st.plotly_chart(fig, use_container_width=True)
-    with a2:
-        first_f = df["when"].min(); last_f = df["when"].max()
-        fmt = "%d.%m.%Y"
-        st.markdown(f"""
-<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:8px;padding:16px;">
-  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">İlk Uçuş</div>
-  <div style="color:{_TEXT};font-family:monospace;font-size:14px;margin-bottom:12px;">{first_f.strftime(fmt) if pd.notna(first_f) else '—'}</div>
-  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">Son Uçuş</div>
-  <div style="color:{_CYAN};font-family:monospace;font-size:14px;margin-bottom:12px;">{last_f.strftime(fmt) if pd.notna(last_f) else '—'}</div>
-  <div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;margin-bottom:4px;">Ort. Uçuş Süresi</div>
-  <div style="color:{_AMBER};font-family:monospace;font-size:18px;font-weight:800;">{_fmt(avg_dur)}</div>
-</div>""", unsafe_allow_html=True)
-
-    # ── Panel 2: Fleet ─────────────────────────────────────────────────────────
-    _sec("Filo")
-    f1, f2 = st.columns(2)
-    with f1:
-        mc2 = dff["mfr"].value_counts().head(7).reset_index(); mc2.columns=["mfr","n"]
-        fig = px.pie(mc2, names="mfr", values="n", hole=0.55, template="plotly_dark",
-                     color_discrete_sequence=[_CYAN,_VIO,_GREEN,_AMBER,_ROSE,"#60a5fa","#a78bfa"])
-        fig.update_traces(textposition="outside", textinfo="label+percent",
-                          textfont=dict(size=10,color=_TEXT),
-                          marker=dict(line=dict(color=_INK,width=2)))
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
-                          margin=dict(l=0,r=0,t=0,b=0),height=230,showlegend=False,font=_PF,
-                          annotations=[dict(text=f"<b>{dff['mfr'].nunique()}</b><br>üretici",
-                                            x=0.5,y=0.5,font=dict(size=13,color=_MUTED),showarrow=False)])
-        st.plotly_chart(fig, use_container_width=True)
-    with f2:
-        ac2 = dff["ac"].value_counts().head(8).reset_index(); ac2.columns=["ac","n"]
-        fig = px.bar(ac2, x="n", y="ac", orientation="h", template="plotly_dark",
-                     color="n", color_continuous_scale=[[0,"#0c2a3a"],[1,_CYAN]])
-        fig.update_traces(marker_line_width=0, opacity=0.95,
-                          text=ac2["n"], textposition="outside", textfont=dict(color=_MUTED,size=10))
-        _bare(fig, 230); fig.update_yaxes(autorange="reversed", tickfont=dict(size=11))
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Panel 3: En uzun uçuşlar ───────────────────────────────────────────────
-    _sec("En Uzun Uçuşlar")
-    s1, s2 = st.columns([0.35, 0.65])
-    with s1: min_h = st.slider("Min. süre (saat)", 0, 14, 0, key="cid_min_h")
-    with s2: top_n = st.slider("Adet", 5, 30, 12, key="cid_top_n")
-
-    dl = dff[(dff["dur_min"] >= min_h*60) & (dff["dur_min"]>0)].sort_values("dur_min",ascending=False).head(top_n).copy()
-    if len(dl):
-        dl["lbl"] = dl["route"] + "  " + dl["ac"]
-        dl["hm"]  = dl["dur_min"].apply(_fmt)
-        fig = px.bar(dl, x="dur_min", y="lbl", orientation="h", template="plotly_dark",
-                     color="dur_min", color_continuous_scale=[[0,"#0c2e26"],[1,_GREEN]], custom_data=["hm"])
-        fig.update_traces(marker_line_width=0, opacity=0.95,
-                          hovertemplate="%{y}<br>%{customdata[0]}<extra></extra>",
-                          text=dl["hm"], textposition="outside", textfont=dict(color=_MUTED,size=10))
-        _bare(fig, max(260,len(dl)*30)); fig.update_yaxes(autorange="reversed",tickfont=dict(size=11))
-        fig.update_xaxes(title="dakika")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Bu filtreyle süre verisi olan uçuş yok. (statsim bazı uçuşlarda departed/arrived vermez)")
-
-    # ── Panel 4: Rotalar ───────────────────────────────────────────────────────
-    _sec("Rotalar")
-    r1, r2 = st.columns(2)
-    rc = Counter(dff[dff["route"]!="????→????"]["route"].tolist())
-
-    with r1:
-        st.markdown(f'<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:8px;">En Çok Uçulan</div>', unsafe_allow_html=True)
-        mx = rc.most_common(1)[0][1] if rc else 1
-        html = ""
-        for route, cnt in rc.most_common(7):
-            d2, a2 = route.split("→")
-            w = int(cnt/mx*100)
-            html += f"""<div class="vs-route">
-              <span class="ap"><span style="color:{_CYAN}">{d2}</span><span style="color:{_MUTED};margin:0 6px;">→</span><span style="color:{_CYAN}">{a2}</span></span>
-              <span style="display:flex;align-items:center;gap:8px;">
-                <span style="width:50px;height:4px;background:{_LINE};border-radius:2px;overflow:hidden;display:inline-block;">
-                  <span style="display:block;height:4px;width:{w}%;background:{_CYAN};"></span></span>
-                <span class="vs-chip" style="background:#0c2a3a;color:{_CYAN};padding:2px 8px;">{cnt}×</span>
-              </span></div>"""
-        st.markdown(html or f"<div style='color:{_MUTED}'>Veri yok</div>", unsafe_allow_html=True)
-
-    with r2:
-        st.markdown(f'<div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:{_MUTED};font-weight:700;margin-bottom:8px;">En İlginç (Nadir & Uzun)</div>', unsafe_allow_html=True)
-        dr = dff[dff["route"]!="????→????"].copy()
-        dr["freq"] = dr["route"].map(rc)
-        dr = dr[dr["dur_min"]>30].sort_values(["freq","dur_min"],ascending=[True,False]).head(6)
-        if len(dr):
-            rh = ""
-            for _, row in dr.iterrows():
-                d2,a2 = row["route"].split("→")
-                rh += f"""<div class="vs-route" style="border-left:2px solid {_AMBER};">
-                  <span class="ap"><span style="color:{_AMBER}">{d2}</span><span style="color:{_MUTED};margin:0 6px;">→</span><span style="color:{_AMBER}">{a2}</span></span>
-                  <span style="font-size:11px;color:{_MUTED};font-family:monospace;">{row['ac']} · {_fmt(row['dur_min'])}</span></div>"""
-            st.markdown(rh, unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div style='color:{_MUTED};font-size:12px;'>Süre verisi yeterli değil</div>", unsafe_allow_html=True)
-
-        if len(dff):
-            top_ac  = dff["ac"].value_counts().idxmax()
-            top_mfr = dff["mfr"].value_counts().idxmax()
-            top_cnt = int(dff["ac"].value_counts().max())
-            st.markdown(f"""<div style="background:{_PANEL};border:1px solid {_LINE};border-radius:8px;
-              padding:14px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
-              <div><div style="font-size:10px;color:{_MUTED};text-transform:uppercase;font-weight:700;">Favori Uçak</div>
-              <div style="font-size:20px;font-weight:800;color:{_GREEN};font-family:monospace;">{top_ac}
-              <span style="font-size:12px;color:{_MUTED};font-weight:400;">· {top_mfr}</span></div></div>
-              <span class="vs-chip" style="background:#0c2e26;color:{_GREEN};">{top_cnt} uçuş</span>
-            </div>""", unsafe_allow_html=True)
-
-    # ── Panel 5: ATC ───────────────────────────────────────────────────────────
-    if atc_raw:
-        _sec("ATC Sektör Mastery")
-        da = pd.DataFrame(atc_raw)
-        da["on"]  = da.get("loggedOn",  pd.Series(dtype=str)).apply(_parse_dt)
-        da["off"] = da.get("loggedOff", pd.Series(dtype=str)).apply(_parse_dt)
-        da["dur_min"] = ((da["off"]-da["on"]).dt.total_seconds()/60).clip(lower=0).fillna(0)
-        da["cs"] = da.get("callsign", pd.Series(dtype=str)).fillna("???").str.upper()
-
-        atc_tf = st.radio("", ["Tümü","Bu Yıl","Son 6 Ay"], horizontal=True,
-                          key="cid_atc_tf", label_visibility="collapsed")
-        if atc_tf == "Bu Yıl":
-            da = da[da["on"] >= now_utc.replace(month=1,day=1,hour=0,minute=0,second=0,microsecond=0)]
-        elif atc_tf == "Son 6 Ay":
-            da = da[da["on"] >= now_utc - _td(days=182)]
-
-        total_atc_min = da["dur_min"].sum()
-        g1,g2,g3 = st.columns(3)
-        with g1: st.markdown(_kpi("Oturum", f"{len(da)}", "kayıt", _VIO), unsafe_allow_html=True)
-        with g2: st.markdown(_kpi("Toplam Süre", _fmt(total_atc_min), "kontrol süresi", _VIO), unsafe_allow_html=True)
-        with g3: st.markdown(_kpi("Pozisyon", f"{da['cs'].nunique()}", "farklı sektör", _VIO), unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            pos = da.groupby("cs")["dur_min"].sum().sort_values(ascending=False).head(12).reset_index()
-            pos["hm"] = pos["dur_min"].apply(_fmt)
-            fig = px.bar(pos, x="dur_min", y="cs", orientation="h", template="plotly_dark",
-                         color="dur_min", color_continuous_scale=[[0,"#1e1633"],[1,_VIO]], custom_data=["hm"])
-            fig.update_traces(marker_line_width=0, opacity=0.95,
-                              hovertemplate="%{y}<br>%{customdata[0]}<extra></extra>")
-            _bare(fig, 360); fig.update_yaxes(autorange="reversed",tickfont=dict(size=11))
-            fig.update_xaxes(title="dakika")
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            def _stype(cs):
-                cs = str(cs).upper()
-                for s,n in (("_CTR","CTR"),("_APP","APP"),("_DEP","APP"),("_TWR","TWR"),("_GND","GND"),("_DEL","DEL"),("_FSS","FSS")):
-                    if s in cs: return n
-                return "Diğer"
-            da["tip"] = da["cs"].apply(_stype)
-            tc = da.groupby("tip")["dur_min"].sum().reset_index(); tc.columns=["tip","dur"]
-            fig = px.pie(tc, names="tip", values="dur", hole=0.55, template="plotly_dark",
-                         color_discrete_sequence=[_VIO,_CYAN,_GREEN,_AMBER,_ROSE,"#60a5fa"])
-            fig.update_traces(textposition="outside", textinfo="label+percent",
-                              textfont=dict(size=11,color=_TEXT),
-                              marker=dict(line=dict(color=_INK,width=2)))
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
-                              margin=dict(l=0,r=0,t=0,b=0),height=360,showlegend=False,font=_PF,
-                              annotations=[dict(text="sektör<br>tipi",x=0.5,y=0.5,
-                                                font=dict(size=12,color=_MUTED),showarrow=False)])
-            st.plotly_chart(fig, use_container_width=True)
-
 if data:
     st.markdown("""
     <div class="signature-container">
-        ⚡ VatScore Dashboard // Made by alp-1863530 <br>
+        VatScoreRadar // Made by alp-1863530 <br>
         📬 For any questions or requests, contact:
         <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
     </div>

@@ -1,7 +1,5 @@
-pyairports
-streamlit
+streamlit==1.57.0
 requests
 pandas
-user-agents
 shapely
 plotly
