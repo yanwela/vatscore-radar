@@ -57,7 +57,8 @@ st.markdown("""
     [data-testid="stTabs"] [aria-selected="true"] { color: #3b82f6 !important; font-weight: bold; }
     /* Hidden helper link that the CID Stats tab's watcher script clicks to
        actually navigate — see the tab6 block below. */
-    div[data-testid="stPageLink"]:has(a[href="CID_Stats"]) { display: none; }
+    div[data-testid="stPageLink"]:has(a[href="CID_Stats"]),
+    div[data-testid="stPageLink"]:has(a[href="Network_Stats"]) { display: none; }
     div[data-testid="stMetricValue"] { color: #22c55e; }
     .signature-container {
         text-align: right; font-family: 'Consolas', monospace; color: #475569; font-size: 12px;
@@ -639,17 +640,18 @@ if data:
         else:
             st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap", "📊 CID Stats"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap", "📊 CID Stats", "📈 Network Stats"])
 
     # st.tabs() has no on-click callback and renders every tab's body on every
-    # run regardless of which one is visible, so tab6 can't just call
+    # run regardless of which one is visible, so tab6/tab7 can't just call
     # st.switch_page() directly (it would redirect immediately on every load).
     # Instead: a real (but hidden) page_link provides the actual navigation
-    # target, and a tiny watcher script inside tab6 clicks it the moment this
-    # tab's panel actually becomes visible on screen.
+    # target, and a tiny watcher script inside the tab clicks it the moment
+    # that tab's panel actually becomes visible on screen.
     st.page_link("pages/1_CID_Stats.py", label="CID Stats", icon="📊")
+    st.page_link("pages/2_Network_Stats.py", label="Network Stats", icon="📈")
 
-    with tab6:
+    def nav_watcher(page_key):
         st.components.v1.html("""
         <script>
             let wasVisible = false;
@@ -660,14 +662,20 @@ if data:
                 const isVisible = window.frameElement.offsetParent !== null;
                 if (isVisible && !wasVisible) {
                     const link = window.parent.document.querySelector(
-                        'a[data-testid="stPageLink-NavLink"][href*="CID_Stats"]'
+                        'a[data-testid="stPageLink-NavLink"][href*="PAGE_KEY"]'
                     );
                     if (link) link.click();
                 }
                 wasVisible = isVisible;
             }, 150);
         </script>
-        """, height=0)
+        """.replace("PAGE_KEY", page_key), height=0)
+
+    with tab6:
+        nav_watcher("CID_Stats")
+
+    with tab7:
+        nav_watcher("Network_Stats")
 
     with tab2:
         st.subheader("✈️ Selected FIR Focus")
