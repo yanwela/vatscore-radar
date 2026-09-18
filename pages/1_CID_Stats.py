@@ -11,6 +11,8 @@ import requests
 import streamlit as st
 
 from security_utils import SlidingWindowLimiter
+from ui_theme import set_browser_title
+from cid_panels import render_activity_panels
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS
@@ -304,9 +306,14 @@ h1, h2, h3 {{ color: {CYAN} !important; font-family: 'Segoe UI', sans-serif; }}
 </style>
 """, unsafe_allow_html=True)
 
+set_browser_title("CID Stats")
 st.page_link("app.py", label="Back to Live Radar", icon="⬅️")
-st.markdown('<div class="vs-eyebrow">VatScoreRadar · CID Stats</div>', unsafe_allow_html=True)
 st.title("📊 CID Stats")
+
+# ?cid=123 in the URL pre-fills the lookup, so a CID page can be linked and shared.
+_cid_param = st.query_params.get("cid", "")
+if _cid_param.isdigit() and len(_cid_param) <= 10 and "cid_stats_input" not in st.session_state:
+    st.session_state["cid_stats_input"] = _cid_param
 
 cid_input = st.text_input("VATSIM CID", placeholder="e.g. 1481801", max_chars=10,
                            key="cid_stats_input", label_visibility="collapsed")
@@ -320,6 +327,8 @@ if not STATSIM_API_KEY:
     st.stop()
 
 cid = cid_input.strip()
+if st.query_params.get("cid") != cid:
+    st.query_params["cid"] = cid
 
 
 @st.cache_resource
@@ -563,6 +572,8 @@ if has_flights:
         st.info("No flights with date information.")
 else:
     st.info("No flight data.")
+
+render_activity_panels(df, has_flights)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PANEL 2 — FLEET / MANUFACTURER DISTRIBUTION

@@ -10,3 +10,7 @@ toolbarMode = "viewer"
 
 [browser]
 gatherUsageStats = false
+
+[theme]
+base = "dark"
+backgroundColor = "#0f111a"

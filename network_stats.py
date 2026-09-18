@@ -280,6 +280,119 @@ def atc_rows(controllers, now=None):
     rows.sort(key=lambda x: x["online_min"], reverse=True)
     return rows
 
+def airport_detail(icao, pilots, controllers, atis, airports, now=None):
+    icao = _code(icao)
+    info = airports.get(icao)
+    if info is None:
+        return None
+
+    # Helper to compute distance to airport
+    def _distance(pilot):
+        lat = pilot.get("latitude") or 0.0
+        lon = pilot.get("longitude") or 0.0
+        return int(round(haversine_nm(lat, lon, info.get("lat") or 0.0, info.get("lon") or 0.0)))
+
+    # Build pilot rows
+    departures = []
+    arrivals = []
+    for p in pilots:
+        dep, arr = _route(p)
+        status = pilot_status(p, airports)
+        distance_nm = _distance(p)
+        row = {
+            "cid": p.get("cid", ""),
+            "callsign": p.get("callsign", ""),
+            "name": p.get("name", ""),
+            "aircraft": _aircraft_type(p),
+            "origin": dep,
+            "destination": arr,
+            "status": status,
+            "altitude": p.get("altitude", 0),
+            "groundspeed": p.get("groundspeed", 0),
+            "distance_nm": distance_nm,
+        }
+        if dep == icao and status in ("Departing", "Departed"):
+            departures.append(row)
+        if arr == icao and status in ("Arriving", "Landed"):
+            arrivals.append(row)
+
+    departures.sort(key=lambda x: (0 if x["status"] == "Departing" else 1, x["distance_nm"], x["callsign"]))
+    arrivals.sort(key=lambda x: (0 if x["status"] == "Arriving" else 1, x["distance_nm"], x["callsign"]))
+
+    # Build ATC rows
+    atc_rows = []
+    for c in controllers:
+        callsign = str(c.get("callsign") or "")
+        if "_" not in callsign:
+            continue
+        if _airport_code(callsign, airports) != icao:
+            continue
+        parts = callsign.upper().split("_")
+        pos_raw = parts[-1]
+        position = "APP" if pos_raw == "DEP" else pos_raw
+        if position not in ATC_POSITION_ORDER:
+            continue
+        rating_raw = c.get("rating")
+        rating_label = ATC_RATINGS.get(rating_raw)
+        if rating_label is None:
+            rating_label = f"R{rating_raw}" if rating_raw is not None else "RNone"
+        online_min = online_minutes(c.get("logon_time"), now)
+        atc_rows.append({
+            "callsign": callsign,
+            "position": position,
+            "frequency": c.get("frequency", ""),
+            "rating": rating_label,
+            "name": c.get("name", ""),
+            "online_min": online_min,
+            "online": format_online(online_min),
+        })
+    atc_rows.sort(key=lambda x: (ATC_POSITION_ORDER.index(x["position"]), x["callsign"]))
+
+    # Build ATIS rows
+    atis_rows = []
+    for a in atis:
+        if _airport_code(a.get("callsign"), airports) != icao:
+            continue
+        text_val = a.get("text_atis")
+        if isinstance(text_val, list):
+            text = " ".join(str(x) for x in text_val)
+        elif isinstance(text_val, str):
+            text = text_val
+        else:
+            text = ""
+        atis_rows.append({
+            "callsign": a.get("callsign", ""),
+            "frequency": a.get("frequency", ""),
+            "code": a.get("atis_code", "") or "",
+            "text": text,
+        })
+    atis_rows.sort(key=lambda x: x["callsign"])
+
+    # Counts
+    counts = {
+        "departing": sum(1 for r in departures if r["status"] == "Departing"),
+        "departed": sum(1 for r in departures if r["status"] == "Departed"),
+        "arriving": sum(1 for r in arrivals if r["status"] == "Arriving"),
+        "landed": sum(1 for r in arrivals if r["status"] == "Landed"),
+    }
+
+    return {
+        "icao": icao,
+        "name": info.get("name", ""),
+        "city": info.get("city", ""),
+        "country": info.get("country", ""),
+        "elevation": info.get("elevation", 0),
+        "tz": info.get("tz", ""),
+        "lat": info.get("lat", 0.0),
+        "lon": info.get("lon", 0.0),
+        "counts": counts,
+        "departures": departures,
+        "arrivals": arrivals,
+        "atc": atc_rows,
+        "atis": atis_rows,
+    }
+
+
 def observer_rows(controllers, now=None):
     rows = []
     for c in controllers:

@@ -12,6 +12,9 @@ import time
 from shapely.geometry import shape, Point
 
 from security_utils import is_valid_callsign, is_valid_fir_prefix
+from registration_country import country_of_registration, extract_registration
+from ui_theme import page_url, set_browser_title
+from vatsim_data import fetch_member_rating
 
 def get_secret(key, default=""):
     # st.secrets.get() raises StreamlitSecretNotFoundError (instead of
@@ -56,9 +59,13 @@ st.markdown("""
     [data-testid="stTabs"] [data-baseweb="tab"]:hover { color: #3b82f6; }
     [data-testid="stTabs"] [aria-selected="true"] { color: #3b82f6 !important; font-weight: bold; }
     /* Hidden helper link that the CID Stats tab's watcher script clicks to
-       actually navigate — see the tab6 block below. */
+       actually navigate — see the tab_cid block below. */
     div[data-testid="stPageLink"]:has(a[href="CID_Stats"]),
     div[data-testid="stPageLink"]:has(a[href="Network_Stats"]) { display: none; }
+    div[data-testid="stElementContainer"]:has(input[aria-label="vs_lookup_cid"]) { display: none; }
+    div[data-testid="stElementContainer"]:has(iframe[srcdoc*="vs-rating-sync"]) { display: none; }
+    /* Streamlit fades elements while a (fragment) rerun is running; with 20s auto-refresh that reads as constant flicker. */
+    [data-stale="true"] { opacity: 1 !important; transition: none !important; }
     div[data-testid="stMetricValue"] { color: #22c55e; }
     .signature-container {
         text-align: right; font-family: 'Consolas', monospace; color: #475569; font-size: 12px;
@@ -195,6 +202,7 @@ query_params = st.query_params
 is_admin_route = query_params.get("admin") == "true"
 
 if is_admin_route:
+    set_browser_title("Admin")
     if "admin_authenticated" not in st.session_state:
         st.session_state.admin_authenticated = False
 
@@ -448,6 +456,8 @@ def classify_aircraft(ac_type, callsign):
         
     return "Commercial"
 
+set_browser_title(labels=["Leaderboard", "Selected FIR Focus", "Global Stats & ATC", "Anomaly Radar", "CID Stats", "Network Stats", "Project Roadmap"])
+
 data = fetch_vatsim_data()
 global_grouped_firs = load_and_group_fir_boundaries()
 
@@ -621,29 +631,33 @@ if data:
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
 
             if str(p.get("transponder")) == "7700":
-                anomalies.append({"Type": "🚨 EMERGENCY (7700)", "Callsign": callsign, "Details": "Declared Mayday Status", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+                anomalies.append({"Type": "🚨 Emergency squawk (7700)", "Callsign": callsign, "Details": "Transponder set to 7700 (general emergency)", "Aircraft": ac_type, "Altitude (FT)": alt, "Speed (KT)": gs})
             if gs > 1150:
-                anomalies.append({"Type": "⚠️ Warp Speed Glitch", "Callsign": callsign, "Details": f"Critical Speed: {gs} KT", "Airframe": ac_type, "Altitude": alt, "Speed": gs})
+                anomalies.append({"Type": "⚠️ Implausible ground speed", "Callsign": callsign, "Details": f"Ground speed {gs} KT is above the 1,150 KT limit", "Aircraft": ac_type, "Altitude (FT)": alt, "Speed (KT)": gs})
             if cid in vip_cid_array or callsign in vip_callsign_array:
                 anomalies.insert(0, {
-                    "Type": "🎯 VIP WATCHLIST TARGET DETECTED",
+                    "Type": "🎯 Watchlist match",
                     "Callsign": f"{callsign} (CID: {cid})",
-                    "Details": f"Tracked Pilot Online - Route: {dep}->{arr}",
-                    "Airframe": ac_type,
-                    "Altitude": alt,
-                    "Speed": gs
+                    "Details": f"Pilot is online. Route: {dep} to {arr}",
+                    "Aircraft": ac_type,
+                    "Altitude (FT)": alt,
+                    "Speed (KT)": gs
                 })
 
         if anomalies:
             df_anomalies = pd.DataFrame(anomalies)
             st.dataframe(df_anomalies, width='stretch')
         else:
-            st.success("Sky is clear. No telemetric anomalies or emergencies detected.")
+            st.success("No anomalies or emergencies at the moment.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar", "🚀 Project Roadmap", "📊 CID Stats", "📈 Network Stats"])
+    # Keep the Roadmap LAST: put any new tab before it in both the label list and the unpacking below.
+    tab_leaderboard, tab_fir, tab_global, tab_anomaly, tab_cid, tab_network, tab_roadmap = st.tabs([
+        "🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar",
+        "📊 CID Stats", "📈 Network Stats", "🚀 Project Roadmap",
+    ])
 
     # st.tabs() has no on-click callback and renders every tab's body on every
-    # run regardless of which one is visible, so tab6/tab7 can't just call
+    # run regardless of which one is visible, so tab_cid/tab_network can't just call
     # st.switch_page() directly (it would redirect immediately on every load).
     # Instead: a real (but hidden) page_link provides the actual navigation
     # target, and a tiny watcher script inside the tab clicks it the moment
@@ -671,13 +685,13 @@ if data:
         </script>
         """.replace("PAGE_KEY", page_key), height=0)
 
-    with tab6:
+    with tab_cid:
         nav_watcher("CID_Stats")
 
-    with tab7:
+    with tab_network:
         nav_watcher("Network_Stats")
 
-    with tab2:
+    with tab_fir:
         st.subheader("✈️ Selected FIR Focus")
         
         def on_fir_change():
@@ -763,6 +777,7 @@ if data:
                 # Ship the server-computed category with the raw pilot so the JS
                 # table doesn't have to (incompletely) re-derive it client-side.
                 p["_category"] = category
+                p["_reg_iso"] = country_of_registration(extract_registration(fplan.get("remarks"))) or ""
                 filtered_pilots_raw.append(p)
 
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
@@ -802,7 +817,8 @@ if data:
                             </div>
                             <hr style="border-color:#1e293b; margin-bottom:14px;">
                             
-                            <p class="v-label" style="margin-bottom: 6px;">Live Flight Trajectory & Distance Progress</p>
+                            <p class="v-label" style="margin-bottom: 6px;">Live Flight Status & Distance Progress</p>
+                            <div id="flightStatusText" style="text-align:center; font-size:14px; font-weight:bold; margin:0 0 8px 0; min-height:18px;"></div>
                             <div class="progress-wrapper">
                                 <span id="progressDeparture" class="airport-badge">---</span>
                                 <div class="progress-container">
@@ -891,6 +907,8 @@ if data:
                 .v-close-btn:hover { color: #ef4444; }
                 .v-modal-body { padding: 22px; max-height: 85vh; overflow-y: auto; }
                 .v-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+                .v-link { color: #3b82f6; text-decoration: underline; }
+                .v-link:hover { color: #60a5fa; }
                 .v-label { color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 6px 0 4px 0; }
                 .v-val { color: #f1f5f9; font-size: 14px; background-color: #0a0c14; padding: 8px 12px; border-radius: 5px; margin: 0; border: 1px solid #1e293b; line-height: 1.4; }
                 .v-textarea { width: 100%; height: 80px; background-color: #0a0c14; border: 1px solid #1e293b; color: #cbd5e1; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; font-size: 13px; box-sizing: border-box; line-height: 1.4; }
@@ -904,6 +922,8 @@ if data:
                 const airportsDatabase = AIRPORTS_DB_PLACEHOLDER;
                 const localAirlinesDb = AIRLINES_DB_PLACEHOLDER;
                 const pilotFrequencies = FREQUENCIES_DB_PLACEHOLDER;
+                const memberRatings = MEMBER_RATINGS_PLACEHOLDER;
+                const cidStatsUrl = CID_STATS_URL_PLACEHOLDER;
 
                 function updateHaversineProgressMetrics(depIcao, arrIcao, currentLat, currentLon) {
                     const txtBox = document.getElementById("progressPercentageText");
@@ -1056,23 +1076,22 @@ if data:
                                 onlineMins = totalMins + " Min | " + hrs + " Hour " + String(mins).padStart(2, "0") + " Min";
                             }
 
-                            const pRatingText = decodePilotRatingLocal(p.pilot_rating);
-                            const aRatingText = decodeAtcRatingLocal(p.rating);
-
                             globalDossiers[callsign] = {
                                 name: p.name || "Anonymous", cid: p.cid || "N/A",
-                                combined_rating: "P: " + pRatingText + " / ATC: " + aRatingText, online: onlineMins,
+                                online: onlineMins,
                                 voice: (() => {
-                                    const status = p.has_voice ? "Voice Active" : "Text Only";
+                                    // Only voice-connected clients have a transceiver (frequency) entry.
                                     const freq = pilotFrequencies[callsign];
-                                    return freq ? (status + " · " + freq) : status;
+                                    return freq ? ("Voice · " + freq) : "Text Only";
                                 })(),
                                 squawk: p.transponder || "0000", origin: rowData.Origin,
                                 destination: rowData.Destination, airframe: acType, route: fplan.route || "No FPL Filed.",
                                 heading: p.heading || 0, lat: p.latitude || 0, lon: p.longitude || 0,
                                 rules: fRules === "V" ? "VFR" : "IFR",
                                 reg: (function(r) { if (!r) return ""; const m = r.match(/REG\/([A-Z0-9\-]{2,10})/i); return m ? m[1].toUpperCase() : ""; })(fplan.remarks || ""),
-                                selcal: (function(r) { if (!r) return ""; const m = r.match(/SEL\/([A-Z]{4})/i); return m ? m[1].toUpperCase() : ""; })(fplan.remarks || "")
+                                selcal: (function(r) { if (!r) return ""; const m = r.match(/SEL\/([A-Z]{4})/i); return m ? m[1].toUpperCase() : ""; })(fplan.remarks || ""),
+                                regIso: /^[a-z]{2}$/.test(p._reg_iso || "") ? p._reg_iso : "",
+                                pilotRatingFeed: p.pilot_rating, alt: p.altitude || 0, gs: p.groundspeed || 0, filedAlt: fplan.altitude || ""
                             };
 
                             const tr = document.createElement("tr");
@@ -1102,8 +1121,25 @@ if data:
 
                         document.getElementById("popCallsign").innerText = " Target Profile: " + callsign;
                         document.getElementById("popName").innerText = p.name;
-                        document.getElementById("popCid").innerText = p.cid;
-                        document.getElementById("popCombinedRating").innerText = p.combined_rating;
+                        const cidBox = document.getElementById("popCid");
+                        cidBox.textContent = "";
+                        if (/^\d{1,10}$/.test(String(p.cid))) {
+                            const cidLink = document.createElement("a");
+                            cidLink.className = "v-link";
+                            cidLink.href = cidStatsUrl + "?cid=" + p.cid;
+                            cidLink.target = "_blank";
+                            cidLink.rel = "noopener";
+                            cidLink.title = "Open CID Stats";
+                            cidLink.textContent = p.cid;
+                            cidBox.appendChild(cidLink);
+                        } else {
+                            cidBox.textContent = p.cid;
+                        }
+                        document.getElementById("popCombinedRating").innerText = ratingLabel(p);
+                        const flightStatus = computeFlightStatus(p);
+                        const statusBox = document.getElementById("flightStatusText");
+                        statusBox.innerText = flightStatus.title;
+                        statusBox.style.color = flightStatus.color;
                         document.getElementById("popOnline").innerText = p.online;
                         document.getElementById("popVoice").innerText = p.voice;
                         document.getElementById("popSquawkBox").innerText = p.squawk;
@@ -1113,7 +1149,17 @@ if data:
                         const airframeParts = [p.airframe];
                         if (p.reg) airframeParts.push(p.reg);
                         if (p.selcal) airframeParts.push(p.selcal);
-                        document.getElementById("popAirframe").innerText = airframeParts.join(" | ");
+                        const airframeBox = document.getElementById("popAirframe");
+                        airframeBox.textContent = airframeParts.join(" | ");
+                        if (p.regIso) {
+                            const flag = document.createElement("img");
+                            flag.src = "https://flagcdn.com/w40/" + p.regIso + ".png";
+                            flag.alt = p.regIso.toUpperCase();
+                            try { flag.title = new Intl.DisplayNames(["en"], {type: "region"}).of(p.regIso.toUpperCase()); } catch (e) {}
+                            flag.style.cssText = "height:14px; margin-left:8px; vertical-align:middle; border-radius:2px;";
+                            flag.onerror = () => flag.remove();
+                            airframeBox.appendChild(flag);
+                        }
                         document.getElementById("popRoute").value = p.route;
 
                         const badge = document.getElementById("popRulesBadge");
@@ -1135,9 +1181,102 @@ if data:
                         } catch (e) { console.log("Airline identification sub-error ignored"); }
 
                         document.getElementById("dossierModal").style.display = "block";
+                        const knownRating = memberRatings[String(p.cid)];
+                        if (!knownRating || (knownRating.error && Date.now() / 1000 >= (knownRating.retry_at || 0))) requestMemberRating(p.cid);
                     } catch (fatalErr) {
                         console.log("Fatal crash intercepted in openDossier:", fatalErr);
                     }
+                }
+
+                const lookupFailed = {};
+
+                function ratingErrorText(mr) {
+                    const mins = Math.max(1, Math.ceil(((mr.retry_at || 0) - Date.now() / 1000) / 60));
+                    if (mr.reason === "rate_limited") return "VATSIM limit, retry in " + mins + " min";
+                    if (mr.reason === "vatsim_error") return "VATSIM error, retry later";
+                    if (mr.reason === "timeout" || mr.reason === "network") return "VATSIM not responding";
+                    if (mr.reason === "not_found") return "not found";
+                    return "unavailable";
+                }
+
+                function ratingLabel(d) {
+                    const mr = memberRatings[String(d.cid)];
+                    const known = !!(mr && !mr.error);
+                    const pText = decodePilotRatingLocal(known ? mr.pilotrating : d.pilotRatingFeed);
+                    const aText = known ? decodeAtcRatingLocal(mr.rating) : (mr ? ratingErrorText(mr) : (lookupFailed[String(d.cid)] ? "unavailable" : "loading…"));
+                    return "P: " + pText + " / ATC: " + aText;
+                }
+
+                function refreshOpenRating() {
+                    if (!currentlyOpenCallsign) return;
+                    const d = globalDossiers[currentlyOpenCallsign];
+                    if (d) document.getElementById("popCombinedRating").innerText = ratingLabel(d);
+                }
+
+                // Called by the hidden rating-sync frame (see member_rating_bridge): updates the open window in place.
+                window.setMemberRatings = function(data) {
+                    Object.assign(memberRatings, data || {});
+                    refreshOpenRating();
+                };
+
+                function distNM(la1, lo1, la2, lo2) {
+                    const toRad = v => v * Math.PI / 180;
+                    const dLa = toRad(la2 - la1), dLo = toRad(lo2 - lo1);
+                    const a = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLo / 2) ** 2;
+                    return 3440.065 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                }
+
+                // Same rules as VATSIM Radar (app/utils/server/vatsim/update.ts), same labels.
+                const FLIGHT_STATUS = {
+                    arriving: { title: "Arriving", color: "#f97316" }, departed: { title: "Departed", color: "#93c5fd" },
+                    cruising: { title: "Cruising", color: "#3b82f6" }, climbing: { title: "Climbing", color: "#60a5fa" },
+                    descending: { title: "Descending", color: "#fb923c" }, enroute: { title: "Enroute", color: "#3b82f6" }
+                };
+                function computeFlightStatus(d) {
+                    const unknown = { title: "Status unknown", color: "#94a3b8" };
+                    const dep = airportsDatabase[String(d.origin || "").toUpperCase()];
+                    const arr = airportsDatabase[String(d.destination || "").toUpperCase()];
+                    if (!dep || !arr || !d.lat || !d.lon) return unknown;
+                    const depLat = dep.latitude_deg ?? dep.latitude, depLon = dep.longitude_deg ?? dep.longitude;
+                    const arrLat = arr.latitude_deg ?? arr.latitude, arrLon = arr.longitude_deg ?? arr.longitude;
+                    const dDep = distNM(d.lat, d.lon, depLat, depLon), dArr = distNM(d.lat, d.lon, arrLat, arrLon);
+                    const total = distNM(depLat, depLon, arrLat, arrLon);
+                    const gs = d.gs || 0, alt = d.alt || 0;
+                    if (gs < 50 && (dDep < 5 || dArr < 5)) {
+                        const atGate = gs <= 2;
+                        if (dDep <= dArr) return { title: atGate ? "Departing | At gate" : "Departing", color: "#22c55e" };
+                        return { title: atGate ? "Arrived | At gate" : "Arrived", color: "#ef4444" };
+                    }
+                    let status = null;
+                    if (dArr < 40) status = "arriving";
+                    else if (dDep < 40) status = "departed";
+                    const filedText = String(d.filedAlt || "");
+                    let filed = /^S/i.test(filedText) ? 0 : parseInt(filedText.replace(/\D/g, ""), 10);
+                    if (filed && filed < 1000) filed *= 100;
+                    if (filed) {
+                        if (alt + 300 >= filed && gs > 50) status = "cruising";
+                        else if (!status && total > 0) status = total / 2 < dArr ? "climbing" : "descending";
+                    }
+                    return FLIGHT_STATUS[status || "enroute"];
+                }
+
+                function requestMemberRating(cid) {
+                    try {
+                        const doc = window.parent.document;
+                        const input = doc.querySelector('input[aria-label="vs_lookup_cid"]');
+                        if (!input || !/^\d{1,10}$/.test(String(cid))) return;
+                        const win = window.parent;
+                        const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
+                        setter.call(input, String(cid) + ":" + (Date.now() % 100000));
+                        input.dispatchEvent(new win.Event("input", { bubbles: true }));
+                        const enter = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true };
+                        input.dispatchEvent(new win.KeyboardEvent("keydown", enter));
+                        input.dispatchEvent(new win.KeyboardEvent("keypress", enter));
+                        input.dispatchEvent(new win.KeyboardEvent("keyup", enter));
+                        setTimeout(() => {
+                            if (!memberRatings[String(cid)]) { lookupFailed[String(cid)] = true; refreshOpenRating(); }
+                        }, 9000);
+                    } catch (e) { console.log("member rating lookup skipped", e); }
                 }
 
                 function closeModal() { 
@@ -1161,6 +1300,43 @@ if data:
             airlines_db = load_vatsim_radar_airlines()
             pilot_frequencies = fetch_pilot_frequencies()
 
+            # The pilot feed carries no ATC rating and api.vatsim.net has no CORS. Clicking a pilot writes the CID
+            # into this hidden field (see requestMemberRating). Being a fragment, the lookup reruns only this block
+            # (one cached call) and pushes the result into the open window, so the table never reloads.
+            rating_sync_html = """<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}</style>
+            <script>/*vs-rating-sync*/
+            const data = RATINGS_PLACEHOLDER;
+            try { window.frameElement.closest('[data-testid="stElementContainer"]').style.display = "none"; } catch (e) {}
+            function push() {
+                try {
+                    const table = Array.from(window.parent.document.querySelectorAll("iframe"))
+                        .find(f => (f.getAttribute("srcdoc") || "").includes("vatscore-" + "custom-container"));
+                    if (table && table.contentWindow && typeof table.contentWindow.setMemberRatings === "function") {
+                        table.contentWindow.setMemberRatings(data);
+                        return true;
+                    }
+                } catch (e) {}
+                return false;
+            }
+            if (!push()) {
+                let tries = 0;
+                const timer = setInterval(() => { if (push() || ++tries > 20) clearInterval(timer); }, 250);
+            }
+            </script>"""
+
+            @st.fragment
+            def member_rating_bridge():
+                ratings = st.session_state.setdefault("member_ratings", {})
+                looked = st.text_input("vs_lookup_cid", key="vs_lookup_cid", label_visibility="collapsed", max_chars=24)
+                cid = looked.split(":")[0]  # the browser appends ":<nonce>" so a retry of the same CID still reruns
+                known = ratings.get(cid)
+                retry_after_error = bool(known and known.get("error") and time.time() >= known.get("retry_at", 0))
+                if cid.isdigit() and (known is None or retry_after_error):
+                    ratings[cid] = fetch_member_rating(cid)
+                st.iframe(rating_sync_html.replace("RATINGS_PLACEHOLDER", js_safe(ratings)), height=1)
+
+            member_rating_bridge()
+
             html_table_and_modal_code = raw_html_template\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
                 .replace("ACTIVE_COLS_PLACEHOLDER", js_safe(active_cols))\
@@ -1168,7 +1344,9 @@ if data:
                 .replace("AIRPORTS_DB_PLACEHOLDER", js_safe(airports_coords_map))\
                 .replace("INITIAL_DATA_PLACEHOLDER", js_safe(filtered_pilots_raw))\
                 .replace("AIRLINES_DB_PLACEHOLDER", js_safe(airlines_db))\
-                .replace("FREQUENCIES_DB_PLACEHOLDER", js_safe(pilot_frequencies))
+                .replace("FREQUENCIES_DB_PLACEHOLDER", js_safe(pilot_frequencies))\
+                .replace("MEMBER_RATINGS_PLACEHOLDER", js_safe(st.session_state.member_ratings))\
+                .replace("CID_STATS_URL_PLACEHOLDER", js_safe(page_url("CID_Stats")))
 
             # Dynamic height: 48px per row, min 300, max 900
             dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
@@ -1181,26 +1359,26 @@ if data:
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
 
 
-# ─── Mevcut tab1,tab3,tab4,tab5 ──────────────────────────────────────────────
-with tab1:
+# ─── Remaining tabs (FIR focus, CID and Network live above) ─────────────────
+with tab_leaderboard:
     render_leaderboard()
 
-with tab3:
+with tab_global:
     render_global_stats()
 
-with tab4:
-    st.subheader("🛸 Live Anomaly Radar")
-    with st.expander("⚙️ Open VIP Watchlist Controller", expanded=False):
-        st.markdown("#### Custom Surveillance Parameters")
+with tab_anomaly:
+    st.subheader("🛸 Live Anomalies")
+    with st.expander("⚙️ Pilot Watchlist", expanded=False):
+        st.markdown("#### Watchlist Settings")
         wl_c1, wl_c2 = st.columns(2)
         with wl_c1:
-            st.text_input("Target Pilot CIDs (Comma Separated):", placeholder="e.g. 1863530, 1869429", key="vip_cids")
+            st.text_input("Pilot CIDs (comma-separated):", placeholder="e.g. 1863530, 1869429", key="vip_cids")
         with wl_c2:
-            st.text_input("Target Tracking Callsigns (Comma Separated):", placeholder="e.g. THY123, PGT456", key="vip_callsigns")
+            st.text_input("Callsigns (comma-separated):", placeholder="e.g. THY123, PGT456", key="vip_callsigns")
         st.markdown("---")
     render_anomaly_table()
 
-with tab5:
+with tab_roadmap:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
@@ -1248,7 +1426,7 @@ with tab5:
 if data:
     st.markdown("""
     <div class="signature-container">
-        VatScoreRadar // Made by alp-1863530 <br>
+        VatScoreRadar - Made by alp-1863530 <br>
         📬 For any questions or requests, contact:
         <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
     </div>

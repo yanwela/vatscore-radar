@@ -1,22 +1,17 @@
-import os
 from datetime import datetime, timezone
 
 import pandas as pd
 import plotly.express as px
-import requests
 import streamlit as st
 
 import network_stats as ns
+from ui_theme import (AMBER, CYAN, EMERALD, LINE, ROSE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
+                      set_browser_title, stat_card)
+from vatsim_data import fetch_feed, load_airlines, load_airports
 
-VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
-VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
-AIRPORTS_CSV = "airports.csv"
 REFRESH_SECONDS = 20
 CHART_TOP_N = 15
 
-INK, PANEL, LINE = "#0a0e1a", "#10141f", "#1f2937"
-SUBTLE, TEXT = "#5b6b82", "#e8eef7"
-CYAN, VIOLET, AMBER, EMERALD, ROSE = "#22d3ee", "#8b5cf6", "#fbbf24", "#34d399", "#fb7185"
 PLOTLY_FONT = dict(family="ui-monospace, 'Cascadia Code', monospace", color=TEXT, size=11)
 
 STATUS_COLORS = {"departing": EMERALD, "departed": CYAN, "arriving": AMBER, "landed": ROSE}
@@ -24,77 +19,7 @@ STATUS_COLORS = {"departing": EMERALD, "departed": CYAN, "arriving": AMBER, "lan
 st.set_page_config(page_title="VatScoreRadar — Network Stats", page_icon="📈", layout="wide",
                    initial_sidebar_state="collapsed")
 
-st.markdown(f"""
-<style>
-[data-testid="stAppViewContainer"], [data-testid="stApp"] {{ background-color: {INK} !important; }}
-[data-testid="stSidebarNav"] {{ display: none !important; }}
-[data-testid="stSidebar"] {{ display: none !important; }}
-header, footer {{ visibility: hidden; }}
-div[data-testid="stDecoration"] {{ display: none; }}
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {{ color: #94a3b8 !important; }}
-[data-testid="stTextInput"] div[data-baseweb="input"], [data-testid="stTextInput"] input {{
-    background-color: {PANEL} !important; color: {TEXT} !important; }}
-[data-testid="stTextInput"] div[data-baseweb="input"] {{ border: 1px solid {LINE} !important; }}
-[data-testid="stTextInput"] input::placeholder {{ color: #64748b !important; opacity: 1; }}
-h1, h2, h3 {{ color: {CYAN} !important; font-family: 'Segoe UI', sans-serif; }}
-[data-testid="stTabs"] [data-baseweb="tab"] {{ color: #94a3b8; font-size: 15px; }}
-[data-testid="stTabs"] [data-baseweb="tab"]:hover {{ color: {CYAN}; }}
-[data-testid="stTabs"] [aria-selected="true"] {{ color: {CYAN} !important; font-weight: bold; }}
-.vs-eyebrow {{ font-size:11px; letter-spacing:3px; text-transform:uppercase; color:{SUBTLE}; font-weight:700; margin:0 0 2px 0; }}
-.vs-card {{ background:{PANEL}; border:1px solid {LINE}; border-radius:10px; padding:14px 16px; text-align:center; }}
-.vs-kpi-label {{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:{SUBTLE}; font-weight:700; }}
-.vs-kpi-val {{ font-size:24px; font-weight:800; line-height:1.1; margin-top:6px; font-variant-numeric:tabular-nums; }}
-</style>
-""", unsafe_allow_html=True)
-
-
-@st.cache_data(ttl=15, show_spinner=False)
-def fetch_feed():
-    try:
-        r = requests.get(VATSIM_DATA_URL, timeout=10)
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
-        pass
-    return None
-
-
-@st.cache_resource(ttl=86400, show_spinner=False)
-def load_airports():
-    if not os.path.exists(AIRPORTS_CSV):
-        return {}
-    df = pd.read_csv(AIRPORTS_CSV, usecols=["icao", "name", "city", "country", "elevation", "lat", "lon"])
-    df = df.dropna(subset=["icao", "lat", "lon"])
-    df[["name", "city", "country"]] = df[["name", "city", "country"]].fillna("")
-    airports = {}
-    for icao, name, city, country, elev, lat, lon in zip(
-            df["icao"], df["name"], df["city"], df["country"], df["elevation"], df["lat"], df["lon"]):
-        airports[str(icao).strip().upper()] = {
-            "name": name, "city": city, "country": country,
-            "elevation": None if pd.isna(elev) else float(elev), "lat": float(lat), "lon": float(lon),
-        }
-    return airports
-
-
-@st.cache_resource(ttl=86400, show_spinner=False)
-def _load_airlines():
-    # Raises on failure so a bad response is never cached for 24h.
-    r = requests.get(VATSIM_RADAR_AIRLINES_URL, timeout=10)
-    r.raise_for_status()
-    airlines = {}
-    for item in r.json():
-        icao = str(item.get("icao") or "").strip().upper()
-        if icao:
-            airlines.setdefault(icao, {"name": item.get("name", ""), "callsign": item.get("callsign", ""),
-                                       "virtual": bool(item.get("virtual", False))})
-    return airlines
-
-
-def load_airlines():
-    try:
-        return _load_airlines()
-    except Exception:
-        return {}
+apply_base_css()
 
 
 def make_df(rows, columns):
@@ -125,18 +50,23 @@ def style_chart(fig, height=300):
 
 def kpi(col, label, value, color):
     with col:
-        st.markdown(f"""<div class="vs-card"><div class="vs-kpi-label">{label}</div>
-        <div class="vs-kpi-val" style="color:{color};">{int(value):,}</div></div>""", unsafe_allow_html=True)
+        st.markdown(stat_card(label, f"{int(value):,}", color), unsafe_allow_html=True)
 
 
 def search_box(key, placeholder):
     return st.text_input("Search", key=key, placeholder=placeholder, label_visibility="collapsed", max_chars=60)
 
 
-def show_table(df, query, column_config=None):
+def show_table(df, query, column_config=None, link=None):
     shown = filter_df(df, query)
+    config = dict(column_config or {})
+    if link:
+        column, page, param, pattern = link
+        shown = shown.copy()
+        shown[column] = shown[column].map(lambda v: page_url(page, **{param: v}))
+        config[column] = st.column_config.LinkColumn(column, display_text=pattern)
     st.caption(f"Showing {len(shown):,} of {len(df):,}")
-    st.dataframe(shown, hide_index=True, width="stretch", column_config=column_config or {})
+    st.dataframe(shown, hide_index=True, width="stretch", column_config=config)
 
 
 def tab_airports(rows):
@@ -154,7 +84,8 @@ def tab_airports(rows):
     show_table(with_rank(df.rename(columns={"icao": "ICAO", "name": "Name", "city": "City", "country": "Country",
                                             "departing": "Departing", "departed": "Departed",
                                             "arriving": "Arriving", "landed": "Landed", "total": "Total",
-                                            "atc": "ATC", "atis": "ATIS"})), q)
+                                            "atc": "ATC", "atis": "ATIS"})), q,
+               link=("ICAO", "Airport", "icao", r"icao=([^&]+)"))
 
 
 def tab_airlines(rows):
@@ -202,7 +133,7 @@ def tab_pilots(rows):
         "cid": "CID", "callsign": "Callsign", "name": "Name", "status": "Status", "aircraft": "Aircraft",
         "departure": "Departure", "arrival": "Arrival", "online": "Time online",
         "altitude": "Altitude (FT)", "groundspeed": "GS (KT)"})
-    show_table(view, q)
+    show_table(view, q, link=("CID", "CID_Stats", "cid", r"cid=(\d+)"))
 
 
 def tab_atc(rows):
@@ -211,7 +142,8 @@ def tab_atc(rows):
     q = search_box("q_atc", "Search CID, callsign, name, rating or facility…")
     show_table(df.rename(columns={"cid": "CID", "callsign": "Callsign", "frequency": "Frequency",
                                   "rating": "Rating", "facility": "Facility", "name": "Name",
-                                  "online": "Time online"}), q)
+                                  "online": "Time online"}), q,
+               link=("CID", "CID_Stats", "cid", r"cid=(\d+)"))
 
 
 def tab_observers(rows):
@@ -219,7 +151,8 @@ def tab_observers(rows):
     df["cid"] = df["cid"].astype(str)
     q = search_box("q_observers", "Search CID, callsign or name…")
     show_table(df.rename(columns={"cid": "CID", "callsign": "Callsign", "name": "Name", "rating": "Rating",
-                                  "online": "Time online"}), q)
+                                  "online": "Time online"}), q,
+               link=("CID", "CID_Stats", "cid", r"cid=(\d+)"))
 
 
 @st.fragment(run_every=REFRESH_SECONDS)
@@ -270,7 +203,7 @@ def render_network_stats():
         tab_observers(observer_rows)
 
 
+set_browser_title("Network Stats")
 st.page_link("app.py", label="Back to Live Radar", icon="⬅️")
-st.markdown('<div class="vs-eyebrow">VatScoreRadar · Network Stats</div>', unsafe_allow_html=True)
 st.title("📈 Network Stats")
 render_network_stats()
