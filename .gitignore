@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# secrets - never commit
+.streamlit/secrets.toml
+secrets.toml
+.env
+.env.*
