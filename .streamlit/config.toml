@@ -1,0 +1,12 @@
+[server]
+enableXsrfProtection = true
+enableCORS = true
+enableStaticServing = false
+
+[client]
+# Don't leak tracebacks/exception details to visitors' browsers; they still go to the server log.
+showErrorDetails = "none"
+toolbarMode = "viewer"
+
+[browser]
+gatherUsageStats = false

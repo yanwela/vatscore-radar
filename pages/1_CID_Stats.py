@@ -10,6 +10,8 @@ import plotly.express as px
 import requests
 import streamlit as st
 
+from security_utils import SlidingWindowLimiter
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,6 +321,29 @@ if not STATSIM_API_KEY:
 
 cid = cid_input.strip()
 
+
+@st.cache_resource
+def _lookup_limiters():
+    # Every new CID fans out to dozens of statsim.net requests on the shared
+    # API key, so cap fresh lookups per session and across the whole app.
+    return SlidingWindowLimiter(8, 60), SlidingWindowLimiter(40, 60)
+
+
+# Widget interactions (sliders, radios) rerun this script with the same CID and
+# are served from cache, so only a CID we haven't just looked up counts.
+if st.session_state.get("_cid_last_ok") != cid:
+    session_limiter, global_limiter = _lookup_limiters()
+    session_key = st.session_state.setdefault("_limiter_key", os.urandom(8).hex())
+    if not session_limiter.allow(session_key):
+        wait = int(session_limiter.seconds_until_allowed(session_key)) + 1
+        st.warning(f"Too many lookups. Try again in {wait}s.")
+        st.stop()
+    if not global_limiter.allow("global"):
+        wait = int(global_limiter.seconds_until_allowed("global")) + 1
+        st.warning(f"The service is busy right now. Try again in {wait}s.")
+        st.stop()
+    st.session_state["_cid_last_ok"] = cid
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATA FETCH
 # ══════════════════════════════════════════════════════════════════════════════
@@ -391,8 +416,8 @@ if live:
     online_badge = (f'<span class="vs-chip" style="background:#062e25;color:{EMERALD};'
                      f'border:1px solid #0c5;margin-left:10px;vertical-align:middle;">● LIVE · {cs}</span>')
 
-region = details.get("region_id", "—")
-division = details.get("division_id", "—")
+region = html_escape(str(details.get("region_id", "—")))
+division = html_escape(str(details.get("division_id", "—")))
 reg_date_str = reg_date.strftime("%d.%m.%Y") if reg_date else "—"
 
 st.markdown(f"""
@@ -449,7 +474,7 @@ with p2:
         if rc:
             route, cnt = rc.most_common(1)[0]
             d, a = route.split("→")
-            top_route_html = f"{d} → {a} <span class='vs-kpi-sub'>({cnt}×)</span>"
+            top_route_html = f"{html_escape(d)} → {html_escape(a)} <span class='vs-kpi-sub'>({cnt}×)</span>"
     if has_flights:
         ac_counts = df["ac"].value_counts()
         if len(ac_counts):
@@ -461,7 +486,7 @@ with p2:
             if len(cs_counts):
                 top_prefix = cs_counts.idxmax()
                 top_airline = airlines_db.get(top_prefix, top_prefix)
-            top_ac_html = f"{top_ac} <span class='vs-kpi-sub'>({top_mfr})</span><br><span class='vs-kpi-sub'>{html_escape(str(top_airline))}</span>"
+            top_ac_html = f"{html_escape(str(top_ac))} <span class='vs-kpi-sub'>({html_escape(top_mfr)})</span><br><span class='vs-kpi-sub'>{html_escape(str(top_airline))}</span>"
     st.markdown(f"""
     <div class="vs-card">
       <div class="vs-kpi-label">Most Flown Route</div>
@@ -480,7 +505,7 @@ with p3:
             dr = dr.sort_values(["freq", "dur_min"], ascending=[True, False])
             row = dr.iloc[0]
             d, a = row["route"].split("→")
-            interesting_html = f"{d} → {a} <span class='vs-kpi-sub'>({row['ac']} · {fmt_hm(row['dur_min'])})</span>"
+            interesting_html = f"{html_escape(d)} → {html_escape(a)} <span class='vs-kpi-sub'>({html_escape(str(row['ac']))} · {fmt_hm(row['dur_min'])})</span>"
     st.markdown(f"""
     <div class="vs-card">
       <div class="vs-kpi-label">Most Interesting Route Flown</div>

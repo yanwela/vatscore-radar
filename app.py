@@ -1,15 +1,17 @@
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from collections import Counter
 from datetime import datetime, timezone
 import os
 import json
 import re
-from html import escape as html_escape
+import hmac
+import hashlib
+import time
 from shapely.geometry import shape, Point
+
+from security_utils import is_valid_callsign, is_valid_fir_prefix
 
 def get_secret(key, default=""):
     # st.secrets.get() raises StreamlitSecretNotFoundError (instead of
@@ -91,6 +93,60 @@ st.markdown("""
 # Admin Activity Logging System
 LOG_FILE = "radar_traffic_logs.csv"
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "")
+ADMIN_PASSWORD_HASH = get_secret("ADMIN_PASSWORD_HASH", "")
+MAX_ADMIN_FAILS = 5
+ADMIN_FAIL_WINDOW = 600
+ADMIN_LOCK_SECONDS = 900
+
+@st.cache_resource
+def _admin_guard():
+    # Process-wide state shared by every session, so opening a new browser
+    # tab doesn't reset the brute-force counter.
+    return {"fails": [], "lock_until": 0.0}
+
+def admin_lock_remaining():
+    guard = _admin_guard()
+    lock_until = guard["lock_until"]
+    now = time.time()
+    if lock_until > now:
+        return lock_until - now
+    else:
+        return 0.0
+def register_admin_failure():
+    guard = _admin_guard()
+    now = time.time()
+    guard["fails"].append(now)
+    guard["fails"] = [t for t in guard["fails"] if now - t < ADMIN_FAIL_WINDOW]
+    if len(guard["fails"]) >= MAX_ADMIN_FAILS:
+        guard["lock_until"] = now + ADMIN_LOCK_SECONDS
+        guard["fails"] = []
+def clear_admin_failures():
+    guard = _admin_guard()
+    guard["fails"] = []
+    guard["lock_until"] = 0.0
+def verify_admin_password(candidate):
+    # Use hmac.compare_digest for constant-time comparison to prevent timing attacks
+    try:
+        if ADMIN_PASSWORD_HASH:
+            parts = ADMIN_PASSWORD_HASH.split('$')
+            if len(parts) != 4 or parts[0] != 'pbkdf2_sha256':
+                return False
+            iterations = int(parts[1])
+            salt_hex = parts[2]
+            hash_hex = parts[3]
+            computed = hashlib.pbkdf2_hmac(
+                'sha256',
+                candidate.encode(),
+                bytes.fromhex(salt_hex),
+                iterations
+            )
+            return hmac.compare_digest(computed, bytes.fromhex(hash_hex))
+        elif ADMIN_PASSWORD:
+            return hmac.compare_digest(candidate.encode(), ADMIN_PASSWORD.encode())
+        else:
+            return False
+    except Exception:
+        return False
 
 def init_log_file():
     if not os.path.exists(LOG_FILE):
@@ -143,16 +199,22 @@ if is_admin_route:
 
     if not st.session_state.admin_authenticated:
         st.title("🛡️ VatScore HQ Security Login")
-        if not ADMIN_PASSWORD:
-            st.error("Admin access is not configured. Set ADMIN_PASSWORD in .streamlit/secrets.toml to enable this panel.")
+        if not (ADMIN_PASSWORD or ADMIN_PASSWORD_HASH):
+            st.error("Admin access is not configured. Set ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD) in .streamlit/secrets.toml to enable this panel.")
+            st.stop()
+        lock_left = admin_lock_remaining()
+        if lock_left > 0:
+            st.error(f"Too many failed attempts. Try again in {int(lock_left // 60) + 1} minute(s).")
             st.stop()
         passwd_input = st.text_input("Enter Master Admin Password:", type="password")
         if st.button("Authorize Connection"):
-            if passwd_input and passwd_input == ADMIN_PASSWORD:
+            if passwd_input and verify_admin_password(passwd_input):
+                clear_admin_failures()
                 st.session_state.admin_authenticated = True
                 st.success("Access Granted.")
                 st.rerun()
             else:
+                register_admin_failure()
                 st.error("Invalid Secret Token.")
         st.stop()
     else:
@@ -453,7 +515,7 @@ if data:
     defined_fir_prefixes = {"LT", "ED", "EG", "LF", "K", "OM", "LO", "LI", "LE"}
     fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items()) if code in defined_fir_prefixes]
     
-    if "saved_fir" in st.query_params:
+    if is_valid_fir_prefix(st.query_params.get("saved_fir")):
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
     
     if "current_fir_prefix" not in st.session_state:
@@ -462,7 +524,7 @@ if data:
     matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
     calculated_index = matched_indices[0] if matched_indices else 0
 
-    if "selected_callsign" in st.query_params:
+    if is_valid_callsign(st.query_params.get("selected_callsign")):
         st.session_state.active_popup = st.query_params["selected_callsign"]
     if "active_popup" not in st.session_state:
         st.session_state.active_popup = ""
@@ -507,14 +569,17 @@ if data:
         gs_controllers = d.get("controllers", []) if d else []
 
         dep_airports, arr_airports, aircraft_types = [], [], []
+        # Flight-plan fields are free text typed by pilots and end up inside
+        # markdown below, so only accept plain ICAO-style tokens.
+        token_ok = re.compile(r"[A-Z0-9]{2,8}").fullmatch
         for p in gs_pilots:
             fplan = p.get("flight_plan") or {}
             dep = fplan.get("departure", "").strip().upper()
             arr = fplan.get("arrival", "").strip().upper()
-            ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
-            if dep: dep_airports.append(dep)
-            if arr: arr_airports.append(arr)
-            if ac_type and ac_type != "N/A": aircraft_types.append(ac_type)
+            ac_type = fplan.get("aircraft", "").split("/")[0].strip().upper() or "N/A"
+            if token_ok(dep): dep_airports.append(dep)
+            if token_ok(arr): arr_airports.append(arr)
+            if ac_type != "N/A" and token_ok(ac_type): aircraft_types.append(ac_type)
 
         st.subheader("Global Network Insights")
         col_g1, col_g2, col_g3 = st.columns(3)
@@ -1008,7 +1073,11 @@ if data:
                             activeColumns.forEach(col => {
                                 const td = document.createElement("td");
                                 if (col === "Callsign") {
-                                    td.innerHTML = '<b style="color:#3b82f6; cursor:pointer;">' + rowData[col] + '</b>';
+                                    const b = document.createElement("b");
+                                    b.style.color = "#3b82f6";
+                                    b.style.cursor = "pointer";
+                                    b.textContent = rowData[col];
+                                    td.appendChild(b);
                                 } else { td.innerText = rowData[col]; }
                                 tr.appendChild(td);
                             });
