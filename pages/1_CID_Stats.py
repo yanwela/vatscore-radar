@@ -268,7 +268,9 @@ def load_airlines_db():
         if r.status_code == 200:
             for item in r.json():
                 icao = item.get("icao")
-                if icao:
+                # The list often holds only a virtual airline for big carriers ("vTHY"); leave those out so the page falls
+                # back to the plain ICAO code instead of showing a virtual airline's name as if it were the real one.
+                if icao and not item.get("virtual"):
                     airlines[icao.upper().strip()] = item.get("name", "Unknown Airline")
     except Exception:
         pass
