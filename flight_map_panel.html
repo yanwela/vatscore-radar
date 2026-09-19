@@ -1,0 +1,39 @@
+<div id="mapPanel" class="v-map-panel">
+                                <div class="mp-head">
+                                    <span class="mp-route"><b id="mrDep"></b> <span id="mrDepName" class="mp-name"></span> <span class="mp-arrow">&rarr;</span> <b id="mrArr"></b> <span id="mrArrName" class="mp-name"></span></span>
+                                    <span id="mrMeta" class="mp-meta"></span>
+                                </div>
+                                <div class="mp-tools">
+                                    <button type="button" class="mp-chip on" id="tgRings" onclick="toggleLayer('rings')">Range rings</button>
+                                    <button type="button" class="mp-chip on" id="tgAtc" onclick="toggleLayer('atc')">ATC</button>
+                                    <button type="button" class="mp-chip on" id="tgSectors" onclick="toggleLayer('sectors')">Sectors</button>
+                                </div>
+                                <div class="mp-mapwrap">
+                                    <div id="flightMap" class="v-map"></div>
+                                    <div id="mapNote" class="v-map-note"></div>
+                                </div>
+                                <div id="atcList" class="mp-atc"></div>
+                                <div class="mp-strip">
+                                    <div class="mp-cell"><span>Altitude</span><b id="stAlt">-</b></div>
+                                    <div class="mp-cell"><span>Ground speed</span><b id="stGs">-</b></div>
+                                    <div class="mp-cell"><span>Heading</span><b id="stHdg">-</b></div>
+                                    <div class="mp-cell"><span>Vertical speed</span><b id="stVs">-</b></div>
+                                    <div class="mp-cell"><span>To go (direct)</span><b id="stTogo">-</b></div>
+                                    <div class="mp-cell"><span>ETA (est.)</span><b id="stEta">-</b></div>
+                                    <div class="mp-cell"><span>Flown (track)</span><b id="stFlown">-</b></div>
+                                </div>
+                                <div class="mp-profile">
+                                    <div class="mp-profile-head">
+                                        <span class="mp-tabs">
+                                            <button type="button" class="mp-tab on" id="tabAlt" onclick="setProfileMode('alt')">Altitude</button>
+                                            <button type="button" class="mp-tab" id="tabGs" onclick="setProfileMode('gs')">Speed</button>
+                                        </span>
+                                        <span id="profSpan" class="mp-profile-info"></span>
+                                    </div>
+                                    <svg id="profileSvg" viewBox="0 0 600 54" preserveAspectRatio="none"></svg>
+                                </div>
+                                <div class="mp-foot">
+                                    <i>The dotted line is the direct path between the airports, not the filed route.</i>
+                                    <span class="mp-legend"><span>0</span><span class="bar"></span><span>FL400</span></span>
+                                </div>
+                            </div>

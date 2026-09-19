@@ -11,8 +11,12 @@ import requests
 import streamlit as st
 
 from security_utils import SlidingWindowLimiter
-from ui_theme import set_browser_title
+from ui_theme import page_url, set_browser_title
 from cid_panels import render_activity_panels
+from flight_connections import group_connections, merge_tracks
+from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, flights_for_callsign
+from flight_replay_view import replay_document
+from vatsim_data import load_airports
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS
@@ -317,7 +321,7 @@ _cid_param = st.query_params.get("cid", "")
 if _cid_param.isdigit() and len(_cid_param) <= 10 and "cid_stats_input" not in st.session_state:
     st.session_state["cid_stats_input"] = _cid_param
 
-cid_input = st.text_input("VATSIM CID", placeholder="e.g. 1481801", max_chars=10,
+cid_input = st.text_input("VATSIM CID", placeholder="e.g. 1863530", max_chars=10,
                            key="cid_stats_input", label_visibility="collapsed")
 
 if not (cid_input and cid_input.strip().isdigit()):
@@ -431,6 +435,18 @@ region = html_escape(str(details.get("region_id", "—")))
 division = html_escape(str(details.get("division_id", "—")))
 reg_date_str = reg_date.strftime("%d.%m.%Y") if reg_date else "—"
 
+REPLAY_LAST_FLIGHTS = 60  # statsim only keeps the recorded track of a pilot's most recent 60 flights
+replay_open = st.query_params.get("replay") == "1"
+replay_chip = ""
+if has_flights:
+    _replay_href = f"?cid={cid}" if replay_open else f"?cid={cid}&replay=1"
+    # the label stays "Flight Replay"; while the replay is open the chip is lit up and a click on it closes the replay again
+    _replay_bg, _replay_border = ("#0a4a38", EMERALD) if replay_open else ("#062e25", f"{EMERALD}40")
+    _replay_count = f"Last&nbsp;{REPLAY_LAST_FLIGHTS}&nbsp;Flights" if len(df) > REPLAY_LAST_FLIGHTS else f"{len(df):,}&nbsp;Flights"
+    replay_chip = (f'<a class="vs-chip" href="{_replay_href}" target="_self" style="background:{_replay_bg};color:{EMERALD};'
+                   f'border:1px solid {_replay_border};text-decoration:none;">&#9654;&nbsp;FLIGHT&nbsp;REPLAY<br>'
+                   f'<span style="font-size:15px;">{_replay_count}</span></a>')
+
 st.markdown(f"""
 <div class="vs-wrap vs-card" style="border-left:4px solid {CYAN};margin-bottom:18px;
      background:linear-gradient(135deg,{PANEL} 0%,{INK} 100%);">
@@ -448,6 +464,7 @@ st.markdown(f"""
     <div class="vs-chip" style="background:#1e1633;color:{VIOLET};border:1px solid {VIOLET}40;">
       ATC&nbsp;RATING<br><span style="font-size:15px;">{atc_label}</span>
     </div>
+    {replay_chip}
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -461,6 +478,107 @@ if flights_truncated or flights_err or atc_err:
     if atc_err:
         notes.append(f"{atc_err} ATC time window(s) failed to fetch")
     st.caption("⚠️ " + "; ".join(notes) + ". Data may be incomplete.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FLIGHT REPLAY (opened with the chip in the profile card: ?replay=1)
+# ══════════════════════════════════════════════════════════════════════════════
+@st.cache_resource
+def _replay_limiters():
+    # one fetch per newly picked flight; reruns of the same pick are served from the cache below
+    return SlidingWindowLimiter(12, 60), SlidingWindowLimiter(60, 60)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _replay_track_closed(flight_id):
+    # a finished flight never changes
+    return fetch_flight_track(flight_id, STATSIM_API_KEY, http)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _replay_track_open(flight_id):
+    return fetch_flight_track(flight_id, STATSIM_API_KEY, http)
+
+
+def render_flight_replay():
+    st.markdown('<div class="vs-h" id="flight-replay">Flight Replay</div>', unsafe_allow_html=True)
+    recent = sorted((f for f in flights_raw if isinstance(f, dict)), key=lambda f: str(f.get("loggedOn") or ""), reverse=True)[:REPLAY_LAST_FLIGHTS] if has_flights else []
+    known = callsigns_in(recent)
+    if not known:
+        st.info("No flights found for this CID on statsim.net, so there is nothing to replay.")
+        return
+    st.caption(f"statsim.net keeps the recorded track of the last {REPLAY_LAST_FLIGHTS} flights only.")
+    live_cs = str((live or {}).get("callsign", "")).upper()
+    linked_cs = str(st.query_params.get("callsign", "")).strip().upper()
+    start_cs = linked_cs or (live_cs if live_cs in known else known[0])
+    options = known if start_cs in known else [start_cs] + known  # a linked callsign that is not in the list stays selectable
+    col_cs, col_flight = st.columns([1, 2])
+    with col_cs:
+        picked = st.selectbox("Callsign", options, index=options.index(start_cs), accept_new_options=True, key="replay_callsign",
+                              placeholder="Select or type a callsign")
+    typed = str(picked or "").strip().upper()
+    if not typed:
+        st.info("Pick a callsign from the list or type one.")
+        return
+    matches = flights_for_callsign(recent, typed)
+    if not matches:
+        if flights_for_callsign(flights_raw, typed):
+            st.info(f"Callsign {typed} has no flight among the last {REPLAY_LAST_FLIGHTS}, and statsim.net only keeps the track of those.")
+        else:
+            st.warning(f"Callsign {typed} was not found in this CID's flights.")
+        return
+    # one real flight can be recorded as several connections (disconnected in flight, logged on again): show it once
+    groups = group_connections(matches)
+    labels = [flight_label(g["flight"]) + (f"  ·  {g['connections']} connections" if g["connections"] > 1 else "")
+              + ("  ·  in progress" if not g["flight"]["arrived"] else "") for g in groups]
+    linked_flight = str(st.query_params.get("flight", ""))
+    linked_idx = next((i for i, g in enumerate(groups) if linked_flight in g["ids"]), 0)
+    with col_flight:
+        idx = st.selectbox("Flight", range(len(groups)), format_func=lambda i: labels[i], key=f"replay_flight_{typed}", index=linked_idx)
+    group = groups[idx]
+    chosen = {"id": group["ids"][0], "arrived": group["flight"]["arrived"], "departure": group["flight"]["departure"],
+              "destination": group["flight"]["destination"]}
+    if st.query_params.get("callsign") != typed:
+        st.query_params["callsign"] = typed
+    if st.query_params.get("flight") != chosen["id"]:
+        st.query_params["flight"] = chosen["id"]
+
+    if st.session_state.get("_replay_last") != chosen["id"]:
+        session_limiter, global_limiter = _replay_limiters()
+        session_key = st.session_state.setdefault("_limiter_key", os.urandom(8).hex())
+        if not session_limiter.allow(session_key) or not global_limiter.allow("global"):
+            st.warning("Too many replays in a short time. Try again in a minute.")
+            return
+        st.session_state["_replay_last"] = chosen["id"]
+    with st.spinner("Loading the flight track from statsim.net…"):
+        results = []
+        for n, fid in enumerate(group["ids"]):
+            # an earlier connection is finished for good; only the last one can still be running
+            is_last = n == len(group["ids"]) - 1
+            results.append((_replay_track_closed if (not is_last or chosen["arrived"]) else _replay_track_open)(fid))
+    good = [r for r in results if r["ok"]]
+    if not good:
+        reason = results[0].get("reason")
+        if reason in ("not_found", "no_positions"):
+            st.warning("statsim.net has no recorded track for this flight.")
+        else:
+            st.warning("The flight track could not be loaded right now. Try again in a moment.")
+        return
+    if len(good) < len(results):
+        st.caption("One of the connections of this flight has no recorded track; the replay shows the rest.")
+    result = {"points": merge_tracks([r["points"] for r in good]), "flight": {**good[0]["flight"], **group["flight"]}}
+    airports = load_airports()
+    known_airports = {}
+    for icao in {chosen["departure"].upper(), chosen["destination"].upper()}:
+        a = airports.get(icao)
+        if a:
+            known_airports[icao] = {"latitude_deg": a["lat"], "longitude_deg": a["lon"], "name": a["name"]}
+    payload = {"points": result["points"], "flight": result["flight"], "airports": known_airports, "cid": cid,
+               "airportUrl": page_url("Airport")}
+    st.iframe(replay_document(payload), height=770)
+
+
+if replay_open:
+    render_flight_replay()
 
 # ── First/last flight, most flown route/aircraft/airline, most interesting route ──
 p1, p2, p3 = st.columns(3)
