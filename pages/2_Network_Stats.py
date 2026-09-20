@@ -7,7 +7,7 @@ import streamlit as st
 import network_stats as ns
 from ui_theme import (AMBER, CYAN, EMERALD, LINE, ROSE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
                       set_browser_title, stat_card)
-from vatsim_data import fetch_feed, load_airlines, load_airports
+from vatsim_data import fetch_feed, load_airlines, load_airport_key_map, load_airports
 
 REFRESH_SECONDS = 20
 CHART_TOP_N = 15
@@ -168,7 +168,7 @@ def render_network_stats():
     airports = load_airports()
     airlines = load_airlines()
 
-    airport_rows = ns.airport_stats(pilots, controllers, atis, airports)
+    airport_rows = ns.airport_stats(pilots, controllers, atis, airports, key_map=load_airport_key_map())
     airline_rows = ns.airline_stats(pilots, airlines)
     aircraft_rows = ns.aircraft_stats(pilots)
     route_rows = ns.route_stats(pilots)

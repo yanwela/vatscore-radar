@@ -78,10 +78,15 @@ def _aircraft_type(pilot):
         return short
     return _code(str(fp.get("aircraft") or "").split("/")[0])
 
-def _airport_code(callsign, airports):
+def _airport_code(callsign, airports, key_map=None):
     base = _code(str(callsign or "").split("_")[0])
     if len(base) == 3 and ("K" + base) in airports:
         return "K" + base
+    # controllers of many airports log on with the IATA/LID code (IST_W_APP for LTFM): key_map is prefix -> ICAOs from VATSpy.dat
+    if key_map and base not in airports:
+        for icao in key_map.get(base, ()):
+            if icao in airports:
+                return icao
     return base
 
 def online_minutes(logon_time, now=None):
@@ -152,7 +157,7 @@ def pilot_rows(pilots, airports, now=None):
     rows.sort(key=lambda x: x["online_min"], reverse=True)
     return rows
 
-def airport_stats(pilots, controllers, atis, airports):
+def airport_stats(pilots, controllers, atis, airports, key_map=None):
     counts = {}
     for p in pilots:
         dep, arr = _route(p)
@@ -169,12 +174,12 @@ def airport_stats(pilots, controllers, atis, airports):
     for c in controllers:
         parts = str(c.get("callsign") or "").upper().split("_")
         pos = "APP" if parts[-1] == "DEP" else parts[-1]
-        icao = _airport_code(c.get("callsign"), airports)
+        icao = _airport_code(c.get("callsign"), airports, key_map)
         if len(parts) > 1 and pos in ATC_POSITION_ORDER and icao in airports:
             positions.setdefault(icao, set()).add(pos)
     atis_airports = set()
     for a in atis:
-        icao = _airport_code(a.get("callsign"), airports)
+        icao = _airport_code(a.get("callsign"), airports, key_map)
         if icao in airports:
             atis_airports.add(icao)
     rows = []
@@ -280,7 +285,7 @@ def atc_rows(controllers, now=None):
     rows.sort(key=lambda x: x["online_min"], reverse=True)
     return rows
 
-def airport_detail(icao, pilots, controllers, atis, airports, now=None):
+def airport_detail(icao, pilots, controllers, atis, airports, now=None, key_map=None, approach_keys=None):
     icao = _code(icao)
     info = airports.get(icao)
     if info is None:
@@ -311,13 +316,20 @@ def airport_detail(icao, pilots, controllers, atis, airports, now=None):
             "groundspeed": p.get("groundspeed", 0),
             "distance_nm": distance_nm,
         }
-        if dep == icao and status in ("Departing", "Departed"):
+        # everything filed from / to this airport is listed, not only what is near it: a flight far out still counts as traffic of the airport
+        if dep == icao and status in ("Departing", "Departed", "Enroute"):
             departures.append(row)
-        if arr == icao and status in ("Arriving", "Landed"):
+        if arr == icao and status in ("Arriving", "Landed", "Enroute", "Departed", "Departing"):
+            if status == "Departed":
+                row["status"] = "Enroute"  # just took off from the origin
+            elif status == "Departing":
+                row["status"] = "At origin"
             arrivals.append(row)
 
-    departures.sort(key=lambda x: (0 if x["status"] == "Departing" else 1, x["distance_nm"], x["callsign"]))
-    arrivals.sort(key=lambda x: (0 if x["status"] == "Arriving" else 1, x["distance_nm"], x["callsign"]))
+    departure_rank = {"Departing": 0, "Departed": 1, "Enroute": 2}
+    arrival_rank = {"Arriving": 0, "Landed": 1, "Enroute": 2, "At origin": 3}
+    departures.sort(key=lambda x: (departure_rank[x["status"]], x["distance_nm"], x["callsign"]))
+    arrivals.sort(key=lambda x: (arrival_rank[x["status"]], x["distance_nm"], x["callsign"]))
 
     # Build ATC rows
     atc_rows = []
@@ -325,12 +337,14 @@ def airport_detail(icao, pilots, controllers, atis, airports, now=None):
         callsign = str(c.get("callsign") or "")
         if "_" not in callsign:
             continue
-        if _airport_code(callsign, airports) != icao:
-            continue
         parts = callsign.upper().split("_")
         pos_raw = parts[-1]
         position = "APP" if pos_raw == "DEP" else pos_raw
         if position not in ATC_POSITION_ORDER:
+            continue
+        # an approach controller often serves a whole area (IST_W_APP = Yesilkoy Approach) and not one airport
+        covers = position == "APP" and approach_keys and parts[0] in approach_keys
+        if _airport_code(callsign, airports, key_map) != icao and not covers:
             continue
         rating_raw = c.get("rating")
         rating_label = ATC_RATINGS.get(rating_raw)
@@ -351,7 +365,7 @@ def airport_detail(icao, pilots, controllers, atis, airports, now=None):
     # Build ATIS rows
     atis_rows = []
     for a in atis:
-        if _airport_code(a.get("callsign"), airports) != icao:
+        if _airport_code(a.get("callsign"), airports, key_map) != icao:
             continue
         text_val = a.get("text_atis")
         if isinstance(text_val, list):
@@ -374,6 +388,8 @@ def airport_detail(icao, pilots, controllers, atis, airports, now=None):
         "departed": sum(1 for r in departures if r["status"] == "Departed"),
         "arriving": sum(1 for r in arrivals if r["status"] == "Arriving"),
         "landed": sum(1 for r in arrivals if r["status"] == "Landed"),
+        "outbound": sum(1 for r in departures if r["status"] == "Enroute"),
+        "inbound": sum(1 for r in arrivals if r["status"] in ("Enroute", "At origin")),
     }
 
     return {

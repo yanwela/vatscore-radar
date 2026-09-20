@@ -10,6 +10,7 @@ from security_utils import SlidingWindowLimiter
 
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
+VATSPY_DAT_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/VATSpy.dat"
 AIRPORTS_CSV = "airports.csv"
 
 
@@ -39,6 +40,37 @@ def load_airports():
             "elevation": None if pd.isna(elev) else float(elev), "lat": float(lat), "lon": float(lon),
         }
     return airports
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _load_airport_key_map():
+    # Raises on failure so a bad response is never cached for 24h.
+    r = requests.get(VATSPY_DAT_URL, timeout=20)
+    r.raise_for_status()
+    keys, inside = {}, False
+    for line in r.text.splitlines():
+        text = line.strip()
+        if text.startswith("["):
+            inside = text == "[Airports]"
+            continue
+        parts = text.split("|")
+        if not inside or not text or text.startswith(";") or len(parts) < 5:
+            continue
+        icao, code = parts[0].strip().upper(), parts[4].strip().upper()
+        for k in {code, code.split("-")[0]}:
+            if k:
+                keys.setdefault(k, []).append(icao)
+    if not keys:
+        raise ValueError("no airports")
+    return keys
+
+
+def load_airport_key_map():
+    """callsign prefix -> airport ICAOs, from the IATA/LID column of VATSpy.dat (IST_W_APP is LTFM, JFK_TWR is KJFK); {} when unavailable."""
+    try:
+        return _load_airport_key_map()
+    except Exception:
+        return {}
 
 
 @st.cache_resource(ttl=86400, show_spinner=False)

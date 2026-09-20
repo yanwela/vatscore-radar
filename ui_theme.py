@@ -95,3 +95,21 @@ def stat_card(label, value, color=CYAN):
     # label/value may contain API data, so they are always escaped here.
     return (f'<div class="vs-card"><div class="vs-kpi-label">{escape(str(label))}</div>'
             f'<div class="vs-kpi-val" style="color:{color};">{escape(str(value))}</div></div>')
+
+
+def card_css():
+    # just the KPI card rules of the theme, for a page (the live radar) that has its own base CSS
+    return (f"<style>.vs-card {{ background:{PANEL}; border:1px solid {LINE}; border-radius:10px; padding:14px 16px; text-align:center; }}"
+            f".vs-kpi-label {{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:{SUBTLE}; font-weight:700; }}"
+            f".vs-kpi-val {{ font-size:24px; font-weight:800; line-height:1.1; margin-top:6px; font-variant-numeric:tabular-nums; }}</style>")
+
+
+def record_card(label, value, holder, detail="", color=CYAN, runners_up=()):
+    # a KPI card for a record: the value, who holds it, and optionally the runners-up as small lines (all text is escaped, it comes from the feed)
+    lines = "".join(f'<div>{escape(str(line))}</div>' for line in runners_up)
+    extra = (f'<div style="margin-top:10px;padding-top:8px;border-top:1px solid {LINE};font-size:11px;line-height:1.7;color:{SUBTLE};">{lines}</div>'
+             if lines else "")
+    return (f'<div class="vs-card"><div class="vs-kpi-label">{escape(str(label))}</div>'
+            f'<div class="vs-kpi-val" style="color:{color};">{escape(str(value))}</div>'
+            f'<div style="margin-top:8px;font-size:13px;font-weight:700;color:{TEXT};">{escape(str(holder))}</div>'
+            f'<div style="font-size:11px;color:{SUBTLE};min-height:15px;">{escape(str(detail))}</div>{extra}</div>')

@@ -11,6 +11,8 @@ _PRELUDE = """
 const airportsDatabase = REPLAY_DATA.airports;
 const airportUrl = REPLAY_DATA.airportUrl;
 const pilotFrequencies = {};
+const liveAtc = false;  // the replay draws its own areas; the live ATC code would wipe them on every step
+const metarEnabled = false;  // a METAR is the weather now, not the weather of an old flight
 let globalDossiers = {};
 let currentlyOpenCallsign = null;
 function distNM(la1, lo1, la2, lo2) {
@@ -58,6 +60,7 @@ def replay_document(payload):
         + "<script>const REPLAY_DATA = " + _js(payload) + ";" + _PRELUDE + "</script>"
         + "<script>" + asset("replay_core.js") + "</script>"
         + "<script>" + asset("replay_phases.js") + "</script>"
+        + "<script>" + asset("metar_decode.js") + "</script>"
         + "<script>" + asset("flight_map.js") + "</script>"
         + "<script>" + asset("flight_replay.js") + "</script>"
         + "</body></html>"

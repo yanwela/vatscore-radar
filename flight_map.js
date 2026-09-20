@@ -109,9 +109,73 @@
                     n.style.display = text ? "block" : "none";
                 }
 
+                // ── METAR in the airport pop-up: plain text from metar.vatsim.net (CORS is open), decoded by metar_decode.js ──
+                // A page that has no use for a current METAR (the replay of an old flight) defines `const metarEnabled = false;`.
+                const METAR_URL = "https://metar.vatsim.net/";
+                const METAR_MAX_AGE_MS = 5 * 60 * 1000;
+                const METAR_CATEGORY_COLOR = { VFR: "#16a34a", MVFR: "#2563eb", IFR: "#dc2626", LIFR: "#7c3aed" };
+                const metarCache = {};
+
+                function metarWind(m) {
+                    if (m.wind_speed_kt === null) return "-";
+                    if (m.wind_speed_kt === 0) return "Calm";
+                    let text = (m.wind_variable ? "Variable" : String(m.wind_dir).padStart(3, "0") + "\u00b0") + " " + m.wind_speed_kt + " kt";
+                    if (m.wind_gust_kt) text += " G" + m.wind_gust_kt;
+                    return text;
+                }
+                function metarVisibility(m) {
+                    const v = m.visibility_m;
+                    if (v === null) return "-";
+                    if (v >= 9999) return "10 km +";
+                    return v >= 1000 ? (v / 1000).toFixed(1) + " km" : v + " m";
+                }
+                function metarCeiling(m) {
+                    if (m.cavok) return "CAVOK";
+                    if (m.ceiling_ft === null) return "no ceiling";
+                    const layer = m.clouds.find(c => (c.cover === "BKN" || c.cover === "OVC") && c.height_ft === m.ceiling_ft);
+                    return (layer ? layer.cover : "VV") + " " + m.ceiling_ft.toLocaleString("en-US") + " ft";
+                }
+
+                function fillMetar(el, raw) {
+                    el.textContent = "";
+                    const m = decodeMetar(raw);
+                    if (!m) { el.textContent = "No METAR for this airport"; return; }
+                    const head = document.createElement("div"), b = document.createElement("b");
+                    b.textContent = "METAR";
+                    head.appendChild(b);
+                    if (m.category) {
+                        const chip = document.createElement("span");
+                        chip.className = "v-metar-cat"; chip.textContent = m.category; chip.style.backgroundColor = METAR_CATEGORY_COLOR[m.category] || "#64748b";
+                        head.appendChild(chip);
+                    }
+                    head.appendChild(document.createTextNode(m.time_z));
+                    const l1 = document.createElement("div"), l2 = document.createElement("div"), rawEl = document.createElement("div");
+                    l1.textContent = "Wind " + metarWind(m) + "  \u00b7  Vis " + metarVisibility(m) + "  \u00b7  " + metarCeiling(m);
+                    l2.textContent = (m.temp_c !== null && m.dew_c !== null ? m.temp_c + " / " + m.dew_c + " \u00b0C" : "") + (m.qnh_hpa ? "  \u00b7  QNH " + m.qnh_hpa : "") + (m.weather.length ? "  \u00b7  " + m.weather.join(" ") : "");
+                    rawEl.className = "v-metar-raw"; rawEl.textContent = raw;
+                    [head, l1, l2, rawEl].forEach(n => el.appendChild(n));
+                }
+
+                function loadMetar(icao, el) {
+                    const cached = metarCache[icao];
+                    if (cached && Date.now() - cached.at < METAR_MAX_AGE_MS) { fillMetar(el, cached.raw); return; }
+                    el.textContent = "Loading METAR\u2026";
+                    const ctl = new AbortController(), timeout = setTimeout(() => ctl.abort(), 8000);
+                    fetch(METAR_URL + icao, { signal: ctl.signal })
+                        .then(r => r.ok ? r.text() : "")
+                        .then(t => { const raw = t.trim(); metarCache[icao] = { raw: raw, at: Date.now() }; fillMetar(el, raw); })
+                        .catch(() => { el.textContent = "METAR unavailable"; })
+                        .finally(() => clearTimeout(timeout));
+                }
+
                 function airportPopup(icao) {
                     const box = document.createElement("div");
                     if (/^[A-Z0-9]{4}$/.test(icao)) {
+                        if (typeof metarEnabled === "undefined" || metarEnabled) {
+                            const metar = document.createElement("div");
+                            metar.className = "v-metar";
+                            box.appendChild(metar);
+                        }
                         const a = document.createElement("a");
                         a.href = airportUrl + "?icao=" + icao; a.target = "_blank"; a.rel = "noopener"; a.className = "v-link";
                         a.textContent = "Open " + icao + " airport page";
@@ -551,7 +615,9 @@ function applyLayerOptions() {
                             if (!ll) return;
                             L.circleMarker(ll, { radius: 4, color: "#e2e8f0", weight: 1.5, fillColor: "#0a0c14", fillOpacity: 1 })
                                 .bindTooltip(icao, { permanent: true, direction: "top", offset: [0, -6], className: "v-map-tip" })
-                                .bindPopup(airportPopup(icao)).addTo(flightMap);
+                                .bindPopup(airportPopup(icao))
+                                .on("popupopen", ev => { const el = ev.popup.getContent().querySelector(".v-metar"); if (el) loadMetar(icao, el); })
+                                .addTo(flightMap);
                         });
                         mapLayers.plane = L.marker(planeLL, { icon: blipIcon(mapLive.heading), zIndexOffset: 1000, keyboard: false }).addTo(flightMap);
                         mapLayers.blipSvg = mapLayers.plane.getElement().querySelector("svg");
@@ -578,7 +644,7 @@ function applyLayerOptions() {
                     const pts = renderTrack(planeLL);
 
                     renderRings();
-                    renderAtc(p, dep, arrLL, path || [planeLL]);
+                    if (typeof liveAtc === "undefined" || liveAtc) renderAtc(p, dep, arrLL, path || [planeLL]);
                     updateStrip(mapLive, arr);
                     renderProfile();
                     if (fit) {

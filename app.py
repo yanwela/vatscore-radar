@@ -1,4 +1,5 @@
 import streamlit as st
+import plotly.express as px
 import requests
 import pandas as pd
 from collections import Counter
@@ -13,9 +14,13 @@ from shapely.geometry import LineString, shape, Point
 from shapely.prepared import prep
 
 from security_utils import SlidingWindowLimiter, is_valid_callsign, is_valid_fir_prefix
+from pin_sync import render_pin_sync
+from region_options import FEATURED, order_regions, parse_country_names, traffic_by_region
 from registration_country import country_of_registration, extract_registration
-from ui_theme import page_url, set_browser_title
-from vatsim_data import fetch_member_rating
+from ui_theme import (AMBER, CYAN, EMERALD, LINE as UI_LINE, ROSE, TEXT as UI_TEXT, VIOLET, card_css, page_url, record_card,
+                      set_browser_title)
+from leaderboard_records import flight_records, member_records
+from vatsim_data import fetch_member_rating, load_airports
 from flight_track import fetch_track
 from fir_crossings import fir_crossings, great_circle_points
 from geo_compact import compact_rings
@@ -74,6 +79,7 @@ st.markdown("""
     div[data-testid="stPageLink"]:has(a[href="Network_Stats"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_lookup_cid"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_track_req"]) { display: none; }
+    div[data-testid="stElementContainer"]:has(input[aria-label="vs_pins_restore"]) { display: none; }
     div[data-testid="stElementContainer"]:has(iframe[srcdoc*="vs-rating-sync"]) { display: none; }
     /* Streamlit fades elements while a (fragment) rerun is running; with 20s auto-refresh that reads as constant flicker. */
     [data-stale="true"] { opacity: 1 !important; transition: none !important; }
@@ -324,8 +330,17 @@ def load_vatsim_radar_airlines():
     except: pass
     return airlines_map
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_country_names():
+    # ICAO prefix -> country name from VATSpy.dat [Countries]; raises on failure so nothing bad is cached for a day
+    r = requests.get(VATSPY_DAT_URL, timeout=15)
+    r.raise_for_status()
+    return parse_country_names(r.text)
+
+MIN_REGION_AIRCRAFT = 5
+
 FIR_FALLBACK_NAMES = {
-    "LT": "Turkey Airspace Hub",
+    "LT": "Türkiye Airspace Hub",
     "ED": "Germany Airspace Hub",
     "EG": "United Kingdom Airspace Hub",
     "LF": "France Airspace Hub",
@@ -845,17 +860,44 @@ if data:
     fir_pilots = []
     filtered_pilots_raw = []
 
-    defined_fir_prefixes = {"LT", "ED", "EG", "LF", "K", "OM", "LO", "LI", "LE"}
-    fir_options = [f"{code} - {info['name']}" for code, info in sorted(global_grouped_firs.items()) if code in defined_fir_prefixes]
-    
     if is_valid_fir_prefix(st.query_params.get("saved_fir")):
         st.session_state.current_fir_prefix = st.query_params["saved_fir"]
     
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
 
-    matched_indices = [i for i, s in enumerate(fir_options) if s.startswith(st.session_state.current_fir_prefix)]
-    calculated_index = matched_indices[0] if matched_indices else 0
+    # pinned regions live in the URL (?pins=EG,ED) and in the browser's localStorage (pin_sync.py): a fresh visit without the URL gets them
+    # back through this hidden field, which the sync script fills
+    if "pinned_firs" not in st.session_state:
+        st.session_state.pinned_firs = [p for p in str(st.query_params.get("pins", "")).split(",") if is_valid_fir_prefix(p)][:8]
+    restored_pins = st.text_input("vs_pins_restore", key="vs_pins_restore", label_visibility="collapsed", max_chars=40)
+    if restored_pins and not st.session_state.pinned_firs and not st.session_state.get("pins_cleared", False):
+        st.session_state.pinned_firs = [p for p in restored_pins.split(",") if is_valid_fir_prefix(p)][:8]
+        if st.session_state.pinned_firs:
+            st.query_params["pins"] = ",".join(st.session_state.pinned_firs)
+
+    try:
+        country_names = load_country_names()
+    except Exception:
+        country_names = {}
+
+    def region_name(prefix):
+        return FIR_FALLBACK_NAMES.get(prefix) or (f"{country_names[prefix]} Airspace Hub" if prefix in country_names else f"{prefix} Airspace Zone")
+
+    # options are the plain prefixes (stable values); the counts only live in the label, so a changing traffic number never resets the choice.
+    # Order: pinned, the well-known regions, then every other region that has traffic right now, busiest first.
+    fir_counts = traffic_by_region(pilots)
+    # regions with only a handful of aircraft would just clutter the list (search finds them if pinned / selected); a region is known when it has
+    # an airspace boundary or a country name (Canada's airports are CY.., its FIRs CZ..)
+    listed_counts = {p: n for p, n in fir_counts.items() if n >= MIN_REGION_AIRCRAFT}
+    fir_options = order_regions(listed_counts, set(global_grouped_firs) | set(country_names), FEATURED, st.session_state.pinned_firs, st.session_state.current_fir_prefix)
+
+    def region_label(prefix):
+        mark = "📌 " if prefix in st.session_state.pinned_firs else ("★ " if prefix in FEATURED else "")
+        count = fir_counts.get(prefix, 0)
+        return f"{mark}{prefix} - {region_name(prefix)}" + (f" · {count} aircraft" if count else "")
+
+    calculated_index = fir_options.index(st.session_state.current_fir_prefix) if st.session_state.current_fir_prefix in fir_options else 0
 
     if is_valid_callsign(st.query_params.get("selected_callsign")):
         st.session_state.active_popup = st.query_params["selected_callsign"]
@@ -867,33 +909,110 @@ if data:
     # independently re-fetches (cached, so cheap) and redraws itself every 20s.
     # Fragments only rerun their own body — everything outside them (FIR Focus
     # controls, settings panel, VIP watchlist inputs) is untouched by the tick.
+    LB_TOP = 50        # rows in every ranking table
+    LB_CHART_TOP = 15  # bars in every ranking chart
+
     @st.fragment(run_every=20)
     def render_leaderboard():
         d = fetch_vatsim_data()
         lb_pilots = d.get("pilots", []) if d else []
+        lb_controllers = d.get("controllers", []) if d else []
+        now = datetime.now(timezone.utc)
+        flight = flight_records(lb_pilots, load_airports(), top=LB_TOP)
+        members = member_records(lb_pilots, lb_controllers, now, top=LB_TOP)
 
-        highest_p = fastest_p = slowest_p = veteran_p = None
-        max_alt, max_gs, min_gs = -1, -1, 9999
-        min_logon = "9999-12-31"
-        for p in lb_pilots:
-            alt = p.get("altitude", 0)
-            gs = p.get("groundspeed", 0)
-            logon = p.get("logon_time", "")
-            if alt > max_alt: max_alt = alt; highest_p = p
-            if gs > max_gs: max_gs = gs; fastest_p = p
-            if alt > 3000 and 45 < gs < min_gs: min_gs = gs; slowest_p = p
-            if logon and logon < min_logon: min_logon = logon; veteran_p = p
+        def duration(minutes):
+            return f"{minutes // 1440} d {(minutes % 1440) // 60} h" if minutes >= 1440 else f"{minutes // 60} h {minutes % 60:02d} min"
 
-        st.subheader("Current Flight Records")
-        leader_data = []
-        if highest_p: leader_data.append({"Record Category": "Highest Cruising Altitude", "Callsign": highest_p['callsign'], "Value": f"{highest_p['altitude']:,} FT", "Pilot": highest_p.get('name')})
-        if fastest_p: leader_data.append({"Record Category": "Maximum Velocity (GS)", "Callsign": fastest_p['callsign'], "Value": f"{fastest_p['groundspeed']} KT", "Pilot": fastest_p.get('name')})
-        if slowest_p: leader_data.append({"Record Category": "Slowest Airborne Profile", "Callsign": slowest_p['callsign'], "Value": f"{slowest_p['groundspeed']} KT", "Pilot": slowest_p.get('name')})
-        if veteran_p:
-            _veteran_logon = pd.to_datetime(veteran_p.get('logon_time', ''), utc=True, errors="coerce")
-            _veteran_since = _veteran_logon.strftime("%d.%m.%Y %H:%M UTC") if pd.notna(_veteran_logon) else "Unknown"
-            leader_data.append({"Record Category": "Longest Session (Veteran)", "Callsign": veteran_p['callsign'], "Value": f"Since {_veteran_since}", "Pilot": veteran_p.get('name')})
-        st.table(leader_data)
+        def style_chart(fig, height=300):
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=6, b=0), height=height,
+                              font=dict(family="ui-monospace, 'Cascadia Code', monospace", color=UI_TEXT, size=11), legend_title_text="")
+            fig.update_xaxes(gridcolor=UI_LINE, zeroline=False, title="")
+            fig.update_yaxes(gridcolor=UI_LINE, zeroline=False, title="")
+            return fig
+
+        # key, ranking name, card title (None = no card), entries, value text, colour, bar height (None = a CID rank has no meaningful bar),
+        # header of the value column, description
+        records = [
+            ("altitude", "Altitude", "Highest altitude", flight["altitude"], lambda e: f"{int(e['value']):,} ft", CYAN, lambda e: e["value"],
+             "Altitude", "The highest reported altitude among the pilots online right now."),
+            ("speed", "Ground speed", "Highest ground speed", flight["speed"], lambda e: f"{int(e['value'])} kt", EMERALD, lambda e: e["value"],
+             "Ground speed", "The highest ground speed among the pilots online right now."),
+            ("slow", "Slowest airborne", "Lowest ground speed (airborne)", flight["slow"], lambda e: f"{int(e['value'])} kt", AMBER, lambda e: e["value"],
+             "Ground speed", "The lowest ground speed among aircraft that are airborne (above 3,000 ft and faster than 45 kt)."),
+            ("session", "Longest sessions", "Longest continuous session", members["session"], lambda e: duration(e["value"]), VIOLET,
+             lambda e: round(e["value"] / 60, 1), "Time online", "Pilots and controllers that have been connected the longest without a break (bars show hours)."),
+            ("route", "Longest routes", None, flight["route"], lambda e: f"{e['value']:,} NM", VIOLET, lambda e: e["value"],
+             "Distance", "The longest filed routes, measured as the great-circle distance between departure and arrival."),
+            ("away", "Farthest out", None, flight["away"], lambda e: f"{e['value']:,} NM", ROSE, lambda e: e["value"],
+             "Distance from departure", "Airborne aircraft that are the farthest from their departure airport right now."),
+            ("senior", "Most senior", None, members["senior"], lambda e: f"CID {e['value']}", CYAN, None,
+             "CID", "Members online right now with the lowest CID. A lower CID belongs to an older VATSIM account."),
+            ("newest", "Newest", None, members["newest"], lambda e: f"CID {e['value']}", AMBER, None,
+             "CID", "Members online right now with the highest CID, that is the most recently registered accounts."),
+        ]
+
+        # the four headline records; each card also names the runners-up, so most of the picture is visible without a click
+        st.markdown(card_css() + """<style>
+            @keyframes lbFadeA { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+            @keyframes lbFadeB { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+            .st-key-lb_rank_0 { animation: lbFadeA 0.4s ease-out; }
+            .st-key-lb_rank_1 { animation: lbFadeB 0.4s ease-out; }
+            [data-testid="stPills"] button, [data-testid="stButtonGroup"] button { transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease; }
+            @media (prefers-reduced-motion: reduce) { .st-key-lb_rank_0, .st-key-lb_rank_1 { animation: none; } }
+        </style>""", unsafe_allow_html=True)
+        headline = [r for r in records if r[2]]
+        for col, (_key, _name, title, entries, fmt, color, _bar, _value_header, _description) in zip(st.columns(len(headline)), headline):
+            with col:
+                if entries:
+                    runners = [f"{rank}.  {e['callsign']}  ·  {fmt(e)}" for rank, e in enumerate(entries[1:3], 2)]
+                    st.markdown(record_card(title, fmt(entries[0]), entries[0]["callsign"], entries[0]["name"], color, runners), unsafe_allow_html=True)
+                else:
+                    st.markdown(record_card(title, "-", "No data", "", color), unsafe_allow_html=True)
+
+        # the full rankings: one picker (pills, not a second tab bar), then chart, search and table of the chosen record
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        st.subheader("Rankings")
+        names = [r[1] for r in records]
+        chosen = st.pills("Ranking", names, default=names[0], key="lb_ranking", label_visibility="collapsed") or names[0]
+        key, _name, _title, entries, fmt, color, bar, value_header, description = next(r for r in records if r[1] == chosen)
+        # the container's key flips whenever another ranking is picked: the changed class name restarts the CSS fade below, while the 20 s refresh
+        # and typing in the search box keep the key (and so do not replay it)
+        if st.session_state.get("lb_prev_ranking") != key:
+            st.session_state["lb_prev_ranking"] = key
+            st.session_state["lb_fade"] = 1 - st.session_state.get("lb_fade", 0)
+        with st.container(key=f"lb_rank_{st.session_state.get('lb_fade', 0)}"):
+            st.caption(description)
+            if not entries:
+                st.info("No data available right now.")
+            else:
+                rows = []
+                for rank, e in enumerate(entries, 1):
+                    # the member cell links to CID Stats and shows the name (the CID when the pilot gave no name): the link text sits after the "#"
+                    label = e["name"] if e["name"] and e["name"] != str(e["cid"]) else (str(e["cid"]) if e["cid"] else "-")
+                    rows.append({"Rank": rank, "Callsign": e["callsign"], value_header: fmt(e), "Route": e["route"].replace("->", "→"),
+                                 "Member": f"{page_url('CID_Stats', cid=e['cid'])}#{label}" if e["cid"] else None, "_label": label, "_bar": bar(e) if bar else 0})
+                df = pd.DataFrame(rows)
+                if bar:
+                    fig = px.bar(df.head(LB_CHART_TOP), x="Callsign", y="_bar", template="plotly_dark", color_discrete_sequence=[color], custom_data=[value_header])
+                    fig.update_traces(hovertemplate="%{x}<br>%{customdata[0]}<extra></extra>")
+                    fig.update_layout(transition=dict(duration=400, easing="cubic-in-out"))
+                    st.plotly_chart(style_chart(fig), width="stretch", config={"displayModeBar": False})
+                if not (df["Route"] != "").any():
+                    df = df.drop(columns=["Route"])
+                query = st.text_input("Search", key=f"lb_q_{key}", placeholder="Search callsign, name or CID…", label_visibility="collapsed", max_chars=60).strip()
+                if query:
+                    haystack = df["Callsign"] + " " + df["_label"] + " " + df["Member"].fillna("").str.extract(r"cid=(\d+)")[0].fillna("")
+                    df = df[haystack.str.contains(query, case=False, regex=False)]
+                df = df.drop(columns=["_label", "_bar"])
+                st.caption(f"Showing {len(df)} of {len(entries)}")
+                st.dataframe(df, hide_index=True, width="stretch", height=min(460, 38 + 35 * max(len(df), 1)),
+                             column_config={"Rank": st.column_config.NumberColumn("Rank", width=60),
+                                            "Member": st.column_config.LinkColumn("Member", display_text=r"#(.*)$")})
+
+
+        st.markdown(f'<div style="margin-top:28px;font-size:11px;color:#475569;">Live · refreshes every 20s · last sync {now:%H:%M:%S} Z · '
+                    f'values come from the live VATSIM data feed</div>', unsafe_allow_html=True)
 
     @st.fragment(run_every=20)
     def render_global_stats():
@@ -1060,18 +1179,45 @@ if data:
     with tab_fir:
         st.subheader("✈️ Selected FIR Focus")
         
+        # When the box is closed with Escape or loses focus, the browser can hand back the visible LABEL ("📌 EG - United Kingdom ... · 324 aircraft")
+        # instead of the value: always reduce whatever comes back to the plain prefix.
+        def region_of(value):
+            match = re.match(r"^(?:📌 |★ )?([A-Z]{1,2})(?: - .*)?$", str(value or ""))
+            return match.group(1) if match else st.session_state.current_fir_prefix
+
         def on_fir_change():
-            new_prefix = st.session_state["main_fir_selectbox"].split(" - ")[0]
+            new_prefix = region_of(st.session_state["main_fir_selectbox"])
             st.session_state.current_fir_prefix = new_prefix
             st.query_params["saved_fir"] = new_prefix
 
-        selected_option = st.selectbox(
-            "Choose Region/FIR Focus:", 
-            options=fir_options, 
-            index=calculated_index, 
-            key="main_fir_selectbox",
-            on_change=on_fir_change
-        )
+        def toggle_pin():
+            prefix = region_of(st.session_state["main_fir_selectbox"])
+            pins = [p for p in st.session_state.pinned_firs if p != prefix]
+            if prefix not in st.session_state.pinned_firs:
+                pins.append(prefix)
+            st.session_state.pinned_firs = pins[-8:]
+            st.session_state.pins_cleared = not st.session_state.pinned_firs
+            if st.session_state.pinned_firs:
+                st.query_params["pins"] = ",".join(st.session_state.pinned_firs)
+            elif "pins" in st.query_params:
+                del st.query_params["pins"]
+
+        select_col, pin_col = st.columns([10, 2], vertical_alignment="bottom")
+        with select_col:
+            selected_option = st.selectbox(
+                "Choose Region/FIR Focus:", 
+                options=fir_options, 
+                index=calculated_index, 
+                format_func=region_label,
+                key="main_fir_selectbox",
+                on_change=on_fir_change
+            )
+        selected_option = region_of(selected_option)
+        with pin_col:
+            st.button("📌 Unpin" if selected_option in st.session_state.pinned_firs else "📌 Pin", key="fir_pin_button", on_click=toggle_pin,
+                      help="Pinned regions stay at the top of the list.", width="stretch")
+        # keeps the pins in the browser (and restores them on a fresh visit whose URL carries none)
+        render_pin_sync(st.session_state.pinned_firs, st.session_state.get("pins_cleared", False))
         
         if "only_physical_inside" not in st.session_state:
             st.session_state.only_physical_inside = False
@@ -1087,6 +1233,8 @@ if data:
         current_isolation_filter = st.session_state.airline_isolation_filter
 
         target_fir_shapes = global_grouped_firs.get(selected_fir_prefix, {}).get("shapes", [])
+        if st.session_state.only_physical_inside and not target_fir_shapes:
+            st.caption("This region has no airspace boundary under this code, so the inside-airspace filter cannot show anything here.")
 
         for p in pilots:
             callsign = p.get("callsign", "N/A")
@@ -1162,7 +1310,7 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
-            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside unified airspace {selected_option}. Click a row to inspect full telemetry.")
+            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside unified airspace {selected_option} - {region_name(selected_option)}. Click a row to open the flight record.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             
@@ -1753,7 +1901,7 @@ if data:
             flight_track_bridge()
 
             html_table_and_modal_code = raw_html_template\
-                .replace("FLIGHT_MAP_JS_PLACEHOLDER", flight_map_asset("flight_map.js"))\
+                .replace("FLIGHT_MAP_JS_PLACEHOLDER", flight_map_asset("metar_decode.js") + "\n" + flight_map_asset("flight_map.js"))\
                 .replace("FLIGHT_MAP_CSS_PLACEHOLDER", flight_map_asset("flight_map.css"))\
                 .replace("FLIGHT_MAP_HTML_PLACEHOLDER", flight_map_asset("flight_map_panel.html"))\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\
@@ -1767,8 +1915,9 @@ if data:
                 .replace("CID_STATS_URL_PLACEHOLDER", js_safe(page_url("CID_Stats")))\
                 .replace("AIRPORT_URL_PLACEHOLDER", js_safe(page_url("Airport")))
 
-            # Dynamic height: 48px per row, min 300, max 900
-            dynamic_height = min(900, max(300, 120 + len(fir_pilots) * 48))
+            # Dynamic height: 48px per row, max 900. The Flight Record window is centred in this iframe (position: fixed, 100vh), so even a
+            # one-row table needs room for it: below ~760px the window is cut off at the top.
+            dynamic_height = min(900, max(760, 120 + len(fir_pilots) * 48))
             st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
 
             st.markdown("<br>", unsafe_allow_html=True)

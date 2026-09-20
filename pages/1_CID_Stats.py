@@ -16,7 +16,14 @@ from cid_panels import render_activity_panels
 from flight_connections import group_connections, merge_tracks
 from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, flights_for_callsign
 from flight_replay_view import replay_document
-from vatsim_data import load_airports
+from atc_area_data import build_area_replay
+from atc_area_sessions import area_sessions
+from atc_replay_data import build_atc_replay
+from atc_replay_view import atc_replay_document
+from atc_sessions import replay_sessions
+from replay_atc_data import (FIR_ALIAS_NAMES, FIR_ALIASES, fetch_atc_sessions, load_fir_index, load_fir_names, load_fir_prefixes, load_uirs,
+                             replay_atc_entries)
+from vatsim_data import load_airport_key_map, load_airports
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONSTANTS
@@ -438,6 +445,65 @@ reg_date_str = reg_date.strftime("%d.%m.%Y") if reg_date else "—"
 REPLAY_LAST_FLIGHTS = 60  # statsim only keeps the recorded track of a pilot's most recent 60 flights
 replay_open = st.query_params.get("replay") == "1"
 replay_chip = ""
+# ATC replay: only for members who hold an ATC rating (S1 and above; 1 = OBS, 0 = suspended)
+atc_rating_int = atc_rating_raw if isinstance(atc_rating_raw, int) else 0
+
+
+@st.cache_resource(ttl=86400, show_spinner=False)
+def _fir_index():
+    return load_fir_index()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fir_prefix_lookup():
+    # callsign prefix -> boundary ids. First VATSpy.dat [FIRs] (NAT_I_FSS -> NAT, LON_SC_CTR -> EGTT, HOU_46_CTR -> KZHU), then the ids of
+    # Boundaries.geojson itself (a prefix that is a boundary id, or the base of "EDGG-N"), then the upper airspaces without a boundary (EDUU).
+    inverse = {}
+    for boundary, keys in load_fir_prefixes().items():
+        for key in list(keys) + [boundary]:
+            inverse.setdefault(key, set()).add(boundary)
+    from_geojson = {}
+    for fir in _fir_index():
+        for key in {fir["id"], fir["id"].split("-")[0]}:
+            from_geojson.setdefault(key, set()).add(fir["id"])
+    for key, ids in from_geojson.items():
+        inverse.setdefault(key, ids)
+    known = {fir["id"] for fir in _fir_index()}
+    for uir, (_name, members) in load_uirs().items():
+        # a member is a boundary id ("BIRD-E") or a FIR code ("FLFI") that VATSpy.dat maps to its boundary
+        ids = set()
+        for member in members:
+            ids |= set(inverse.get(member, ())) or ({member} if member in known else set())
+        if ids:
+            inverse.setdefault(uir, ids)
+    for alias, targets in FIR_ALIASES.items():
+        ids = {t for t in targets if t in known}
+        if ids:
+            inverse.setdefault(alias, ids)
+    return {key: sorted(ids) for key, ids in inverse.items()}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fir_display_names():
+    return {**load_fir_names(), **{uir: name for uir, (name, _m) in load_uirs().items()}, **FIR_ALIAS_NAMES}
+
+
+atc_replay_sessions = []
+if atc_rating_int >= 2:
+    atc_replay_sessions = replay_sessions(atc_raw, load_airport_key_map(), load_airports())
+    try:
+        atc_replay_sessions += area_sessions(atc_raw, _fir_prefix_lookup(), _fir_display_names())
+    except Exception:
+        pass  # the airport positions still work without the VATSpy tables
+    atc_replay_sessions.sort(key=lambda s: s["on"], reverse=True)
+atc_replay_open = st.query_params.get("atcreplay") == "1" and atc_rating_int >= 2
+atc_replay_chip = ""
+if atc_rating_int >= 2:
+    _atc_href = f"?cid={cid}" if atc_replay_open else f"?cid={cid}&atcreplay=1"
+    _atc_bg, _atc_border = ("#3a2a08", AMBER) if atc_replay_open else ("#2a1f06", f"{AMBER}40")
+    atc_replay_chip = (f'<a class="vs-chip" href="{_atc_href}" target="_self" style="background:{_atc_bg};color:{AMBER};'
+                       f'border:1px solid {_atc_border};text-decoration:none;">&#9654;&nbsp;ATC&nbsp;REPLAY<br>'
+                       f'<span style="font-size:15px;">{len(atc_replay_sessions):,}&nbsp;Sessions</span></a>')
 if has_flights:
     _replay_href = f"?cid={cid}" if replay_open else f"?cid={cid}&replay=1"
     # the label stays "Flight Replay"; while the replay is open the chip is lit up and a click on it closes the replay again
@@ -465,6 +531,7 @@ st.markdown(f"""
       ATC&nbsp;RATING<br><span style="font-size:15px;">{atc_label}</span>
     </div>
     {replay_chip}
+    {atc_replay_chip}
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -497,6 +564,30 @@ def _replay_track_closed(flight_id):
 @st.cache_data(ttl=60, show_spinner=False)
 def _replay_track_open(flight_id):
     return fetch_flight_track(flight_id, STATSIM_API_KEY, http)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fir_prefixes():
+    return load_fir_prefixes()
+
+
+def _replay_atc_compute(points, dep, arr):
+    sessions = fetch_atc_sessions(points[0][3], points[-1][3], STATSIM_API_KEY, http)
+    if sessions is None:
+        return None
+    airports = load_airports()
+    airport_points = {i: (airports[i]["lat"], airports[i]["lon"]) for i in {dep.upper(), arr.upper()} if i in airports}
+    return replay_atc_entries(points, dep, arr, sessions, load_airport_key_map(), _fir_index(), _fir_prefixes(), airport_points)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _replay_atc_closed(ids, dep, arr, t_from, t_to, _points):
+    return _replay_atc_compute(_points, dep, arr)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _replay_atc_open(ids, dep, arr, t_from, t_to, _points):
+    return _replay_atc_compute(_points, dep, arr)
 
 
 def render_flight_replay():
@@ -572,12 +663,87 @@ def render_flight_replay():
         a = airports.get(icao)
         if a:
             known_airports[icao] = {"latitude_deg": a["lat"], "longitude_deg": a["lon"], "name": a["name"]}
+    atc = None
+    try:
+        with st.spinner("Loading the controllers that were online…"):
+            pts = result["points"]
+            fn = _replay_atc_closed if chosen["arrived"] else _replay_atc_open
+            atc = fn(tuple(group["ids"]), chosen["departure"], chosen["destination"], pts[0][3], pts[-1][3], pts)
+    except Exception:
+        atc = None  # the replay itself works without the ATC list
     payload = {"points": result["points"], "flight": result["flight"], "airports": known_airports, "cid": cid,
-               "airportUrl": page_url("Airport")}
+               "airportUrl": page_url("Airport"), "atc": atc}
     st.iframe(replay_document(payload), height=770)
 
 
-if replay_open:
+@st.cache_resource
+def _atc_replay_limiters():
+    # one FRESH ATC replay = 1 list request + up to 30 track requests on the shared API key, so this budget is tight
+    return SlidingWindowLimiter(5, 60), SlidingWindowLimiter(15, 60)
+
+
+@st.cache_resource
+def _atc_replay_loaded():
+    # ids of the sessions whose payload is already in the cache below: showing one again costs no statsim.net request, so it is not limited
+    return set()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _atc_replay_payload(session_key, sess):
+    if sess.get("kind") == "area":
+        payload = build_area_replay(sess, STATSIM_API_KEY, http, _fir_index(), load_airports())
+    else:
+        payload = build_atc_replay(sess, STATSIM_API_KEY, http)
+    if payload is None:
+        raise RuntimeError("statsim.net failed")  # an exception is never cached, so the user can simply try again
+    return payload
+
+
+def render_atc_replay():
+    st.markdown('<div class="vs-h" id="atc-replay">ATC Replay</div>', unsafe_allow_html=True)
+    if not atc_replay_sessions:
+        st.info("No controller sessions (DEL, GND, TWR, APP with a known airport, or CTR / FSS with a known airspace) were found for this CID on statsim.net.")
+        return
+    st.caption("Plays back the traffic one controller position worked: pick a session. Only aircraft that belong to the position are shown "
+               "(ground positions on the airport layout, CTR / FSS in their VATSpy airspace); flights appear a little before they enter and stay a little after they leave.")
+    linked = str(st.query_params.get("atcsession", ""))
+    ids = [s["id"] for s in atc_replay_sessions]
+    idx = st.selectbox("Session", range(len(ids)), format_func=lambda i: atc_replay_sessions[i]["label"], key="atc_replay_session",
+                       index=ids.index(linked) if linked in ids else 0)
+    chosen = atc_replay_sessions[idx]
+    if st.query_params.get("atcsession") != chosen["id"]:
+        st.query_params["atcsession"] = chosen["id"]
+    loaded = _atc_replay_loaded()
+    if chosen["id"] not in loaded and st.session_state.get("_atc_replay_last") != chosen["id"]:
+        session_limiter, global_limiter = _atc_replay_limiters()
+        session_key = st.session_state.setdefault("_limiter_key", os.urandom(8).hex())
+        if not session_limiter.allow(session_key):
+            wait = int(session_limiter.seconds_until_allowed(session_key)) + 1
+            st.warning(f"You opened several new ATC replays in a short time. Try again in {wait}s (sessions you already opened are not limited).")
+            return
+        if not global_limiter.allow("global"):
+            wait = int(global_limiter.seconds_until_allowed("global")) + 1
+            st.warning(f"The service is busy right now. Try again in {wait}s.")
+            return
+        st.session_state["_atc_replay_last"] = chosen["id"]
+    with st.spinner("Loading the traffic of this session from statsim.net…"):
+        try:
+            payload = _atc_replay_payload(chosen["id"], chosen)
+        except Exception:
+            payload = None
+    if payload is None:
+        st.session_state.pop("_atc_replay_last", None)  # a failed load must not count as shown
+        st.warning("statsim.net could not be reached right now. Try again in a moment.")
+        return
+    loaded.add(chosen["id"])
+    if not payload["flights"]:
+        st.info("statsim.net has no recorded track for the traffic of this session, so there is nothing to draw. Tracks are only kept for a pilot's last 60 flights.")
+    st.iframe(atc_replay_document(payload), height=800)
+
+
+if atc_replay_open:
+    render_atc_replay()
+elif replay_open:
     render_flight_replay()
 
 # ── First/last flight, most flown route/aircraft/airline, most interesting route ──

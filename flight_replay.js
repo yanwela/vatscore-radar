@@ -39,6 +39,71 @@
         return out;
     }
 
+    // Controllers that were online during the flight (statsim sessions, filtered on the server): departure and arrival airport, and the FIRs flown through.
+    // Cut to the replayed span; the ones on duty at the current replay time are lit.
+    const KIND_LABEL = { dep: "departure", fir: "FIR", arr: "arrival" };
+    const atcData = D.atc && Array.isArray(D.atc.entries) ? D.atc : null, atcAreas = atcData ? atcData.areas || {} : {};
+    let refPath = [];
+    const atcEntries = (atcData ? atcData.entries : [])
+        .map(e => {
+            // the airports only matter around the takeoff / landing, the FIRs (cut on the server) while the aircraft was in them
+            const lo = e.kind === "arr" ? (landing ? landing.t - 3600 : tStart) : tStart;
+            const hi = e.kind === "dep" ? (takeoff ? takeoff.t + 1200 : tActiveEnd) : tActiveEnd;
+            return { callsign: e.callsign, place: e.place, kind: e.kind, area: e.area, on: Math.max(e.on, lo), off: Math.min(e.off, hi) };
+        })
+        .filter(e => e.off > e.on);
+    let atcShown = null, areasShown = null;
+
+    // FIR / approach areas are drawn only while one of their controllers is on duty; the one the aircraft is in gets the stronger border.
+    function renderAreas(tt) {
+        if (!mapLayers || !mapLayers.sectors) return;
+        const byArea = {};
+        atcEntries.forEach(e => {
+            if (e.area && atcAreas[e.area] && e.on <= tt && tt < e.off) {
+                const list = byArea[e.area] = byArea[e.area] || [];
+                if (!list.some(x => x.callsign === e.callsign)) list.push({ callsign: e.callsign, freq: "" });
+            }
+        });
+        const ids = Object.keys(byArea).sort();
+        const inside = ids.map(id => mapLive && areaContains(atcAreas[id], mapLive.lat, mapLive.lon));
+        const sig = ids.map((id, i) => id + ":" + byArea[id].map(c => c.callsign).join(",") + (inside[i] ? "*" : "")).join("|");
+        if (sig === areasShown) return;
+        areasShown = sig;
+        mapLayers.sectors.clearLayers();
+        ids.forEach((id, i) => drawArea(atcAreas[id], byArea[id], atcAreas[id].kind, refPath, inside[i]));
+    }
+
+    function renderAtc(tt) {
+        renderAreas(tt);
+        const box = document.getElementById("rpAtc");
+        if (!box || !atcEntries.length) return;
+        const active = atcEntries.map(e => e.on <= tt && tt < e.off ? "1" : "0").join("");
+        if (active === atcShown) return;
+        atcShown = active;
+        box.textContent = "";
+        const groups = [];
+        atcEntries.forEach((e, i) => {
+            const key = e.kind + ":" + e.place;
+            let g = groups.find(x => x.key === key);
+            if (!g) { g = { key: key, place: e.place, kind: e.kind, items: [] }; groups.push(g); }
+            g.items.push({ e: e, on: active[i] === "1" });
+        });
+        const order = { dep: 0, fir: 1, arr: 2 };
+        groups.sort((a, b) => order[a.kind] - order[b.kind] || Math.min(...a.items.map(i => i.e.on)) - Math.min(...b.items.map(i => i.e.on)));
+        groups.forEach(g => {
+            const row = document.createElement("div"), head = document.createElement("b");
+            head.textContent = g.place + " " + KIND_LABEL[g.kind];
+            row.appendChild(head);
+            g.items.forEach(it => {
+                const span = document.createElement("span");
+                span.textContent = "  " + it.e.callsign + " " + replayClock(it.e.on).replace("Z", "") + "–" + replayClock(it.e.off).replace("Z", "");
+                span.style.color = it.on ? "#22c55e" : "#64748b";
+                row.appendChild(span);
+            });
+            box.appendChild(row);
+        });
+    }
+
     function setTime(tt) {
         t = Math.max(t0, Math.min(t1, tt));
         const s = replayStateAt(pts, t), i = Math.max(0, replayIndexAt(pts, t));
@@ -46,6 +111,7 @@
         trackPts = pts.slice(0, i + 1);
         if (t > pts[i][3]) trackPts = trackPts.concat([[s.lat, s.lon, s.alt, t, s.gs]]);
         renderMapFlight(false);
+        renderAtc(t);
         document.getElementById("stEta").textContent = replayDuration(elapsedAt(t));
         document.getElementById("rpTime").textContent = replayClock(t) + "  ·  " + replayDuration(elapsedAt(t)) + " / " + replayDuration(flightTotal());
         document.getElementById("rpScrub").value = String(Math.round(t));
@@ -77,6 +143,12 @@
         events.className = "rp-events";
         events.id = "rpEvents";
         panel.insertBefore(events, strip);
+        if (atcData) {
+            const atcBox = document.createElement("div");
+            atcBox.className = "mp-atc"; atcBox.id = "rpAtc";
+            panel.insertBefore(atcBox, strip);
+            if (!atcEntries.length) atcBox.innerHTML = '<span class="note">No controllers were online for this flight on statsim.net.</span>';
+        }
         document.getElementById("rpPlay").onclick = () => setPlaying(!playing);
         document.getElementById("rpScrub").oninput = e => setTime(Number(e.target.value));
         const sel = document.getElementById("rpSpeed");
@@ -107,9 +179,10 @@
             lat: pts[0][0], lon: pts[0][1], heading: 0, gs: 0, alt: pts[0][2]
         };
         currentlyOpenCallsign = cs;
-        // no live ATC in a replay: hide the ATC / Sectors buttons and the list under the map
-        mapOpts.atc = false; mapOpts.sectors = false;
-        ["tgAtc", "tgSectors"].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = "none"; });
+        // the live ATC chips and list are not used in a replay (the list under the map is the replay's own); the Sectors button stays for the areas
+        mapOpts.atc = false;
+        const atcBtn = document.getElementById("tgAtc");
+        if (atcBtn) atcBtn.style.display = "none";
         document.getElementById("stEta").previousElementSibling.textContent = "Flight time";
         fillRibbon(globalDossiers[cs]);
         setMapNote("Loading map…");
@@ -124,6 +197,7 @@
         L.tileLayer(MAP_TILES_URL, { maxZoom: 12, attribution: "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, OpenStreetMap contributors, and the GIS user community" }).addTo(flightMap);
         renderMapFlight(true);
         const unwrapped = unwrapAll();
+        refPath = unwrapped;
         L.polyline(unwrapped, { color: "#94a3b8", weight: 1, opacity: 0.35, dashArray: "3 6", interactive: false }).addTo(flightMap);  // the whole flight, faint
         addEvents(unwrapped);
         setTime(tStart);
