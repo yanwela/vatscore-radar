@@ -1,5 +1,6 @@
 import math
 import os
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
@@ -218,22 +219,47 @@ def fetch_history(endpoint, cid, since_dt):
     return results, truncated, errors
 
 
+# VATSIM Core allows about 10 member requests a minute per IP and answers 429 above that. A failed answer must never be cached (it used to turn
+# every rating into 0 = "Suspended" for 30 minutes): the cached functions raise on failure, and a failure only pauses new requests for 45 seconds.
 @st.cache_data(ttl=1800, show_spinner=False)
+def _member_details_ok(cid):
+    r = http.get(f"{VATSIM_CORE}/members/{cid}", timeout=10)
+    if r.status_code != 200:
+        raise RuntimeError(f"VATSIM Core answered {r.status_code}")
+    return r.json()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _member_stats_ok(cid):
+    r = http.get(f"{VATSIM_CORE}/members/{cid}/stats", timeout=10)
+    if r.status_code != 200:
+        raise RuntimeError(f"VATSIM Core answered {r.status_code}")
+    return r.json()
+
+
+@st.cache_resource
+def _core_backoff():
+    return {}
+
+
+def _core_call(fn, cid):
+    backoff = _core_backoff()
+    key = (fn.__name__, cid)
+    if backoff.get(key, 0) > time.time():
+        return {}
+    try:
+        return fn(cid)
+    except Exception:
+        backoff[key] = time.time() + 45
+        return {}
+
+
 def fetch_member_details(cid):
-    try:
-        r = http.get(f"{VATSIM_CORE}/members/{cid}", timeout=10)
-        return r.json() if r.status_code == 200 else {}
-    except Exception:
-        return {}
+    return _core_call(_member_details_ok, cid)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_member_stats(cid):
-    try:
-        r = http.get(f"{VATSIM_CORE}/members/{cid}/stats", timeout=10)
-        return r.json() if r.status_code == 200 else {}
-    except Exception:
-        return {}
+    return _core_call(_member_stats_ok, cid)
 
 
 @st.cache_data(ttl=20, show_spinner=False)
@@ -424,13 +450,14 @@ has_valid_routes = has_flights and (df["route"] != "→").any()
 live_name = live.get("name") if live else None
 display_name = html_escape(live_name) if live_name else f"CID {cid}"
 
-pilot_rating_raw = (live or {}).get("pilot_rating", details.get("pilotrating", 0))
-atc_rating_raw = (live or {}).get("rating", details.get("rating", 0))
-mil_rating_raw = details.get("militaryrating", 0)
+# a rating that VATSIM did not deliver is None ("Unavailable"), never 0: 0 means Suspended
+pilot_rating_raw = (live or {}).get("pilot_rating", details.get("pilotrating"))
+atc_rating_raw = (live or {}).get("rating", details.get("rating"))
+mil_rating_raw = details.get("militaryrating")
 
-pilot_label = decode_pilot_rating(pilot_rating_raw)
-atc_label = decode_atc_rating(atc_rating_raw)
-mil_label = decode_military_rating(mil_rating_raw)
+pilot_label = decode_pilot_rating(pilot_rating_raw) if pilot_rating_raw is not None else "Unavailable"
+atc_label = decode_atc_rating(atc_rating_raw) if atc_rating_raw is not None else "Unavailable"
+mil_label = decode_military_rating(mil_rating_raw) if mil_rating_raw is not None else "Unavailable"
 
 online_badge = ""
 if live:
@@ -446,7 +473,9 @@ REPLAY_LAST_FLIGHTS = 60  # statsim only keeps the recorded track of a pilot's m
 replay_open = st.query_params.get("replay") == "1"
 replay_chip = ""
 # ATC replay: only for members who hold an ATC rating (S1 and above; 1 = OBS, 0 = suspended)
-atc_rating_int = atc_rating_raw if isinstance(atc_rating_raw, int) else 0
+atc_rating_int = atc_rating_raw if isinstance(atc_rating_raw, int) else None
+# with an unknown rating the ATC Replay stays available when statsim.net lists controller sessions for this CID
+atc_replay_allowed = (atc_rating_int is not None and atc_rating_int >= 2) or (atc_rating_int is None and bool(atc_raw))
 
 
 @st.cache_resource(ttl=86400, show_spinner=False)
@@ -489,16 +518,16 @@ def _fir_display_names():
 
 
 atc_replay_sessions = []
-if atc_rating_int >= 2:
+if atc_replay_allowed:
     atc_replay_sessions = replay_sessions(atc_raw, load_airport_key_map(), load_airports())
     try:
         atc_replay_sessions += area_sessions(atc_raw, _fir_prefix_lookup(), _fir_display_names())
     except Exception:
         pass  # the airport positions still work without the VATSpy tables
     atc_replay_sessions.sort(key=lambda s: s["on"], reverse=True)
-atc_replay_open = st.query_params.get("atcreplay") == "1" and atc_rating_int >= 2
+atc_replay_open = st.query_params.get("atcreplay") == "1" and atc_replay_allowed
 atc_replay_chip = ""
-if atc_rating_int >= 2:
+if atc_replay_allowed:
     _atc_href = f"?cid={cid}" if atc_replay_open else f"?cid={cid}&atcreplay=1"
     _atc_bg, _atc_border = ("#3a2a08", AMBER) if atc_replay_open else ("#2a1f06", f"{AMBER}40")
     atc_replay_chip = (f'<a class="vs-chip" href="{_atc_href}" target="_self" style="background:{_atc_bg};color:{AMBER};'
@@ -535,6 +564,9 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+if not details:
+    st.caption("VATSIM's member profile could not be loaded right now (its API allows only a few requests per minute), so ratings show as Unavailable. Reload in a minute.")
 
 if flights_truncated or flights_err or atc_err:
     notes = []
