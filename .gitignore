@@ -1,4 +1,5 @@
 radar_traffic_logs.csv
+admin_audit_log.jsonl
 __pycache__/
 *.pyc
 .venv/

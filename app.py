@@ -13,7 +13,9 @@ import time
 from shapely.geometry import LineString, shape, Point
 from shapely.prepared import prep
 
+from admin_audit import append_audit_event, read_audit_events
 from security_utils import SlidingWindowLimiter, is_valid_callsign, is_valid_fir_prefix
+from totp import new_totp_secret, verify_totp
 from pin_sync import render_pin_sync
 from region_options import FEATURED, order_regions, parse_country_names, traffic_by_region
 from registration_country import country_of_registration, extract_registration
@@ -37,6 +39,19 @@ def get_secret(key, default=""):
         return st.secrets.get(key, default)
     except Exception:
         return default
+
+
+def csv_safe_for_download(df):
+    # A pilot's callsign or flight-plan fields are free text they fully control; if a cell starts with =, +, - or @,
+    # Excel/Sheets reads it as a formula on open ("CSV injection" / formula injection). A leading apostrophe forces
+    # every spreadsheet app to treat the cell as plain text without changing what is displayed.
+    # Every column is mapped (not filtered by dtype first): pandas may store text as classic "object" or as its newer
+    # dedicated string dtype depending on version/config, and checking for both reliably is more fragile than just
+    # letting the lambda itself skip anything that isn't a Python str.
+    df = df.copy()
+    for col in df.columns:
+        df[col] = df[col].map(lambda v: "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v)
+    return df
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
@@ -117,11 +132,23 @@ st.markdown("""
 
 # Admin Activity Logging System
 LOG_FILE = "radar_traffic_logs.csv"
+ADMIN_AUDIT_FILE = "admin_audit_log.jsonl"
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "")
 ADMIN_PASSWORD_HASH = get_secret("ADMIN_PASSWORD_HASH", "")
+ADMIN_TOTP_SECRET = get_secret("ADMIN_TOTP_SECRET", "")
+MIN_PBKDF2_ITERATIONS = 100_000
 MAX_ADMIN_FAILS = 5
 ADMIN_FAIL_WINDOW = 600
 ADMIN_LOCK_SECONDS = 900
+ADMIN_SESSION_SECONDS = 1800  # an open admin tab is logged out after 30 minutes of inactivity, password (+ TOTP) required again
+ADMIN_TOTP_STEP_SECONDS = 300  # the password step and the TOTP step must happen within 5 minutes of each other
+
+
+def _log_admin_event(event, detail=""):
+    try:
+        append_audit_event(ADMIN_AUDIT_FILE, event, detail)
+    except Exception:
+        pass  # the audit trail is best-effort and must never block a login/logout
 
 @st.cache_resource
 def _admin_guard():
@@ -216,12 +243,32 @@ if "vip_callsigns" not in st.session_state:
     st.session_state.vip_callsigns = ""
 
 query_params = st.query_params
+def _admin_hash_iterations():
+    if not ADMIN_PASSWORD_HASH:
+        return None
+    parts = ADMIN_PASSWORD_HASH.split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2_sha256":
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
 is_admin_route = query_params.get("admin") == "true"
 
 if is_admin_route:
     set_browser_title("Admin")
     if "admin_authenticated" not in st.session_state:
         st.session_state.admin_authenticated = False
+
+    # An idle admin tab must not stay authenticated forever: any interaction while inside the panel refreshes the
+    # timer below, so this is really an inactivity timeout, not a fixed session length.
+    if st.session_state.admin_authenticated and time.time() - st.session_state.get("admin_auth_at", 0) > ADMIN_SESSION_SECONDS:
+        st.session_state.admin_authenticated = False
+        st.session_state.pop("admin_auth_at", None)
+        _log_admin_event("session_expired")
+        st.info("Your admin session timed out after being idle. Please log in again.")
 
     if not st.session_state.admin_authenticated:
         st.title("🛡️ VatScore HQ Security Login")
@@ -232,47 +279,136 @@ if is_admin_route:
         if lock_left > 0:
             st.error(f"Too many failed attempts. Try again in {int(lock_left // 60) + 1} minute(s).")
             st.stop()
-        passwd_input = st.text_input("Enter Master Admin Password:", type="password")
-        if st.button("Authorize Connection"):
-            if passwd_input and verify_admin_password(passwd_input):
-                clear_admin_failures()
-                st.session_state.admin_authenticated = True
-                st.success("Access Granted.")
-                st.rerun()
-            else:
-                register_admin_failure()
-                st.error("Invalid Secret Token.")
+
+        totp_pending_since = st.session_state.get("admin_totp_pending")
+        if totp_pending_since and time.time() - totp_pending_since > ADMIN_TOTP_STEP_SECONDS:
+            st.session_state.pop("admin_totp_pending", None)
+            totp_pending_since = None
+            st.warning("That took too long, enter the password again.")
+
+        if ADMIN_TOTP_SECRET and totp_pending_since:
+            st.caption("Password accepted. Enter the 6-digit code from your authenticator app.")
+            totp_input = st.text_input("Authenticator code:", max_chars=6)
+            tc1, tc2 = st.columns(2)
+            with tc1:
+                submit_totp = st.button("Verify Code", width="stretch")
+            with tc2:
+                if st.button("Back", width="stretch"):
+                    st.session_state.pop("admin_totp_pending", None)
+                    st.rerun()
+            if submit_totp:
+                if verify_totp(ADMIN_TOTP_SECRET, totp_input, time.time()):
+                    clear_admin_failures()
+                    st.session_state.pop("admin_totp_pending", None)
+                    st.session_state.admin_authenticated = True
+                    st.session_state.admin_auth_at = time.time()
+                    _log_admin_event("login_ok", "password+totp")
+                    st.success("Access Granted.")
+                    st.rerun()
+                else:
+                    register_admin_failure()
+                    _log_admin_event("login_fail", "totp")
+                    st.error("Invalid or expired code.")
+        else:
+            passwd_input = st.text_input("Enter Master Admin Password:", type="password")
+            if st.button("Authorize Connection"):
+                if passwd_input and verify_admin_password(passwd_input):
+                    if ADMIN_TOTP_SECRET:
+                        st.session_state.admin_totp_pending = time.time()
+                        _log_admin_event("login_step1_ok")
+                        st.rerun()
+                    else:
+                        clear_admin_failures()
+                        st.session_state.admin_authenticated = True
+                        st.session_state.admin_auth_at = time.time()
+                        _log_admin_event("login_ok", "password only")
+                        st.success("Access Granted.")
+                        st.rerun()
+                else:
+                    register_admin_failure()
+                    _log_admin_event("login_fail", "password")
+                    st.error("Invalid Secret Token.")
         st.stop()
     else:
+        st.session_state.admin_auth_at = time.time()  # any interaction while inside the panel counts as activity
         st.title("🛰️ VatScore // Core Traffic Analytics HQ")
-        if st.button("⬅️ Return to Live Radar"):
-            st.session_state.admin_authenticated = False
-            st.query_params.clear()
-            st.rerun()
-            
+        top_c1, top_c2 = st.columns([0.8, 0.2])
+        with top_c1:
+            st.caption(f"Session stays open while active, times out {ADMIN_SESSION_SECONDS // 60} min after the last click.")
+        with top_c2:
+            if st.button("⬅️ Return to Live Radar", width="stretch"):
+                st.session_state.admin_authenticated = False
+                st.session_state.pop("admin_auth_at", None)
+                _log_admin_event("logout")
+                st.query_params.clear()
+                st.rerun()
+
+        with st.expander("🔐 Account security", expanded=False):
+            iterations = _admin_hash_iterations()
+            if ADMIN_PASSWORD_HASH and iterations and iterations >= MIN_PBKDF2_ITERATIONS:
+                st.success(f"Password: pbkdf2_sha256, {iterations:,} iterations.")
+            elif ADMIN_PASSWORD_HASH and iterations:
+                st.warning(f"Password hash uses only {iterations:,} PBKDF2 iterations; {MIN_PBKDF2_ITERATIONS:,}+ is recommended. Regenerate ADMIN_PASSWORD_HASH.")
+            else:
+                st.warning("Using a plain ADMIN_PASSWORD instead of a hash. Set ADMIN_PASSWORD_HASH instead and remove ADMIN_PASSWORD.")
+            if ADMIN_TOTP_SECRET:
+                st.success("Two-factor authentication: enabled.")
+            else:
+                st.warning("Two-factor authentication: not enabled. A leaked password alone is enough to reach this panel.")
+                if st.button("Generate a 2FA secret"):
+                    st.session_state.admin_totp_suggestion = new_totp_secret()
+                suggestion = st.session_state.get("admin_totp_suggestion")
+                if suggestion:
+                    st.code(suggestion, language=None)
+                    st.caption("Add this to any authenticator app (Google Authenticator, Authy, ...) as a manual key (SHA1, 6 digits, "
+                               "30s), then add ADMIN_TOTP_SECRET to .streamlit/secrets.toml with this value and restart the app. "
+                               "This secret is shown once and never saved by the app - store it yourself.")
+            st.markdown("---")
+            st.caption("Recent admin security events")
+            audit_rows = read_audit_events(ADMIN_AUDIT_FILE, limit=50)
+            if audit_rows:
+                st.dataframe(pd.DataFrame(audit_rows), hide_index=True, width="stretch")
+            else:
+                st.caption("No admin events recorded yet.")
+
         st.markdown("---")
         if os.path.exists(LOG_FILE):
             df_logs = pd.read_csv(LOG_FILE)
             df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'])
             time_delta = (datetime.now() - df_logs['Timestamp']).dt.total_seconds()
-            
+
             total_unique = len(df_logs['Session_ID'].unique())
             active_now = len(df_logs[time_delta < 300]['Session_ID'].unique())
-            
+
             adm_c1, adm_c2, adm_c3 = st.columns(3)
             with adm_c1: st.metric(label="🟢 Active Users (Last 5 Mins)", value=active_now)
             with adm_c2: st.metric(label="👥 Total Unique Connections", value=total_unique)
             with adm_c3: st.metric(label="📊 Dominant Hardware", value=df_logs['Device_Type'].mode()[0] if not df_logs.empty else "N/A")
-            
+
             st.markdown("<br>", unsafe_allow_html=True)
-            btn_c1, btn_c2 = st.columns([0.8, 0.2])
-            with btn_c1: st.subheader("👥 Live Session Logs")
-            with btn_c2:
-                if st.button("🗑️ Wipe Logs", width='stretch'):
-                    os.remove(LOG_FILE)
-                    init_log_file()
-                    st.rerun()
-                    
+            if not st.session_state.get("confirm_wipe_logs"):
+                btn_c1, btn_c2 = st.columns([0.8, 0.2])
+                with btn_c1: st.subheader("👥 Live Session Logs")
+                with btn_c2:
+                    if st.button("🗑️ Wipe Logs", width='stretch'):
+                        st.session_state.confirm_wipe_logs = True
+                        st.rerun()
+            else:
+                st.subheader("👥 Live Session Logs")
+                st.warning("This permanently deletes every visitor session log. This cannot be undone.")
+                wc1, wc2 = st.columns(2)
+                with wc1:
+                    if st.button("Confirm wipe", width="stretch"):
+                        os.remove(LOG_FILE)
+                        init_log_file()
+                        _log_admin_event("logs_wiped")
+                        st.session_state.confirm_wipe_logs = False
+                        st.rerun()
+                with wc2:
+                    if st.button("Cancel", width="stretch"):
+                        st.session_state.confirm_wipe_logs = False
+                        st.rerun()
+
             df_display = df_logs.sort_values(by="Timestamp", ascending=False).copy()
             df_display['Timestamp'] = df_display['Timestamp'].dt.strftime('%H:%M:%S || %Y-%m-%d')
             st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], width='stretch')
@@ -1921,7 +2057,7 @@ if data:
             st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
-            csv = doc_fir.to_csv(index=False).encode('utf-8')
+            csv = csv_safe_for_download(doc_fir).to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
             st.warning("No active flights found within the boundaries of this unified FIR focus right now.")

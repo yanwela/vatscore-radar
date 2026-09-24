@@ -39,6 +39,15 @@
                     return leafletPromise;
                 }
 
+                // Leaflet's bindTooltip/bindPopup run untrusted strings through innerHTML; a pilot's flight-plan departure/arrival
+                // field is free text they fully control, so it must always reach Leaflet as a real DOM node (textContent), never
+                // as a bare string, however "airport-code-shaped" it looks.
+                function safeTipNode(text) {
+                    const span = document.createElement("span");
+                    span.textContent = text;
+                    return span;
+                }
+
                 function airportLatLon(icao) {
                     const a = airportsDatabase[String(icao || "").toUpperCase()];
                     if (!a) return null;
@@ -644,7 +653,7 @@ function applyLayerOptions() {
                         [[p.origin, dep], [p.destination, arrLL]].forEach(([icao, ll]) => {
                             if (!ll) return;
                             L.circleMarker(ll, { radius: 4, color: "#e2e8f0", weight: 1.5, fillColor: "#0a0c14", fillOpacity: 1 })
-                                .bindTooltip(icao, { permanent: true, direction: "top", offset: [0, -6], className: "v-map-tip" })
+                                .bindTooltip(safeTipNode(icao), { permanent: true, direction: "top", offset: [0, -6], className: "v-map-tip" })
                                 .bindPopup(airportPopup(icao))
                                 .on("popupopen", ev => { const el = ev.popup.getContent().querySelector(".v-metar"); if (el) loadMetar(icao, el); })
                                 .addTo(flightMap);

@@ -198,7 +198,9 @@
         } else {
             L.circle([AP.lat, AP.lon], { radius: zone.radiusNm * 1852, color: "#3b82f6", weight: 1.5, dashArray: "6 6", fill: true, fillOpacity: 0.05, interactive: false }).addTo(map);
             L.circleMarker([AP.lat, AP.lon], { radius: 4, color: "#e2e8f0", weight: 1.5, fillColor: "#0a0c14", fillOpacity: 1 })
-                .bindTooltip(AP.icao, { permanent: true, direction: "top", offset: [0, -6], className: "ar-airport-tip" }).addTo(map);
+                // el(...) returns a real element (.textContent), never a bare string: Leaflet renders a string tooltip through
+                // innerHTML, and AP.icao ultimately traces back to server data - always go through a safe node, not a string.
+                .bindTooltip(el("span", "", AP.icao), { permanent: true, direction: "top", offset: [0, -6], className: "ar-airport-tip" }).addTo(map);
         }
         layer = L.layerGroup().addTo(map);
         // ground positions are zoomed in on the airfield itself (the taxiways are within ~1 NM), the zone ring reaches beyond the view; pan or zoom out to follow approaching aircraft
