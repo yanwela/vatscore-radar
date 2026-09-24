@@ -61,6 +61,7 @@ def replay_document(payload):
         + "<script>" + asset("replay_core.js") + "</script>"
         + "<script>" + asset("replay_phases.js") + "</script>"
         + "<script>" + asset("metar_decode.js") + "</script>"
+        + "<script>" + asset("follow_math.js") + "</script>"
         + "<script>" + asset("flight_map.js") + "</script>"
         + "<script>" + asset("flight_replay.js") + "</script>"
         + "</body></html>"

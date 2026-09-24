@@ -18,7 +18,7 @@
                 let leafletPromise = null, flightMap = null, mapLayers = null, mapLive = null, mapTimer = null, mapBusy = false;
                 let mapFlightKey = "", trackPts = [], trackNote = "", trackWhy = "", trackWait = null;
                 let profMode = "alt", lastControllers = [], lastAtis = [], controllersLoaded = false, atcSpec = null;
-                const mapOpts = { rings: true, atc: true, sectors: true };
+                const mapOpts = { rings: true, atc: true, sectors: true, follow: false };
                 let tagOffset = { x: 28, y: -24 };  // where the aircraft tag sits relative to the aircraft, in screen pixels (draggable)
 
                 function loadLeaflet() {
@@ -588,12 +588,42 @@ function applyLayerOptions() {
                         if (chip) chip.classList.toggle("on", mapOpts[k]);
                     });
                     document.getElementById("atcList").style.display = mapOpts.atc ? "" : "none";
+                    // "Follow" has no layer group of its own (it is a camera behaviour, not something drawn), so its chip is synced here too
+                    const followChip = document.getElementById("tgFollow");
+                    if (followChip) followChip.classList.toggle("on", mapOpts.follow);
                 }
 
                 function toggleLayer(name) {
                     if (!(name in mapOpts)) return;
                     mapOpts[name] = !mapOpts[name];
                     applyLayerOptions();
+                }
+
+                // Keeps the aircraft in view as it moves, without changing the zoom the user picked; shouldRecenterMap (follow_math.js)
+                // ignores sub-threshold drift so a stationary or barely-moving aircraft does not keep re-centring the map.
+                function followPlane() {
+                    if (!flightMap || !mapLayers || !mapLayers.plane) return;
+                    const c = flightMap.getCenter(), ll = mapLayers.plane.getLatLng();
+                    if (!shouldRecenterMap(c.lat, c.lng, ll.lat, ll.lng, 0.05)) return;
+                    flightMap.panTo(ll, { animate: true, duration: 0.4, noMoveStart: true });
+                }
+
+                function toggleFollow() {
+                    mapOpts.follow = !mapOpts.follow;
+                    const chip = document.getElementById("tgFollow");
+                    if (chip) chip.classList.toggle("on", mapOpts.follow);
+                    if (mapOpts.follow) followPlane();
+                }
+
+                // A one-off action: frames the whole route again, the same way the map does when it first opens. Turns Follow off first
+                // (the two are opposite intents - one shows everything, the other tracks a single point) so the chip states stay honest.
+                function fitRoute() {
+                    if (mapOpts.follow) {
+                        mapOpts.follow = false;
+                        const chip = document.getElementById("tgFollow");
+                        if (chip) chip.classList.remove("on");
+                    }
+                    renderMapFlight(true);
                 }
 
 // Draws (first call) or moves (later calls) every layer of the map.
@@ -652,6 +682,8 @@ function applyLayerOptions() {
                         // extra room on the right so the tag next to the aircraft is never cut off
                         if (all.length > 1) flightMap.fitBounds(L.latLngBounds(all), { paddingTopLeft: [40, 40], paddingBottomRight: [150, 40], maxZoom: 8 });
                         else flightMap.setView(planeLL, 6);
+                    } else if (mapOpts.follow) {
+                        followPlane();
                     }
                 }
 
