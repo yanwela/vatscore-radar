@@ -5,11 +5,18 @@ import plotly.express as px
 import streamlit as st
 
 import network_stats as ns
-from ui_theme import (AMBER, CYAN, EMERALD, LINE, ROSE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
-                      set_browser_title, stat_card)
+from redaction import load_blocklist
+from site_banner import read_banner
+from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, LINE, ROSE, SITE_BANNER_FILE, SUBTLE, TEXT, VIOLET,
+                      apply_base_css, page_url, render_banner, stat_card, track_page_view)
 from vatsim_data import fetch_feed, load_airlines, load_airport_key_map, load_airports
 
 REFRESH_SECONDS = 20
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_blocklist_cached():
+    return load_blocklist(CID_BLOCKLIST_FILE)
 CHART_TOP_N = 15
 
 PLOTLY_FONT = dict(family="ui-monospace, 'Cascadia Code', monospace", color=TEXT, size=11)
@@ -18,6 +25,8 @@ STATUS_COLORS = {"departing": EMERALD, "departed": CYAN, "arriving": AMBER, "lan
 
 st.set_page_config(page_title="VatScoreRadar — Network Stats", page_icon="📈", layout="wide",
                    initial_sidebar_state="collapsed")
+track_page_view("Network Stats")
+render_banner(read_banner(SITE_BANNER_FILE))
 
 apply_base_css()
 
@@ -172,7 +181,8 @@ def render_network_stats():
     airline_rows = ns.airline_stats(pilots, airlines)
     aircraft_rows = ns.aircraft_stats(pilots)
     route_rows = ns.route_stats(pilots)
-    pilot_rows = ns.pilot_rows(pilots, airports)
+    blocklist = load_blocklist_cached()
+    pilot_rows = [r for r in ns.pilot_rows(pilots, airports) if str(r.get("cid", "")) not in blocklist]
     atc_rows = ns.atc_rows(controllers)
     observer_rows = ns.observer_rows(controllers)
 
@@ -203,7 +213,6 @@ def render_network_stats():
         tab_observers(observer_rows)
 
 
-set_browser_title("Network Stats")
 st.page_link("app.py", label="Back to Live Radar", icon="⬅️")
 st.title("📈 Network Stats")
 render_network_stats()

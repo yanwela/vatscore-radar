@@ -12,7 +12,9 @@ import requests
 import streamlit as st
 
 from security_utils import SlidingWindowLimiter
-from ui_theme import page_url, set_browser_title
+from redaction import is_blocked
+from site_banner import read_banner
+from ui_theme import CID_BLOCKLIST_FILE, SITE_BANNER_FILE, page_url, render_banner, track_page_view
 from cid_panels import render_activity_panels
 from flight_connections import group_connections, merge_tracks
 from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, flights_for_callsign
@@ -324,6 +326,8 @@ def callsign_prefix(callsign):
 #  PAGE / STYLE
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(page_title="VatScoreRadar — CID Stats", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
+track_page_view("CID Stats")
+render_banner(read_banner(SITE_BANNER_FILE))
 
 st.markdown(f"""
 <style>
@@ -345,7 +349,6 @@ h1, h2, h3 {{ color: {CYAN} !important; font-family: 'Segoe UI', sans-serif; }}
 </style>
 """, unsafe_allow_html=True)
 
-set_browser_title("CID Stats")
 st.page_link("app.py", label="Back to Live Radar", icon="⬅️")
 st.title("📊 CID Stats")
 
@@ -368,6 +371,10 @@ if not STATSIM_API_KEY:
 cid = cid_input.strip()
 if st.query_params.get("cid") != cid:
     st.query_params["cid"] = cid
+
+if is_blocked(CID_BLOCKLIST_FILE, cid):
+    st.warning("This member has asked for their VATSIM activity not to be shown here, so this page is unavailable for this CID.")
+    st.stop()
 
 
 @st.cache_resource

@@ -1,5 +1,8 @@
 radar_traffic_logs.csv
 admin_audit_log.jsonl
+page_views.jsonl
+site_banner.json
+cid_blocklist.json
 __pycache__/
 *.pyc
 .venv/

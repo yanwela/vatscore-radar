@@ -4,6 +4,12 @@ from urllib.parse import urlencode, urlsplit
 
 import streamlit as st
 
+from page_views import record_view
+
+PAGE_VIEWS_FILE = "page_views.jsonl"
+SITE_BANNER_FILE = "site_banner.json"
+CID_BLOCKLIST_FILE = "cid_blocklist.json"
+
 # Look of the stats pages (Network Stats, CID Stats, Airport).
 INK, PANEL, LINE = "#0a0e1a", "#10141f", "#1f2937"
 SUBTLE, TEXT = "#5b6b82", "#e8eef7"
@@ -102,6 +108,28 @@ def card_css():
     return (f"<style>.vs-card {{ background:{PANEL}; border:1px solid {LINE}; border-radius:10px; padding:14px 16px; text-align:center; }}"
             f".vs-kpi-label {{ font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:{SUBTLE}; font-weight:700; }}"
             f".vs-kpi-val {{ font-size:24px; font-weight:800; line-height:1.1; margin-top:6px; font-variant-numeric:tabular-nums; }}</style>")
+
+
+def track_page_view(page_name):
+    # One count per browser session per page (not per rerun - a Streamlit script reruns on every widget interaction),
+    # same convention as app.py's own "Radar Dashboard Opened" visit log.
+    key = "viewed_" + page_name
+    if key in st.session_state:
+        return
+    st.session_state[key] = True
+    try:
+        record_view(PAGE_VIEWS_FILE, page_name)
+    except Exception:
+        pass
+
+
+def render_banner(banner):
+    # banner is whatever site_banner.read_banner() returned (None = nothing to show); text is escaped, it comes from
+    # whoever last typed it into the admin panel, kept honest exactly like every other feed-derived string in this app.
+    if not banner:
+        return
+    fn = {"warning": st.warning, "error": st.error}.get(banner.get("level"), st.info)
+    fn(escape(str(banner.get("text", ""))))
 
 
 def record_card(label, value, holder, detail="", color=CYAN, runners_up=()):

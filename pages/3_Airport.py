@@ -5,7 +5,10 @@ import requests
 import streamlit as st
 import network_stats as ns
 from metar_decode import decode_metar
-from ui_theme import AMBER, CYAN, EMERALD, ROSE, VIOLET, apply_base_css, page_url, set_browser_title, stat_card
+from redaction import is_blocked
+from site_banner import read_banner
+from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, ROSE, SITE_BANNER_FILE, VIOLET, apply_base_css, page_url,
+                      render_banner, set_browser_title, stat_card, track_page_view)
 from tracon_areas import approach_keys_at
 from vatsim_data import fetch_feed, load_airport_key_map, load_airports
 import html
@@ -16,6 +19,8 @@ CATEGORY_COLORS = {"VFR": EMERALD, "MVFR": CYAN, "IFR": ROSE, "LIFR": VIOLET}
 CODE_RE = re.compile(r"[A-Z0-9]{3,4}")
 
 st.set_page_config(page_title="VatScoreRadar - Airport", page_icon="🛫", layout="wide", initial_sidebar_state="collapsed")
+track_page_view("Airport")
+render_banner(read_banner(SITE_BANNER_FILE))
 apply_base_css()
 st.page_link("pages/2_Network_Stats.py", label="Back to Network Stats", icon="⬅️")
 st.title("🛫 Airport")
@@ -27,7 +32,6 @@ if CODE_RE.fullmatch(param) and "airport_icao" not in st.session_state:
 icao_input = st.text_input("ICAO code", key="airport_icao", placeholder="e.g. LTFM", max_chars=4, label_visibility="collapsed")
 code = icao_input.strip().upper()
 if not CODE_RE.fullmatch(code):
-    set_browser_title("Airport")
     st.info("Enter an airport ICAO code to see its live traffic and ATC.")
     st.stop()
 if st.query_params.get("icao") != code:
@@ -141,6 +145,8 @@ def render(code):
     if detail is None:
         st.warning(f"No airport found for {code}.")
         return
+    detail["departures"] = [r for r in detail.get("departures", []) if not is_blocked(CID_BLOCKLIST_FILE, r.get("cid", ""))]
+    detail["arrivals"] = [r for r in detail.get("arrivals", []) if not is_blocked(CID_BLOCKLIST_FILE, r.get("cid", ""))]
     icao_esc = html.escape(code)
     name_esc = html.escape(detail.get("name", ""))
     line1 = f"{icao_esc} - {name_esc}"

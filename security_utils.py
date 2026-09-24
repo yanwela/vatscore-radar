@@ -49,6 +49,17 @@ class SlidingWindowLimiter:
             oldest = valid[0]
             return max(0.0, (oldest + self._window) - now)
 
+    def usage(self, key, now=None):
+        # Read-only: how much of this key's budget is used right now, for a diagnostics panel - never mutates state,
+        # so just looking at it can't itself count as a call.
+        if now is None:
+            now = time.monotonic()
+        with self._lock:
+            lst = self._history.get(key, [])
+            cutoff = now - self._window
+            used = sum(1 for t in lst if t >= cutoff)
+        return {"used": used, "max": self._max, "window_seconds": self._window}
+
 def is_valid_callsign(value):
     return isinstance(value, str) and re.fullmatch(r'^[A-Z0-9_-]{1,12}$', value) is not None
 

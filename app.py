@@ -3,7 +3,7 @@ import plotly.express as px
 import requests
 import pandas as pd
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import json
 import re
@@ -14,15 +14,20 @@ from shapely.geometry import LineString, shape, Point
 from shapely.prepared import prep
 
 from admin_audit import append_audit_event, read_audit_events
+from health_monitor import record_result, summarize as summarize_health
+from page_views import record_view, summarize_views
+from redaction import add_to_blocklist, is_blocked, load_blocklist, remove_from_blocklist
+from site_banner import clear_banner, read_banner, read_banner_raw, write_banner
 from security_utils import SlidingWindowLimiter, is_valid_callsign, is_valid_fir_prefix
 from totp import new_totp_secret, verify_totp
+from user_agent_parser import parse_user_agent
 from pin_sync import render_pin_sync
 from region_options import FEATURED, order_regions, parse_country_names, traffic_by_region
 from registration_country import country_of_registration, extract_registration
-from ui_theme import (AMBER, CYAN, EMERALD, LINE as UI_LINE, ROSE, TEXT as UI_TEXT, VIOLET, card_css, page_url, record_card,
-                      set_browser_title)
+from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, LINE as UI_LINE, PAGE_VIEWS_FILE, ROSE, SITE_BANNER_FILE,
+                      TEXT as UI_TEXT, VIOLET, card_css, page_url, record_card, render_banner, set_browser_title)
 from leaderboard_records import flight_records, member_records
-from vatsim_data import fetch_member_rating, load_airports
+from vatsim_data import _member_api_limiter, fetch_member_rating, load_airports
 from flight_track import fetch_track
 from fir_crossings import fir_crossings, great_circle_points
 from geo_compact import compact_rings
@@ -39,6 +44,15 @@ def get_secret(key, default=""):
         return st.secrets.get(key, default)
     except Exception:
         return default
+
+
+def _parse_banner_ts(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def csv_safe_for_download(df):
@@ -63,9 +77,16 @@ VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
 CSV_FILE_PATH = "airports.csv"
 
 # Page Configuration
+# The browser tab title for fixed-name routes (like Admin) is set here, directly through Streamlit's own
+# mechanism, rather than through the JS-based set_browser_title() below: that one drives an iframe that tries
+# to reach the real tab title via window.parent/window.top, which some hosts (e.g. Streamlit Community Cloud)
+# sandbox as a different, non-same-origin frame, silently breaking the title update there even though it works
+# fine on localhost. set_page_config has no such cross-frame dependency, so it is used wherever the title is
+# already known before this call (a fixed route), and only the home page's tab-driven title (which changes
+# without a rerun) still needs the JS approach.
 st.set_page_config(
-    page_title="VatScoreRadar",
-    page_icon="⚡", 
+    page_title="VatScoreRadar - Admin" if st.query_params.get("admin") == "true" else "VatScoreRadar",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -156,6 +177,19 @@ def _admin_guard():
     # tab doesn't reset the brute-force counter.
     return {"fails": [], "lock_until": 0.0}
 
+
+@st.cache_resource
+def _health_store():
+    # Process-wide, so the admin panel sees the health of a data source regardless of which visitor's request last hit it.
+    return {}
+
+
+def _report_health(source, ok, error=None):
+    try:
+        record_result(_health_store(), source, ok, error)
+    except Exception:
+        pass  # health tracking must never be the reason a data fetch fails
+
 def admin_lock_remaining():
     guard = _admin_guard()
     lock_until = guard["lock_until"]
@@ -212,26 +246,35 @@ def log_activity(action):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         if "user_session_id" not in st.session_state:
             st.session_state.user_session_id = datetime.now().strftime('%H%M%S') + str(os.getpid())
-            
+
         session_id = st.session_state.user_session_id
         df = pd.read_csv(LOG_FILE)
-        
+
         if session_id in df['Session_ID'].values:
             df.loc[df['Session_ID'] == session_id, 'Timestamp'] = timestamp
             df.loc[df['Session_ID'] == session_id, 'Last_Action'] = action
         else:
+            try:
+                ua = st.context.headers.get("User-Agent", "")
+            except Exception:
+                ua = ""
+            client = parse_user_agent(ua)
             new_row = pd.DataFrame([{
                 "Timestamp": timestamp, "Session_ID": session_id,
-                "OS": "Generic OS", "Browser": "Generic Browser", "Device_Type": "PC / Laptop", "Last_Action": action
+                "OS": client["os"], "Browser": client["browser"], "Device_Type": client["device_type"], "Last_Action": action
             }])
             df = pd.concat([df, new_row], ignore_index=True)
-            
+
         df.to_csv(LOG_FILE, index=False)
     except:
         pass
 
 if "initialized" not in st.session_state:
     log_activity("Radar Dashboard Opened")
+    try:
+        record_view(PAGE_VIEWS_FILE, "Live Radar")
+    except Exception:
+        pass
     st.session_state.initialized = True
 
 # Initialize VIP Watchlist Session State
@@ -255,171 +298,17 @@ def _admin_hash_iterations():
         return None
 
 
-is_admin_route = query_params.get("admin") == "true"
-
-if is_admin_route:
-    set_browser_title("Admin")
-    if "admin_authenticated" not in st.session_state:
-        st.session_state.admin_authenticated = False
-
-    # An idle admin tab must not stay authenticated forever: any interaction while inside the panel refreshes the
-    # timer below, so this is really an inactivity timeout, not a fixed session length.
-    if st.session_state.admin_authenticated and time.time() - st.session_state.get("admin_auth_at", 0) > ADMIN_SESSION_SECONDS:
-        st.session_state.admin_authenticated = False
-        st.session_state.pop("admin_auth_at", None)
-        _log_admin_event("session_expired")
-        st.info("Your admin session timed out after being idle. Please log in again.")
-
-    if not st.session_state.admin_authenticated:
-        st.title("🛡️ VatScore HQ Security Login")
-        if not (ADMIN_PASSWORD or ADMIN_PASSWORD_HASH):
-            st.error("Admin access is not configured. Set ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD) in .streamlit/secrets.toml to enable this panel.")
-            st.stop()
-        lock_left = admin_lock_remaining()
-        if lock_left > 0:
-            st.error(f"Too many failed attempts. Try again in {int(lock_left // 60) + 1} minute(s).")
-            st.stop()
-
-        totp_pending_since = st.session_state.get("admin_totp_pending")
-        if totp_pending_since and time.time() - totp_pending_since > ADMIN_TOTP_STEP_SECONDS:
-            st.session_state.pop("admin_totp_pending", None)
-            totp_pending_since = None
-            st.warning("That took too long, enter the password again.")
-
-        if ADMIN_TOTP_SECRET and totp_pending_since:
-            st.caption("Password accepted. Enter the 6-digit code from your authenticator app.")
-            totp_input = st.text_input("Authenticator code:", max_chars=6)
-            tc1, tc2 = st.columns(2)
-            with tc1:
-                submit_totp = st.button("Verify Code", width="stretch")
-            with tc2:
-                if st.button("Back", width="stretch"):
-                    st.session_state.pop("admin_totp_pending", None)
-                    st.rerun()
-            if submit_totp:
-                if verify_totp(ADMIN_TOTP_SECRET, totp_input, time.time()):
-                    clear_admin_failures()
-                    st.session_state.pop("admin_totp_pending", None)
-                    st.session_state.admin_authenticated = True
-                    st.session_state.admin_auth_at = time.time()
-                    _log_admin_event("login_ok", "password+totp")
-                    st.success("Access Granted.")
-                    st.rerun()
-                else:
-                    register_admin_failure()
-                    _log_admin_event("login_fail", "totp")
-                    st.error("Invalid or expired code.")
-        else:
-            passwd_input = st.text_input("Enter Master Admin Password:", type="password")
-            if st.button("Authorize Connection"):
-                if passwd_input and verify_admin_password(passwd_input):
-                    if ADMIN_TOTP_SECRET:
-                        st.session_state.admin_totp_pending = time.time()
-                        _log_admin_event("login_step1_ok")
-                        st.rerun()
-                    else:
-                        clear_admin_failures()
-                        st.session_state.admin_authenticated = True
-                        st.session_state.admin_auth_at = time.time()
-                        _log_admin_event("login_ok", "password only")
-                        st.success("Access Granted.")
-                        st.rerun()
-                else:
-                    register_admin_failure()
-                    _log_admin_event("login_fail", "password")
-                    st.error("Invalid Secret Token.")
-        st.stop()
-    else:
-        st.session_state.admin_auth_at = time.time()  # any interaction while inside the panel counts as activity
-        st.title("🛰️ VatScore // Core Traffic Analytics HQ")
-        top_c1, top_c2 = st.columns([0.8, 0.2])
-        with top_c1:
-            st.caption(f"Session stays open while active, times out {ADMIN_SESSION_SECONDS // 60} min after the last click.")
-        with top_c2:
-            if st.button("⬅️ Return to Live Radar", width="stretch"):
-                st.session_state.admin_authenticated = False
-                st.session_state.pop("admin_auth_at", None)
-                _log_admin_event("logout")
-                st.query_params.clear()
-                st.rerun()
-
-        with st.expander("🔐 Account security", expanded=False):
-            iterations = _admin_hash_iterations()
-            if ADMIN_PASSWORD_HASH and iterations and iterations >= MIN_PBKDF2_ITERATIONS:
-                st.success(f"Password: pbkdf2_sha256, {iterations:,} iterations.")
-            elif ADMIN_PASSWORD_HASH and iterations:
-                st.warning(f"Password hash uses only {iterations:,} PBKDF2 iterations; {MIN_PBKDF2_ITERATIONS:,}+ is recommended. Regenerate ADMIN_PASSWORD_HASH.")
-            else:
-                st.warning("Using a plain ADMIN_PASSWORD instead of a hash. Set ADMIN_PASSWORD_HASH instead and remove ADMIN_PASSWORD.")
-            if ADMIN_TOTP_SECRET:
-                st.success("Two-factor authentication: enabled.")
-            else:
-                st.warning("Two-factor authentication: not enabled. A leaked password alone is enough to reach this panel.")
-                if st.button("Generate a 2FA secret"):
-                    st.session_state.admin_totp_suggestion = new_totp_secret()
-                suggestion = st.session_state.get("admin_totp_suggestion")
-                if suggestion:
-                    st.code(suggestion, language=None)
-                    st.caption("Add this to any authenticator app (Google Authenticator, Authy, ...) as a manual key (SHA1, 6 digits, "
-                               "30s), then add ADMIN_TOTP_SECRET to .streamlit/secrets.toml with this value and restart the app. "
-                               "This secret is shown once and never saved by the app - store it yourself.")
-            st.markdown("---")
-            st.caption("Recent admin security events")
-            audit_rows = read_audit_events(ADMIN_AUDIT_FILE, limit=50)
-            if audit_rows:
-                st.dataframe(pd.DataFrame(audit_rows), hide_index=True, width="stretch")
-            else:
-                st.caption("No admin events recorded yet.")
-
-        st.markdown("---")
-        if os.path.exists(LOG_FILE):
-            df_logs = pd.read_csv(LOG_FILE)
-            df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'])
-            time_delta = (datetime.now() - df_logs['Timestamp']).dt.total_seconds()
-
-            total_unique = len(df_logs['Session_ID'].unique())
-            active_now = len(df_logs[time_delta < 300]['Session_ID'].unique())
-
-            adm_c1, adm_c2, adm_c3 = st.columns(3)
-            with adm_c1: st.metric(label="🟢 Active Users (Last 5 Mins)", value=active_now)
-            with adm_c2: st.metric(label="👥 Total Unique Connections", value=total_unique)
-            with adm_c3: st.metric(label="📊 Dominant Hardware", value=df_logs['Device_Type'].mode()[0] if not df_logs.empty else "N/A")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            if not st.session_state.get("confirm_wipe_logs"):
-                btn_c1, btn_c2 = st.columns([0.8, 0.2])
-                with btn_c1: st.subheader("👥 Live Session Logs")
-                with btn_c2:
-                    if st.button("🗑️ Wipe Logs", width='stretch'):
-                        st.session_state.confirm_wipe_logs = True
-                        st.rerun()
-            else:
-                st.subheader("👥 Live Session Logs")
-                st.warning("This permanently deletes every visitor session log. This cannot be undone.")
-                wc1, wc2 = st.columns(2)
-                with wc1:
-                    if st.button("Confirm wipe", width="stretch"):
-                        os.remove(LOG_FILE)
-                        init_log_file()
-                        _log_admin_event("logs_wiped")
-                        st.session_state.confirm_wipe_logs = False
-                        st.rerun()
-                with wc2:
-                    if st.button("Cancel", width="stretch"):
-                        st.session_state.confirm_wipe_logs = False
-                        st.rerun()
-
-            df_display = df_logs.sort_values(by="Timestamp", ascending=False).copy()
-            df_display['Timestamp'] = df_display['Timestamp'].dt.strftime('%H:%M:%S || %Y-%m-%d')
-            st.dataframe(df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]], width='stretch')
-        st.stop()
-
 @st.cache_data(ttl=15)
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
-        if r.status_code == 200: return r.json()
-    except: pass
+        if r.status_code == 200:
+            data = r.json()
+            _report_health("VATSIM feed", True)
+            return data
+        _report_health("VATSIM feed", False, f"HTTP {r.status_code}")
+    except Exception as e:
+        _report_health("VATSIM feed", False, e)
     return None
 
 @st.cache_data(ttl=15)
@@ -437,8 +326,11 @@ def fetch_pilot_frequencies():
                     hz = transceivers[0].get("frequency")
                     if hz:
                         freq_map[callsign] = f"{hz / 1_000_000:.3f}"
-    except Exception:
-        pass
+            _report_health("VATSIM transceivers feed", True)
+        else:
+            _report_health("VATSIM transceivers feed", False, f"HTTP {r.status_code}")
+    except Exception as e:
+        _report_health("VATSIM transceivers feed", False, e)
     return freq_map
 
 @st.cache_data(ttl=86400)
@@ -446,7 +338,7 @@ def load_vatsim_radar_airlines():
     airlines_map = {}
     try:
         r = requests.get(VATSIM_RADAR_AIRLINES_URL, timeout=10)
-        if r.status_code == 200: 
+        if r.status_code == 200:
             raw_list = r.json()
             if isinstance(raw_list, list):
                 for item in raw_list:
@@ -463,15 +355,25 @@ def load_vatsim_radar_airlines():
                             "callsign": item.get("callsign", "UNKNOWN"),
                             "virtual": virtual
                         }
-    except: pass
+            _report_health("Airlines list (vatsim-radar)", True)
+        else:
+            _report_health("Airlines list (vatsim-radar)", False, f"HTTP {r.status_code}")
+    except Exception as e:
+        _report_health("Airlines list (vatsim-radar)", False, e)
     return airlines_map
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_country_names():
     # ICAO prefix -> country name from VATSpy.dat [Countries]; raises on failure so nothing bad is cached for a day
-    r = requests.get(VATSPY_DAT_URL, timeout=15)
-    r.raise_for_status()
-    return parse_country_names(r.text)
+    try:
+        r = requests.get(VATSPY_DAT_URL, timeout=15)
+        r.raise_for_status()
+        result = parse_country_names(r.text)
+        _report_health("VATSpy.dat", True)
+        return result
+    except Exception as e:
+        _report_health("VATSpy.dat", False, e)
+        raise
 
 MIN_REGION_AIRCRAFT = 5
 
@@ -617,21 +519,26 @@ def _track_limiters():
 def load_fir_features_raw():
     # One record per FIR boundary (id + GeoJSON geometry), unlike load_fir_raw_geometries which merges them by 2-letter
     # prefix. Raises on failure so that a failed download is never cached for a day.
-    r = requests.get(VATSIM_FIR_GEO_URL, timeout=15)
-    r.raise_for_status()
-    out = []
-    for f in r.json().get("features", []):
-        props = f.get("properties") or {}
-        fid = str(props.get("id") or "").strip()
-        if fid and f.get("geometry"):
-            try:
-                label = [float(props["label_lat"]), float(props["label_lon"])]
-            except (KeyError, TypeError, ValueError):
-                label = None
-            out.append({"id": fid, "geometry": f["geometry"], "label": label})
-    if not out:
-        raise ValueError("no FIR boundaries")
-    return out
+    try:
+        r = requests.get(VATSIM_FIR_GEO_URL, timeout=15)
+        r.raise_for_status()
+        out = []
+        for f in r.json().get("features", []):
+            props = f.get("properties") or {}
+            fid = str(props.get("id") or "").strip()
+            if fid and f.get("geometry"):
+                try:
+                    label = [float(props["label_lat"]), float(props["label_lon"])]
+                except (KeyError, TypeError, ValueError):
+                    label = None
+                out.append({"id": fid, "geometry": f["geometry"], "label": label})
+        if not out:
+            raise ValueError("no FIR boundaries")
+        _report_health("FIR boundaries (Boundaries.geojson)", True)
+        return out
+    except Exception as e:
+        _report_health("FIR boundaries (Boundaries.geojson)", False, e)
+        raise
 
 
 @st.cache_resource(ttl=86400, show_spinner=False)
@@ -649,18 +556,23 @@ def fir_index():
 @st.cache_data(ttl=86400, show_spinner=False)
 def load_tracon_features_raw():
     # Approach areas from the SimAware TRACON project (CC BY-SA 4.0), downloaded at run time and never stored in the repo.
-    r = requests.get(TRACON_GEO_URL, timeout=20)
-    r.raise_for_status()
-    out = []
-    for f in r.json().get("features", []):
-        props = f.get("properties") or {}
-        tid = str(props.get("id") or "").strip()
-        if tid and f.get("geometry"):
-            keys = sorted({str(k).upper() for k in [tid] + list(props.get("prefix") or []) if k})
-            out.append({"id": tid, "name": str(props.get("name") or ""), "keys": keys, "geometry": f["geometry"]})
-    if not out:
-        raise ValueError("no TRACON boundaries")
-    return out
+    try:
+        r = requests.get(TRACON_GEO_URL, timeout=20)
+        r.raise_for_status()
+        out = []
+        for f in r.json().get("features", []):
+            props = f.get("properties") or {}
+            tid = str(props.get("id") or "").strip()
+            if tid and f.get("geometry"):
+                keys = sorted({str(k).upper() for k in [tid] + list(props.get("prefix") or []) if k})
+                out.append({"id": tid, "name": str(props.get("name") or ""), "keys": keys, "geometry": f["geometry"]})
+        if not out:
+            raise ValueError("no TRACON boundaries")
+        _report_health("TRACON boundaries (SimAware)", True)
+        return out
+    except Exception as e:
+        _report_health("TRACON boundaries (SimAware)", False, e)
+        raise
 
 
 @st.cache_resource(ttl=86400, show_spinner=False)
@@ -929,6 +841,314 @@ def classify_aircraft(ac_type, callsign):
         
     return "Commercial"
 
+is_admin_route = query_params.get("admin") == "true"
+
+if is_admin_route:
+    if "admin_authenticated" not in st.session_state:
+        st.session_state.admin_authenticated = False
+
+    # An idle admin tab must not stay authenticated forever: any interaction while inside the panel refreshes the
+    # timer below, so this is really an inactivity timeout, not a fixed session length.
+    if st.session_state.admin_authenticated and time.time() - st.session_state.get("admin_auth_at", 0) > ADMIN_SESSION_SECONDS:
+        st.session_state.admin_authenticated = False
+        st.session_state.pop("admin_auth_at", None)
+        _log_admin_event("session_expired")
+        st.info("Your admin session timed out after being idle. Please log in again.")
+
+    if not st.session_state.admin_authenticated:
+        st.title("🛡️ VatScoreRadar // Admin Login")
+        if not (ADMIN_PASSWORD or ADMIN_PASSWORD_HASH):
+            st.error("Admin access is not configured. Set ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD) in .streamlit/secrets.toml to enable this panel.")
+            st.stop()
+        lock_left = admin_lock_remaining()
+        if lock_left > 0:
+            st.error(f"Too many failed attempts. Try again in {int(lock_left // 60) + 1} minute(s).")
+            st.stop()
+
+        totp_pending_since = st.session_state.get("admin_totp_pending")
+        if totp_pending_since and time.time() - totp_pending_since > ADMIN_TOTP_STEP_SECONDS:
+            st.session_state.pop("admin_totp_pending", None)
+            totp_pending_since = None
+            st.warning("That took too long, enter the password again.")
+
+        if ADMIN_TOTP_SECRET and totp_pending_since:
+            st.caption("Password accepted. Enter the 6-digit code from your authenticator app.")
+            totp_input = st.text_input("Authenticator code:", max_chars=6)
+            tc1, tc2 = st.columns(2)
+            with tc1:
+                submit_totp = st.button("Verify Code", width="stretch")
+            with tc2:
+                if st.button("Back", width="stretch"):
+                    st.session_state.pop("admin_totp_pending", None)
+                    st.rerun()
+            if submit_totp:
+                if verify_totp(ADMIN_TOTP_SECRET, totp_input, time.time()):
+                    clear_admin_failures()
+                    st.session_state.pop("admin_totp_pending", None)
+                    st.session_state.admin_authenticated = True
+                    st.session_state.admin_auth_at = time.time()
+                    _log_admin_event("login_ok", "password+totp")
+                    st.success("Access Granted.")
+                    st.rerun()
+                else:
+                    register_admin_failure()
+                    _log_admin_event("login_fail", "totp")
+                    st.error("Invalid or expired code.")
+        else:
+            passwd_input = st.text_input("Enter Admin Password:", type="password")
+            if st.button("Authorize Connection"):
+                if passwd_input and verify_admin_password(passwd_input):
+                    if ADMIN_TOTP_SECRET:
+                        st.session_state.admin_totp_pending = time.time()
+                        _log_admin_event("login_step1_ok")
+                        st.rerun()
+                    else:
+                        clear_admin_failures()
+                        st.session_state.admin_authenticated = True
+                        st.session_state.admin_auth_at = time.time()
+                        _log_admin_event("login_ok", "password only")
+                        st.success("Access Granted.")
+                        st.rerun()
+                else:
+                    register_admin_failure()
+                    _log_admin_event("login_fail", "password")
+                    st.error("Invalid Secret Token.")
+        st.stop()
+    else:
+        st.session_state.admin_auth_at = time.time()  # any interaction while inside the panel counts as activity
+        st.title("🛰️ VatScoreRadar // Admin")
+        top_c1, top_c2 = st.columns([0.8, 0.2])
+        with top_c1:
+            st.caption(f"Session stays open while active, times out {ADMIN_SESSION_SECONDS // 60} min after the last click.")
+        with top_c2:
+            if st.button("⬅️ Return to Live Radar", width="stretch"):
+                st.session_state.admin_authenticated = False
+                st.session_state.pop("admin_auth_at", None)
+                _log_admin_event("logout")
+                st.query_params.clear()
+                st.rerun()
+
+        with st.expander("🔐 Account security", expanded=False):
+            iterations = _admin_hash_iterations()
+            if ADMIN_PASSWORD_HASH and iterations and iterations >= MIN_PBKDF2_ITERATIONS:
+                st.success(f"Password: pbkdf2_sha256, {iterations:,} iterations.")
+            elif ADMIN_PASSWORD_HASH and iterations:
+                st.warning(f"Password hash uses only {iterations:,} PBKDF2 iterations; {MIN_PBKDF2_ITERATIONS:,}+ is recommended. Regenerate ADMIN_PASSWORD_HASH.")
+            else:
+                st.warning("Using a plain ADMIN_PASSWORD instead of a hash. Set ADMIN_PASSWORD_HASH instead and remove ADMIN_PASSWORD.")
+            if ADMIN_TOTP_SECRET:
+                st.success("Two-factor authentication: enabled.")
+            else:
+                st.warning("Two-factor authentication: not enabled. A leaked password alone is enough to reach this panel.")
+                if st.button("Generate a 2FA secret"):
+                    st.session_state.admin_totp_suggestion = new_totp_secret()
+                suggestion = st.session_state.get("admin_totp_suggestion")
+                if suggestion:
+                    st.code(suggestion, language=None)
+                    st.caption("Add this to any authenticator app (Google Authenticator, Authy, ...) as a manual key (SHA1, 6 digits, "
+                               "30s), then add ADMIN_TOTP_SECRET to .streamlit/secrets.toml with this value and restart the app. "
+                               "This secret is shown once and never saved by the app - store it yourself.")
+            st.markdown("---")
+            st.caption("Recent admin security events")
+            audit_rows = read_audit_events(ADMIN_AUDIT_FILE, limit=50)
+            if audit_rows:
+                st.dataframe(pd.DataFrame(audit_rows), hide_index=True, width="stretch")
+            else:
+                st.caption("No admin events recorded yet.")
+
+        with st.expander("🩺 Site health & limits", expanded=False):
+            st.caption("Every external data source this app depends on, since the server last restarted.")
+            health_rows = summarize_health(_health_store())
+            if health_rows:
+                STATUS_ICON = {"ok": "🟢", "failing": "🔴", "unknown": "⚪"}
+
+                def _age(seconds):
+                    if seconds is None:
+                        return "-"
+                    if seconds < 90:
+                        return f"{int(seconds)}s ago"
+                    if seconds < 5400:
+                        return f"{int(seconds // 60)}m ago"
+                    return f"{seconds / 3600:.1f}h ago"
+
+                table = [{"": STATUS_ICON.get(r["status"], "⚪"), "Source": r["source"], "Last OK": _age(r["seconds_since_ok"]),
+                          "Last error": _age(r["seconds_since_error"]), "Error": r["last_error"] or "-",
+                          "Fails in a row": r["consecutive_fails"], "OK / Fail (total)": f"{r['total_ok']} / {r['total_fail']}"}
+                         for r in health_rows]
+                st.dataframe(pd.DataFrame(table), hide_index=True, width="stretch")
+            else:
+                st.caption("No data source has been used yet this run.")
+            st.caption(f"statsim.net API key: {'configured' if get_secret('STATSIM_API_KEY', '') else '⚠️ NOT configured'}.")
+
+            st.markdown("---")
+            st.caption("Site-wide request budgets (shared by every visitor)")
+            limiter_rows = []
+            for label, getter, key in [
+                ("Flight track fetches (map)", lambda: _track_limiters()[1], "global"),
+                ("VATSIM Core member lookups", lambda: _member_api_limiter(), "member"),
+            ]:
+                try:
+                    u = getter().usage(key)
+                    limiter_rows.append({"Budget": label, "Used": u["used"], "Max": u["max"], "Per": f"{u['window_seconds']}s"})
+                except Exception:
+                    pass
+            if limiter_rows:
+                st.dataframe(pd.DataFrame(limiter_rows), hide_index=True, width="stretch")
+            st.caption("Per-visitor budgets (one per browser session) aren't listed here - only the site-wide ones matter for \"is everyone getting rate limited right now\".")
+
+            st.markdown("---")
+            st.caption("Force a fresh copy of a cached data source (normally refreshes on its own after its cache expires)")
+            rc1, rc2, rc3, rc4 = st.columns(4)
+            with rc1:
+                if st.button("VATSIM feed", width="stretch"):
+                    fetch_vatsim_data.clear(); st.toast("Cleared")
+            with rc2:
+                if st.button("Airlines list", width="stretch"):
+                    load_vatsim_radar_airlines.clear(); st.toast("Cleared")
+            with rc3:
+                if st.button("VATSpy.dat", width="stretch"):
+                    load_country_names.clear(); load_vatspy_fir_rows.clear(); st.toast("Cleared")
+            with rc4:
+                if st.button("FIR / TRACON shapes", width="stretch"):
+                    load_fir_raw_geometries.clear(); load_fir_features_raw.clear(); load_tracon_features_raw.clear(); st.toast("Cleared")
+
+        with st.expander("📢 Site-wide announcement", expanded=False):
+            now_utc = datetime.now(timezone.utc)
+            current = read_banner_raw(SITE_BANNER_FILE)
+            if current:
+                starts_at = _parse_banner_ts(current["starts_at"])
+                expires_at = _parse_banner_ts(current["expires_at"])
+                if expires_at and now_utc >= expires_at:
+                    st.caption("Previous announcement has ended and will be cleaned up on the next page view.")
+                elif starts_at and now_utc < starts_at:
+                    end_note = f", auto-removes {current['expires_at']}" if current.get("expires_at") else ""
+                    st.info(f"Scheduled ({current['level']}) - goes live {current['starts_at']}{end_note}: {current['text']}")
+                else:
+                    end_note = f", auto-removes {current['expires_at']}" if current.get("expires_at") else ""
+                    st.info(f"Currently live ({current['level']}, set {current['set_at']}{end_note}): {current['text']}")
+            banner_text = st.text_area("Message", value=current["text"] if current else "", max_chars=280, key="banner_text_input")
+            banner_level = st.selectbox("Style", ["info", "warning", "error"],
+                                        index=["info", "warning", "error"].index(current["level"]) if current else 0, key="banner_level_input")
+
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                schedule_start = st.checkbox("Schedule for later (otherwise publishes immediately)", key="banner_schedule_start")
+                if schedule_start:
+                    start_date = st.date_input("Goes live on (UTC)", value=now_utc.date(), key="banner_start_date")
+                    start_time = st.time_input("Goes live at (UTC)", value=now_utc.time().replace(microsecond=0), key="banner_start_time")
+            with sc2:
+                schedule_end = st.checkbox("Auto-remove at a specific date/time", key="banner_schedule_end")
+                if schedule_end:
+                    end_date = st.date_input("Auto-removes on (UTC)", value=now_utc.date(), key="banner_end_date")
+                    end_time = st.time_input("Auto-removes at (UTC)", value=now_utc.time().replace(microsecond=0), key="banner_end_time")
+
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                if st.button("Publish", width="stretch"):
+                    starts_at = datetime.combine(start_date, start_time, tzinfo=timezone.utc) if schedule_start else None
+                    expires_at = datetime.combine(end_date, end_time, tzinfo=timezone.utc) if schedule_end else None
+                    if starts_at and expires_at and expires_at <= starts_at:
+                        st.error("The auto-remove time must be after the go-live time.")
+                    else:
+                        write_banner(SITE_BANNER_FILE, banner_text, banner_level, starts_at=starts_at, expires_at=expires_at)
+                        _log_admin_event("banner_set", banner_text[:100])
+                        st.rerun()
+            with bc2:
+                if st.button("Clear announcement", width="stretch"):
+                    clear_banner(SITE_BANNER_FILE)
+                    _log_admin_event("banner_cleared")
+                    st.rerun()
+
+        with st.expander("🚫 Redacted CIDs", expanded=False):
+            st.caption("A blocked CID's flights/sessions are hidden from CID Stats (whole page), the Network Stats pilot list, the "
+                       "Airport page's departure/arrival tables, and the Leaderboard.")
+            rb1, rb2 = st.columns([0.3, 0.7])
+            with rb1:
+                block_cid = st.text_input("CID", key="block_cid_input", max_chars=10)
+            with rb2:
+                block_reason = st.text_input("Reason (optional, for your own reference)", key="block_reason_input")
+            if st.button("Block this CID"):
+                if block_cid.strip().isdigit():
+                    add_to_blocklist(CID_BLOCKLIST_FILE, block_cid.strip(), block_reason)
+                    _log_admin_event("cid_blocked", block_cid.strip())
+                    st.rerun()
+                else:
+                    st.error("CID must be numeric.")
+            blocked = load_blocklist(CID_BLOCKLIST_FILE)
+            if blocked:
+                for bcid, meta in sorted(blocked.items()):
+                    row_c1, row_c2 = st.columns([0.85, 0.15])
+                    with row_c1:
+                        st.caption(f"**{bcid}** - {meta['reason'] or 'no reason given'} (blocked {meta['added_at']})")
+                    with row_c2:
+                        if st.button("Unblock", key=f"unblock_{bcid}"):
+                            remove_from_blocklist(CID_BLOCKLIST_FILE, bcid)
+                            _log_admin_event("cid_unblocked", bcid)
+                            st.rerun()
+            else:
+                st.caption("No CIDs are currently blocked.")
+
+        st.markdown("---")
+        if os.path.exists(LOG_FILE):
+            df_logs = pd.read_csv(LOG_FILE)
+            df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'])
+            time_delta = (datetime.now() - df_logs['Timestamp']).dt.total_seconds()
+
+            total_unique = len(df_logs['Session_ID'].unique())
+            active_now = len(df_logs[time_delta < 300]['Session_ID'].unique())
+
+            view_rows = summarize_views(PAGE_VIEWS_FILE)
+            top_page = f"{view_rows[0]['page']} ({view_rows[0]['count']})" if view_rows else "N/A"
+
+            adm_c1, adm_c2, adm_c3 = st.columns(3)
+            with adm_c1: st.metric(label="🟢 Active Users (Last 5 Mins)", value=active_now)
+            with adm_c2: st.metric(label="👥 Total Unique Connections", value=total_unique)
+            with adm_c3: st.metric(label="📄 Most-Viewed Page (all time)", value=top_page)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("📄 Page views", expanded=False):
+                st.caption("One count per browser session per page (a reload of the same page doesn't count twice).")
+                pv_c1, pv_c2 = st.columns(2)
+                with pv_c1:
+                    st.caption("Last 24 hours")
+                    recent = summarize_views(PAGE_VIEWS_FILE, hours=24)
+                    st.dataframe(pd.DataFrame(recent) if recent else pd.DataFrame([{"page": "-", "count": 0}]), hide_index=True, width="stretch")
+                with pv_c2:
+                    st.caption("All time")
+                    st.dataframe(pd.DataFrame(view_rows) if view_rows else pd.DataFrame([{"page": "-", "count": 0}]), hide_index=True, width="stretch")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if not st.session_state.get("confirm_wipe_logs"):
+                btn_c1, btn_c2 = st.columns([0.8, 0.2])
+                with btn_c1: st.subheader("👥 Live Session Logs")
+                with btn_c2:
+                    if st.button("🗑️ Wipe Logs", width='stretch'):
+                        st.session_state.confirm_wipe_logs = True
+                        st.rerun()
+            else:
+                st.subheader("👥 Live Session Logs")
+                st.warning("This permanently deletes every visitor session log. This cannot be undone.")
+                wc1, wc2 = st.columns(2)
+                with wc1:
+                    if st.button("Confirm wipe", width="stretch"):
+                        os.remove(LOG_FILE)
+                        init_log_file()
+                        _log_admin_event("logs_wiped")
+                        st.session_state.confirm_wipe_logs = False
+                        st.rerun()
+                with wc2:
+                    if st.button("Cancel", width="stretch"):
+                        st.session_state.confirm_wipe_logs = False
+                        st.rerun()
+
+            df_display = df_logs.sort_values(by="Timestamp", ascending=False).copy()
+            df_display['Timestamp'] = df_display['Timestamp'].dt.strftime('%H:%M:%S || %Y-%m-%d')
+            df_display = df_display[["Timestamp", "Device_Type", "OS", "Browser", "Last_Action"]].rename(
+                columns={"Device_Type": "Device Type", "Last_Action": "Last Action"})
+            st.dataframe(df_display, hide_index=True, width='stretch')
+        st.stop()
+
+
 set_browser_title(labels=["Leaderboard", "Selected FIR Focus", "Global Stats & ATC", "Anomaly Radar", "CID Stats", "Network Stats", "Project Roadmap"])
 
 data = fetch_vatsim_data()
@@ -956,6 +1176,11 @@ if data:
         st.markdown('<div class="top-emoji-btn">', unsafe_allow_html=True)
         settings_clicked = st.button("⚙️", help="Click to toggle Column visibility and Fleet filters")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    try:
+        render_banner(read_banner(SITE_BANNER_FILE))
+    except Exception:
+        pass
 
     if "show_panel" not in st.session_state: st.session_state.show_panel = False
     if settings_clicked:
@@ -1051,8 +1276,9 @@ if data:
     @st.fragment(run_every=20)
     def render_leaderboard():
         d = fetch_vatsim_data()
-        lb_pilots = d.get("pilots", []) if d else []
-        lb_controllers = d.get("controllers", []) if d else []
+        blocklist = load_blocklist(CID_BLOCKLIST_FILE)
+        lb_pilots = [p for p in (d.get("pilots", []) if d else []) if str((p or {}).get("cid", "")) not in blocklist]
+        lb_controllers = [c for c in (d.get("controllers", []) if d else []) if str((c or {}).get("cid", "")) not in blocklist]
         now = datetime.now(timezone.utc)
         flight = flight_records(lb_pilots, load_airports(), top=LB_TOP)
         members = member_records(lb_pilots, lb_controllers, now, top=LB_TOP)
@@ -2133,6 +2359,7 @@ if data:
         VatScoreRadar - Made by alp-1863530 <br>
         📬 For any questions or requests, contact:
         <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
+        <br><span style="opacity:0.7;">This site logs basic, non-personal session info (device type, browser, OS, page visited) for admin diagnostics only - no accounts, no tracking cookies, never shared with third parties.</span>
     </div>
     """, unsafe_allow_html=True)
 
