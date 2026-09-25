@@ -17,6 +17,7 @@
                 const FACILITY_ROLE = { 1: "FSS", 2: "DEL", 3: "GND", 4: "TWR", 5: "APP", 6: "CTR" };
                 let leafletPromise = null, flightMap = null, mapLayers = null, mapLive = null, mapTimer = null, mapBusy = false;
                 let mapFlightKey = "", trackPts = [], trackNote = "", trackWhy = "", trackWait = null;
+                let liveClockS = null, liveRef = null, liveRejects = 0, liveClockFixed = false;  // feed time of the newest poll, last accepted live sample, consecutive rejected polls
                 let profMode = "alt", lastControllers = [], lastAtis = [], controllersLoaded = false, atcSpec = null;
                 const mapOpts = { rings: true, atc: true, sectors: true, follow: false };
                 let tagOffset = { x: 28, y: -24 };  // where the aircraft tag sits relative to the aircraft, in screen pixels (draggable)
@@ -230,21 +231,17 @@
                     return nm;
                 }
 
+                // The live samples and statsim's recorded points come from different sources and clocks, so they are never mixed into one
+                // vertical-speed figure (liveVerticalSpeedFpm, track_guard.js): one odd sample must not read as a -7,850 fpm "descent" in cruise.
                 function verticalSpeedFpm() {
-                    if (trackPts.length < 2) return null;
-                    const last = trackPts[trackPts.length - 1];
-                    for (let i = trackPts.length - 2; i >= 0; i--) {
-                        const dt = last[3] - trackPts[i][3];
-                        if (dt >= 120) return dt > 900 ? null : Math.round(((last[2] - trackPts[i][2]) / (dt / 60)) / 50) * 50;
-                    }
-                    return null;
+                    return liveVerticalSpeedFpm(trackPts);
                 }
 
                 function pushTrackSample() {
                     if (!mapLive) return;
-                    const t = Math.floor(Date.now() / 1000), last = trackPts[trackPts.length - 1];
+                    const t = liveClockS || Math.floor(Date.now() / 1000), last = trackPts[trackPts.length - 1];
                     if (last && (t - last[3] < 15 || (last[0] === mapLive.lat && last[1] === mapLive.lon))) return;
-                    trackPts.push([mapLive.lat, mapLive.lon, mapLive.alt || 0, t, mapLive.gs || 0]);
+                    trackPts.push([mapLive.lat, mapLive.lon, mapLive.alt || 0, t, mapLive.gs || 0, 1]);
                 }
 
                 // Track points with continuous longitudes, moved to the same "copy" of the world as the plane.
@@ -757,9 +754,18 @@ function applyLayerOptions() {
                         lastControllers = Array.isArray(feed.controllers) ? feed.controllers : [];
                         lastAtis = Array.isArray(feed.atis) ? feed.atis : [];
                         controllersLoaded = true;
-                        const live = (feed.pilots || []).find(x => String(x.cid) === String(base.cid) && x.callsign === cs);
+                        const live = pickLiveEntry(feed.pilots, base.cid, cs, mapLive);
                         if (!live) { setMapNote("This pilot is no longer online"); renderMapFlight(false); return; }
                         setMapNote("");
+                        const stamp = Date.parse(feed.general && feed.general.update_timestamp) / 1000;
+                        liveClockS = isFinite(stamp) ? Math.floor(stamp) : null;
+                        const sample = [live.latitude, live.longitude, live.altitude || 0, liveClockS || Math.floor(Date.now() / 1000)];
+                        if (liveRef && !trackStepPlausible(liveRef, sample) && ++liveRejects < 3) return;  // keep the last good position
+                        liveRejects = 0; liveRef = sample;
+                        if (!liveClockFixed && liveClockS) {  // the first sample was stamped with the browser clock; put it on the feed's clock so later samples are not held back by clock skew
+                            trackPts.forEach(q => { if (q[5] === 1) q[3] = liveClockS - 1; });
+                            liveClockFixed = true;
+                        }
                         mapLive = { lat: live.latitude, lon: live.longitude, heading: live.heading, gs: live.groundspeed, alt: live.altitude };
                         pushTrackSample();
                         renderMapFlight(false);
@@ -771,7 +777,7 @@ function applyLayerOptions() {
                     if (mapTimer) { clearInterval(mapTimer); mapTimer = null; }
                     if (trackWait) { clearTimeout(trackWait); trackWait = null; }
                     if (flightMap) { flightMap.remove(); flightMap = null; }
-                    mapLayers = null; mapLive = null; mapFlightKey = ""; trackPts = []; trackNote = ""; trackWhy = "";
+                    mapLayers = null; mapLive = null; mapFlightKey = ""; trackPts = []; trackNote = ""; trackWhy = ""; liveClockS = null; liveRef = null; liveRejects = 0; liveClockFixed = false;
                     lastControllers = []; lastAtis = []; controllersLoaded = false; atcSpec = null;
                     document.getElementById("mapPanel").style.display = "none";
                     document.getElementById("popMapBadge").classList.remove("active");
@@ -792,7 +798,8 @@ function applyLayerOptions() {
                     setMapNote("");
                     mapFlightKey = String(p.cid) + ":" + cs;
                     mapLive = { lat: p.lat, lon: p.lon, heading: p.heading, gs: p.gs, alt: p.alt };
-                    trackPts = [[p.lat, p.lon, p.alt || 0, Math.floor(Date.now() / 1000), p.gs || 0]];
+                    trackPts = [[p.lat, p.lon, p.alt || 0, Math.floor(Date.now() / 1000), p.gs || 0, 1]];
+                    liveClockS = null; liveRef = null; liveRejects = 0; liveClockFixed = false;
                     flightMap = L.map("flightMap", { minZoom: 2, attributionControl: true }).setView([p.lat || 30, p.lon || 0], 5);
                     L.tileLayer(MAP_TILES_URL, { maxZoom: 12, attribution: MAP_TILES_ATTRIBUTION }).addTo(flightMap);
                     renderMapFlight(true);
