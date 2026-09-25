@@ -188,3 +188,21 @@ def warm_in_background(key, airports, min_interval_s=3600, fetch=fetch_layout, p
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread
+
+
+def layout_nonblocking(icao, lat, lon, now=None, fetch=fetch_layout, retry_delays=(1, 30, 60, 120, 240), sleep=time.sleep):
+    # For pages that refresh on their own (the Airport page): never waits for OpenStreetMap. Returns (layout, state) with state
+    # "ready" (layout is usable), "retrying" (it is being fetched in the background - a later refresh picks it up) or "invalid".
+    icao = str(icao).strip().upper()
+    if not _ICAO.fullmatch(icao):
+        return None, "invalid"
+    now = time.time() if now is None else now
+    record, _text = _load_record(_path(icao))
+    if record is not None and isinstance(record.get("layout"), dict):
+        if _fresh(record, now):
+            _ensure_in_repo(icao)
+            return record["layout"], "ready"
+        _retry_in_background(icao, lat, lon, fetch, retry_delays, sleep)  # stale but usable now; refreshed in the background
+        return record["layout"], "ready"
+    _retry_in_background(icao, lat, lon, fetch, retry_delays, sleep)
+    return None, "retrying"

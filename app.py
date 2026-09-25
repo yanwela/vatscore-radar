@@ -114,7 +114,8 @@ st.markdown("""
     /* Hidden helper link that the CID Stats tab's watcher script clicks to
        actually navigate — see the tab_cid block below. */
     div[data-testid="stPageLink"]:has(a[href="CID_Stats"]),
-    div[data-testid="stPageLink"]:has(a[href="Network_Stats"]) { display: none; }
+    div[data-testid="stPageLink"]:has(a[href="Network_Stats"]),
+    div[data-testid="stPageLink"]:has(a[href="Events"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_lookup_cid"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_track_req"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_pins_restore"]) { display: none; }
@@ -1171,7 +1172,7 @@ if is_admin_route:
         st.stop()
 
 
-set_browser_title(labels=["Leaderboard", "Selected FIR Focus", "Global Stats & ATC", "Anomaly Radar", "CID Stats", "Network Stats", "Project Roadmap"])
+set_browser_title(labels=["Leaderboard", "Selected FIR Focus", "Global Stats & ATC", "Anomaly Radar", "CID Stats", "Network Stats", "Events", "Project Roadmap"])
 
 data = fetch_vatsim_data()
 if data:
@@ -1535,9 +1536,9 @@ if data:
             st.success("No anomalies or emergencies at the moment.")
 
     # Keep the Roadmap LAST: put any new tab before it in both the label list and the unpacking below.
-    tab_leaderboard, tab_fir, tab_global, tab_anomaly, tab_cid, tab_network, tab_roadmap = st.tabs([
+    tab_leaderboard, tab_fir, tab_global, tab_anomaly, tab_cid, tab_network, tab_events, tab_roadmap = st.tabs([
         "🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar",
-        "📊 CID Stats", "📈 Network Stats", "🚀 Project Roadmap",
+        "📊 CID Stats", "📈 Network Stats", "🗓️ Events", "🚀 Project Roadmap",
     ])
 
     # st.tabs() has no on-click callback and renders every tab's body on every
@@ -1548,6 +1549,7 @@ if data:
     # that tab's panel actually becomes visible on screen.
     st.page_link("pages/1_CID_Stats.py", label="CID Stats", icon="📊")
     st.page_link("pages/2_Network_Stats.py", label="Network Stats", icon="📈")
+    st.page_link("pages/4_Events.py", label="Events", icon="🗓️")
 
     def nav_watcher(page_key):
         st.components.v1.html("""
@@ -1574,6 +1576,9 @@ if data:
 
     with tab_network:
         nav_watcher("Network_Stats")
+
+    with tab_events:
+        nav_watcher("Events")
 
     with tab_fir:
         st.subheader("✈️ Selected FIR Focus")

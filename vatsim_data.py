@@ -12,6 +12,7 @@ VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 VATSIM_RADAR_AIRLINES_URL = "https://data.vatsim-radar.com/airlines"
 VATSPY_DAT_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/VATSpy.dat"
 AIRPORTS_CSV = "airports.csv"
+EVENTS_URL = "https://my.vatsim.net/api/v2/events/latest"
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -23,6 +24,13 @@ def fetch_feed():
     except Exception:
         pass
     return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_events_raw():
+    r = requests.get(EVENTS_URL, timeout=15, headers={"User-Agent": "VatScoreRadar", "Accept": "application/json"})
+    r.raise_for_status()  # an exception is never cached, so the next visit simply tries again
+    return r.json()
 
 
 @st.cache_resource(ttl=86400, show_spinner=False)

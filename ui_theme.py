@@ -1,6 +1,8 @@
 import json
+from datetime import timezone
 from html import escape
 from urllib.parse import urlencode, urlsplit
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -69,6 +71,15 @@ function apply() {
 setInterval(apply, 300);
 apply();
 """
+
+
+def visitor_tz():
+    # the browser's IANA time zone (st.context.timezone), UTC when it is not known
+    try:
+        name = st.context.timezone
+        return ZoneInfo(name) if name else timezone.utc
+    except Exception:
+        return timezone.utc
 
 
 def apply_base_css():

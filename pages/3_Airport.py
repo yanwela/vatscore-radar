@@ -5,12 +5,15 @@ import requests
 import streamlit as st
 import network_stats as ns
 from metar_decode import decode_metar
-from redaction import is_blocked
+from airport_layout_cache import layout_nonblocking
+from airport_live_view import airport_live_document
+from events_data import events_at_airport, parse_events, relative, time_line
+from redaction import is_blocked, load_blocklist
 from site_banner import read_banner
-from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, ROSE, SITE_BANNER_FILE, VIOLET, apply_base_css, page_url,
-                      render_banner, set_browser_title, stat_card, track_page_view)
+from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, LINE, PANEL, ROSE, SITE_BANNER_FILE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
+                      render_banner, set_browser_title, stat_card, track_page_view, visitor_tz)
 from tracon_areas import approach_keys_at
-from vatsim_data import fetch_feed, load_airport_key_map, load_airports
+from vatsim_data import fetch_events_raw, fetch_feed, load_airport_key_map, load_airports
 import html
 
 REFRESH_SECONDS = 20
@@ -22,6 +25,14 @@ st.set_page_config(page_title="VatScoreRadar - Airport", page_icon="🛫", layou
 track_page_view("Airport")
 render_banner(read_banner(SITE_BANNER_FILE))
 apply_base_css()
+st.markdown(f"""<style>
+.ap-ev {{ background:{PANEL}; border:1px solid {LINE}; border-radius:10px; padding:10px 16px; margin-top:8px; }}
+.ap-ev-name {{ font-size:15px; font-weight:700; color:{TEXT}; }}
+.ap-ev-name a {{ color:{TEXT} !important; text-decoration:none !important; }}
+.ap-ev-name a:hover {{ color:{CYAN} !important; }}
+.ap-ev-meta {{ font-size:13px; color:{SUBTLE}; margin-top:2px; }}
+.ap-ev-badge {{ display:inline-block; font-size:11px; font-weight:600; padding:0 6px; border-radius:4px; margin-left:8px; border:1px solid {EMERALD}; color:{EMERALD}; vertical-align:middle; }}
+</style>""", unsafe_allow_html=True)
 st.page_link("pages/2_Network_Stats.py", label="Back to Network Stats", icon="⬅️")
 st.title("🛫 Airport")
 
@@ -106,6 +117,38 @@ def render_metar(code):
     st.code(raw, language=None)
 
 
+def render_upcoming_events(code):
+    st.subheader("Upcoming events")
+    try:
+        events = parse_events(fetch_events_raw())
+    except Exception:
+        st.caption("The events could not be loaded right now.")
+        return
+    now, tz = datetime.now(timezone.utc), visitor_tz()
+    items = events_at_airport(events, code, now)
+    if not items:
+        st.caption(f"No upcoming events at {code}.")
+    for ev in items:
+        live = '<span class="ap-ev-badge">Live</span>' if ev["start"] <= now < ev["end"] else ""
+        name = html.escape(ev["name"])
+        title = f'<a href="{html.escape(ev["link"])}" target="_blank" rel="noopener">{name}</a>' if ev["link"] else name
+        st.markdown(f'<div class="ap-ev"><div class="ap-ev-name">{title}{live}</div>'
+                    f'<div class="ap-ev-meta">{html.escape(time_line(ev, tz))} · {html.escape(relative(ev, now))}</div></div>', unsafe_allow_html=True)
+    st.page_link("pages/4_Events.py", label="All events", icon="🗓️")
+
+
+def render_live_map(code, airports, pilots, elevation):
+    here = airports.get(code)
+    if not here:
+        return
+    st.subheader("Live Airport Map")
+    layout, state = layout_nonblocking(code, here["lat"], here["lon"])
+    blocked = load_blocklist(CID_BLOCKLIST_FILE)
+    hide = sorted({str(p["callsign"]) for p in pilots if p.get("callsign") and str(p.get("cid", "")) in blocked})
+    st.iframe(airport_live_document({"icao": code, "name": here.get("name", ""), "lat": here["lat"], "lon": here["lon"], "elevation": elevation or 0,
+                                     "layout": layout, "layoutState": state, "hide": hide}), height=660)
+
+
 def local_time(tz):
     try:
         from zoneinfo import ZoneInfo
@@ -167,6 +210,8 @@ def render(code):
         with col:
             st.markdown(stat_card(label, value, color), unsafe_allow_html=True)
     render_metar(code)
+    render_upcoming_events(code)
+    render_live_map(code, airports, pilots, detail.get("elevation"))
     atc_box = st.container()
     left, right = st.columns(2)
     with left:
