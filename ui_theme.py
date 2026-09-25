@@ -4,11 +4,8 @@ from urllib.parse import urlencode, urlsplit
 
 import streamlit as st
 
+from data_sync import CID_BLOCKLIST_FILE, PAGE_VIEWS_FILE, SITE_BANNER_FILE, ensure_pulled, push_if_due
 from page_views import record_view
-
-PAGE_VIEWS_FILE = "page_views.jsonl"
-SITE_BANNER_FILE = "site_banner.json"
-CID_BLOCKLIST_FILE = "cid_blocklist.json"
 
 # Look of the stats pages (Network Stats, CID Stats, Airport).
 INK, PANEL, LINE = "#0a0e1a", "#10141f", "#1f2937"
@@ -113,12 +110,17 @@ def card_css():
 def track_page_view(page_name):
     # One count per browser session per page (not per rerun - a Streamlit script reruns on every widget interaction),
     # same convention as app.py's own "Radar Dashboard Opened" visit log.
+    try:
+        ensure_pulled()
+    except Exception:
+        pass
     key = "viewed_" + page_name
     if key in st.session_state:
         return
     st.session_state[key] = True
     try:
         record_view(PAGE_VIEWS_FILE, page_name)
+        push_if_due(PAGE_VIEWS_FILE)
     except Exception:
         pass
 

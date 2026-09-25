@@ -15,6 +15,7 @@ from shapely.prepared import prep
 
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
+from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
 from redaction import add_to_blocklist, is_blocked, load_blocklist, remove_from_blocklist
 from site_banner import clear_banner, read_banner, read_banner_raw, write_banner
@@ -152,8 +153,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Admin Activity Logging System
-LOG_FILE = "radar_traffic_logs.csv"
-ADMIN_AUDIT_FILE = "admin_audit_log.jsonl"
+LOG_FILE = RADAR_LOG_FILE
 ADMIN_PASSWORD = get_secret("ADMIN_PASSWORD", "")
 ADMIN_PASSWORD_HASH = get_secret("ADMIN_PASSWORD_HASH", "")
 ADMIN_TOTP_SECRET = get_secret("ADMIN_TOTP_SECRET", "")
@@ -168,6 +168,7 @@ ADMIN_TOTP_STEP_SECONDS = 300  # the password step and the TOTP step must happen
 def _log_admin_event(event, detail=""):
     try:
         append_audit_event(ADMIN_AUDIT_FILE, event, detail)
+        push_if_due(ADMIN_AUDIT_FILE, 60)
     except Exception:
         pass  # the audit trail is best-effort and must never block a login/logout
 
@@ -266,13 +267,20 @@ def log_activity(action):
             df = pd.concat([df, new_row], ignore_index=True)
 
         df.to_csv(LOG_FILE, index=False)
+        push_if_due(LOG_FILE)
     except:
         pass
+
+try:
+    ensure_pulled()
+except Exception:
+    pass
 
 if "initialized" not in st.session_state:
     log_activity("Radar Dashboard Opened")
     try:
         record_view(PAGE_VIEWS_FILE, "Live Radar")
+        push_if_due(PAGE_VIEWS_FILE)
     except Exception:
         pass
     st.session_state.initialized = True
@@ -979,6 +987,13 @@ if is_admin_route:
             else:
                 st.caption("No data source has been used yet this run.")
             st.caption(f"statsim.net API key: {'configured' if get_secret('STATSIM_API_KEY', '') else '⚠️ NOT configured'}.")
+            sync = sync_status()
+            if not sync["enabled"]:
+                st.caption("Persistent storage: ⚠️ not configured (DATA_REPO / DATA_REPO_TOKEN missing), announcements, blocked CIDs and page views reset on every deploy.")
+            elif sync["last_error"]:
+                st.caption(f"Persistent storage: 🔴 last sync failed ({sync['last_error']}).")
+            else:
+                st.caption(f"Persistent storage: 🟢 GitHub data repo connected, {sync['pushes']} save(s) since this server started.")
 
             st.markdown("---")
             st.caption("Site-wide request budgets (shared by every visitor)")
@@ -1051,11 +1066,13 @@ if is_admin_route:
                         st.error("The auto-remove time must be after the go-live time.")
                     else:
                         write_banner(SITE_BANNER_FILE, banner_text, banner_level, starts_at=starts_at, expires_at=expires_at)
+                        push(SITE_BANNER_FILE, "announcement published")
                         _log_admin_event("banner_set", banner_text[:100])
                         st.rerun()
             with bc2:
                 if st.button("Clear announcement", width="stretch"):
                     clear_banner(SITE_BANNER_FILE)
+                    push(SITE_BANNER_FILE, "announcement cleared")
                     _log_admin_event("banner_cleared")
                     st.rerun()
 
@@ -1070,6 +1087,7 @@ if is_admin_route:
             if st.button("Block this CID"):
                 if block_cid.strip().isdigit():
                     add_to_blocklist(CID_BLOCKLIST_FILE, block_cid.strip(), block_reason)
+                    push(CID_BLOCKLIST_FILE, "cid blocked")
                     _log_admin_event("cid_blocked", block_cid.strip())
                     st.rerun()
                 else:
@@ -1083,6 +1101,7 @@ if is_admin_route:
                     with row_c2:
                         if st.button("Unblock", key=f"unblock_{bcid}"):
                             remove_from_blocklist(CID_BLOCKLIST_FILE, bcid)
+                            push(CID_BLOCKLIST_FILE, "cid unblocked")
                             _log_admin_event("cid_unblocked", bcid)
                             st.rerun()
             else:
@@ -1133,6 +1152,7 @@ if is_admin_route:
                     if st.button("Confirm wipe", width="stretch"):
                         os.remove(LOG_FILE)
                         init_log_file()
+                        push(LOG_FILE, "visitor session log wiped")
                         _log_admin_event("logs_wiped")
                         st.session_state.confirm_wipe_logs = False
                         st.rerun()
