@@ -12,6 +12,7 @@ CID_BLOCKLIST_FILE = "cid_blocklist.json"
 PAGE_VIEWS_FILE = "page_views.jsonl"
 ADMIN_AUDIT_FILE = "admin_audit_log.jsonl"
 RADAR_LOG_FILE = "radar_traffic_logs.csv"
+SHARED_PREFIXES = ("layouts/", "events_history/")  # public data, identical everywhere: synced even when DATA_SYNC is "off"
 SYNCED_FILES = (SITE_BANNER_FILE, CID_BLOCKLIST_FILE, PAGE_VIEWS_FILE, ADMIN_AUDIT_FILE, RADAR_LOG_FILE)
 
 _lock = threading.Lock()
@@ -27,10 +28,10 @@ def _secret(key):
 
 def _get_store(path=None):
     # DATA_SYNC = "off" keeps the mutable admin data (banner, blocklist, logs) local, e.g. on a dev machine. The cached OpenStreetMap
-    # airport layouts (layouts/...) are public, not sensitive and identical everywhere, so they sync regardless of that switch.
+    # airport layouts and the event history are public, not sensitive and identical everywhere, so they sync regardless of that switch.
     if _state["store"] is not None:  # an injected store (tests) wins over everything
         return _state["store"]
-    shared_layout = bool(path) and str(path).startswith("layouts/")
+    shared_layout = bool(path) and str(path).startswith(SHARED_PREFIXES)
     if _secret("DATA_SYNC").lower() == "off" and not shared_layout:
         return None
     if _state["remote"] is None:

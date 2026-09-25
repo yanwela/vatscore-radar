@@ -17,3 +17,6 @@ secrets.toml
 
 # cached OpenStreetMap airport layouts (synced to the data repo)
 layouts/
+
+# recorded VATSIM event history (synced to the data repo)
+events_history/

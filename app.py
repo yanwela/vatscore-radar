@@ -16,6 +16,7 @@ from shapely.prepared import prep
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
 from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
+from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
 from redaction import add_to_blocklist, is_blocked, load_blocklist, remove_from_blocklist
@@ -997,6 +998,12 @@ if is_admin_route:
                 st.caption(f"Persistent storage: 🔴 last sync failed ({sync['last_error']}).")
             else:
                 st.caption(f"Persistent storage: 🟢 GitHub data repo connected, {sync['pushes']} save(s) since this server started.")
+            hist = events_history_status()
+            if hist["last_error"]:
+                st.caption(f"Event history: 🔴 last recording failed ({hist['last_error']}).")
+            else:
+                per_year = ", ".join(f"{y}: {n}" for y, n in hist["years"].items()) or "nothing recorded yet"
+                st.caption(f"Event history: 🟢 {hist['total']} event(s) recorded ({per_year}), {hist['withdrawn']} withdrawn. Finished events stay here after VATSIM drops them.")
 
             st.markdown("---")
             st.caption("Site-wide request budgets (shared by every visitor)")
@@ -1188,6 +1195,7 @@ if data:
                     _traffic[_code] += 1
         _csv_airports = load_csv_database()
         warm_in_background("popular", [(c, _csv_airports[c]["latitude"], _csv_airports[c]["longitude"]) for c, _n in _traffic.most_common(40) if c in _csv_airports][:12])
+        maybe_record()  # VATSIM drops an event from its list once it is over: keep our own record of every event we see (at most every 6 h)
     except Exception:
         pass
 global_grouped_firs = load_and_group_fir_boundaries()
@@ -2335,6 +2343,11 @@ if data:
 
 
 # ─── Remaining tabs (FIR focus, CID and Network live above) ─────────────────
+# The tabs only exist when the VATSIM feed answered; without it, say so instead of crashing on the missing tab objects.
+if not data:
+    st.error("Could not fetch data from VATSIM API. Please reload page.")
+    st.stop()
+
 with tab_leaderboard:
     render_leaderboard()
 

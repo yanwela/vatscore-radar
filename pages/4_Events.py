@@ -5,6 +5,7 @@ import streamlit as st
 
 import network_stats as ns
 from events_data import event_ics, filter_events, group_events, parse_events, relative, time_line, utc_label
+from events_history_store import maybe_record
 from site_banner import read_banner
 from ui_theme import (AMBER, CYAN, EMERALD, LINE, PANEL, SITE_BANNER_FILE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
                       render_banner, stat_card, track_page_view, visitor_tz)
@@ -98,6 +99,7 @@ def show_more_later():
 def render_events():
     try:
         events = parse_events(fetch_events_raw())
+        maybe_record(events)
     except Exception:
         st.error("Could not load the events from VATSIM. Please try again in a moment.")
         return

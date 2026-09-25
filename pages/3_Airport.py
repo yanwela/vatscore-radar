@@ -8,6 +8,7 @@ from metar_decode import decode_metar
 from airport_layout_cache import layout_nonblocking
 from airport_live_view import airport_live_document
 from events_data import events_at_airport, parse_events, relative, time_line
+from events_history_store import maybe_record
 from redaction import is_blocked, load_blocklist
 from site_banner import read_banner
 from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, LINE, PANEL, ROSE, SITE_BANNER_FILE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
@@ -121,6 +122,7 @@ def render_upcoming_events(code):
     st.subheader("Upcoming events")
     try:
         events = parse_events(fetch_events_raw())
+        maybe_record(events)
     except Exception:
         st.caption("The events could not be loaded right now.")
         return
