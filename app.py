@@ -992,7 +992,8 @@ if is_admin_route:
                 st.caption("No data source has been used yet this run.")
             st.caption(f"statsim.net API key: {'configured' if get_secret('STATSIM_API_KEY', '') else '⚠️ NOT configured'}.")
             sync = sync_status()
-            if sync["mode"] == "off":
+            sync_mode = sync.get("mode") or ("on" if sync.get("enabled") else "missing")  # .get: a module cached from an older deploy has no "mode" yet
+            if sync_mode == "off":
                 st.caption("Persistent storage: ⏸️ switched off on this machine (DATA_SYNC = \"off\"): announcements, blocked CIDs, page views and logs stay local here. "
                            "Airport layouts and the event history still sync.")
             elif not sync["enabled"]:
