@@ -137,4 +137,13 @@ def push_background(path, message=None):
 
 
 def status():
-    return {"enabled": enabled(), "last_ok": _state["last_ok"], "last_error": _state["last_error"], "pushes": _state["pushes"]}
+    # mode: "on", "off" (credentials may exist but DATA_SYNC = "off" keeps admin data local) or "missing" (no DATA_REPO / DATA_REPO_TOKEN)
+    if _state["store"] is not None:
+        mode = "on"
+    elif not _secret("DATA_REPO") or not _secret("DATA_REPO_TOKEN"):
+        mode = "missing"
+    elif _secret("DATA_SYNC").lower() == "off":
+        mode = "off"
+    else:
+        mode = "on"
+    return {"enabled": enabled(), "mode": mode, "last_ok": _state["last_ok"], "last_error": _state["last_error"], "pushes": _state["pushes"]}
