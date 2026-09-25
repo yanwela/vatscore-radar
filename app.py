@@ -2305,7 +2305,7 @@ if data:
             flight_track_bridge()
 
             html_table_and_modal_code = raw_html_template\
-                .replace("FLIGHT_MAP_JS_PLACEHOLDER", flight_map_asset("metar_decode.js") + "\n" + flight_map_asset("follow_math.js") + "\n" + flight_map_asset("track_guard.js") + "\n" + flight_map_asset("flight_map.js"))\
+                .replace("FLIGHT_MAP_JS_PLACEHOLDER", flight_map_asset("metar_decode.js") + "\n" + flight_map_asset("follow_math.js") + "\n" + flight_map_asset("track_guard.js") + "\n" + flight_map_asset("wxr_data.js") + "\n" + flight_map_asset("flight_map.js"))\
                 .replace("FLIGHT_MAP_CSS_PLACEHOLDER", flight_map_asset("flight_map.css"))\
                 .replace("FLIGHT_MAP_HTML_PLACEHOLDER", flight_map_asset("flight_map_panel.html"))\
                 .replace("{HEADERS_PLACEHOLDER}", th_elements)\

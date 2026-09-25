@@ -19,7 +19,7 @@
                 let mapFlightKey = "", trackPts = [], trackNote = "", trackWhy = "", trackWait = null;
                 let liveClockS = null, liveRef = null, liveRejects = 0, liveClockFixed = false;  // feed time of the newest poll, last accepted live sample, consecutive rejected polls
                 let profMode = "alt", lastControllers = [], lastAtis = [], controllersLoaded = false, atcSpec = null;
-                const mapOpts = { rings: true, atc: true, sectors: true, follow: false };
+                const mapOpts = { rings: true, atc: true, sectors: true, follow: false, wxr: false };
                 let tagOffset = { x: 28, y: -24 };  // where the aircraft tag sits relative to the aircraft, in screen pixels (draggable)
 
                 function loadLeaflet() {
@@ -583,8 +583,77 @@ function ringContains(ring, lat, lon) {  // ray casting; ring = [[lat, lon], ...
                     note();
                 }
 
-function applyLayerOptions() {
+                // Rain radar (RainViewer, latest frame): a browser-side tile layer, off by default, only fetched while the WXR chip is on. Their free tiles
+                // exist up to zoom 7 (deeper zooms answer with a "Zoom Level Not Supported" picture), so the layer stretches zoom 7 (maxNativeZoom).
+                // A page with no use for today's weather (the replay of an old flight) defines `const wxrEnabled = false;` and the chip is hidden.
+                const WXR_INDEX_URL = "https://api.rainviewer.com/public/weather-maps.json";
+                const WXR_REFRESH_MS = 300000;
+                let wxrLayer = null, wxrTimer = null, wxrFrame = null;
+
+                function renderWxrLabel(state) {
+                    const box = document.getElementById("wxrLabel");
+                    if (!box) return;
+                    box.textContent = "";
+                    box.classList.toggle("on", !!mapOpts.wxr);
+                    if (!mapOpts.wxr) return;
+                    const line = document.createElement("div");
+                    line.textContent = state === "error" ? "Rain radar is not available right now"
+                        : state === "ready" && wxrFrame ? "Rain radar · " + wxrTimeText(wxrFrame.time) + " · " + wxrAgeText(wxrFrame.time, Date.now() / 1000)
+                        : "Loading rain radar…";
+                    box.appendChild(line);
+                    if (state === "ready" && wxrFrame) {
+                        const bar = document.createElement("div"), scale = document.createElement("div");
+                        bar.className = "wxr-bar"; scale.className = "wxr-scale"; scale.textContent = "light → heavy";
+                        box.appendChild(bar); box.appendChild(scale);
+                    }
+                }
+
+                async function refreshWxr() {
+                    if (!flightMap || !mapOpts.wxr) return;
+                    try {
+                        const res = await fetch(WXR_INDEX_URL, { cache: "no-store" });
+                        if (!res.ok) throw new Error("HTTP " + res.status);
+                        const frame = wxrLatestFrame(await res.json());
+                        const url = frame ? wxrTileUrl(frame, 2, 1, 1) : null;  // scheme 2 = Universal Blue, the palette the free tiles really use
+                        if (!url) throw new Error("no radar frame");
+                        if (!flightMap || !mapOpts.wxr) return;
+                        if (!wxrLayer || !wxrFrame || wxrFrame.path !== frame.path) {
+                            const layer = L.tileLayer(url, { pane: "wxr", opacity: 0.7, maxNativeZoom: 7, maxZoom: 12,
+                                attribution: 'Radar &copy; <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>' });
+                            layer.addTo(flightMap);
+                            if (wxrLayer) flightMap.removeLayer(wxrLayer);
+                            wxrLayer = layer;
+                        }
+                        wxrFrame = frame;
+                        renderWxrLabel("ready");
+                    } catch (e) { renderWxrLabel(wxrLayer && wxrFrame ? "ready" : "error"); }
+                }
+
+                function applyWxr() {
+                    const chip = document.getElementById("tgWxr");
+                    if (chip) chip.classList.toggle("on", !!mapOpts.wxr);
+                    if (wxrTimer) { clearInterval(wxrTimer); wxrTimer = null; }
+                    if (!mapOpts.wxr) {
+                        if (wxrLayer && flightMap) flightMap.removeLayer(wxrLayer);
+                        wxrLayer = null; wxrFrame = null;
+                        renderWxrLabel();
+                        return;
+                    }
+                    renderWxrLabel("loading");
+                    refreshWxr();
+                    wxrTimer = setInterval(refreshWxr, WXR_REFRESH_MS);
+                }
+
+                function toggleWxr() {
                     if (!flightMap || !mapLayers) return;
+                    mapOpts.wxr = !mapOpts.wxr;
+                    applyWxr();
+                }
+
+                function applyLayerOptions() {
+                    if (!flightMap || !mapLayers) return;
+                    const wxrChip = document.getElementById("tgWxr");
+                    if (wxrChip && typeof wxrEnabled !== "undefined" && !wxrEnabled) wxrChip.style.display = "none";
                     const chips = { rings: "tgRings", atc: "tgAtc", sectors: "tgSectors" };
                     Object.keys(chips).forEach(k => {
                         const g = mapLayers[k];
@@ -646,6 +715,8 @@ function applyLayerOptions() {
                     if (!mapLayers) {
                         flightMap.createPane("sectors");
                         flightMap.getPane("sectors").style.zIndex = 350;  // area fills sit under the routes, tracks and markers
+                        flightMap.createPane("wxr");
+                        flightMap.getPane("wxr").style.zIndex = 330;  // the rain radar lies on the base map, under the area fills
                         mapLayers = { direct: L.layerGroup().addTo(flightMap), track: L.layerGroup().addTo(flightMap), rings: L.layerGroup(), sectors: L.layerGroup(), atc: L.layerGroup() };
                         [[p.origin, dep], [p.destination, arrLL]].forEach(([icao, ll]) => {
                             if (!ll) return;
@@ -775,6 +846,12 @@ function applyLayerOptions() {
 
                 function closeMap() {
                     if (mapTimer) { clearInterval(mapTimer); mapTimer = null; }
+                    if (wxrTimer) { clearInterval(wxrTimer); wxrTimer = null; }
+                    wxrLayer = null; wxrFrame = null; mapOpts.wxr = false;
+                    const wxrChip = document.getElementById("tgWxr");
+                    if (wxrChip) wxrChip.classList.remove("on");
+                    const wxrBox = document.getElementById("wxrLabel");
+                    if (wxrBox) { wxrBox.textContent = ""; wxrBox.classList.remove("on"); }
                     if (trackWait) { clearTimeout(trackWait); trackWait = null; }
                     if (flightMap) { flightMap.remove(); flightMap = null; }
                     mapLayers = null; mapLive = null; mapFlightKey = ""; trackPts = []; trackNote = ""; trackWhy = ""; liveClockS = null; liveRef = null; liveRejects = 0; liveClockFixed = false;
