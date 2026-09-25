@@ -144,12 +144,31 @@ def maybe_record(events=None, fetch=_fetch_events, interval=MIN_INTERVAL_S, now_
     return thread
 
 
+def _remote_counts():
+    # the hosted disk starts empty after every restart, so the local files alone would say "0 recorded": ask the data repo too (cached for 5 minutes)
+    cache = _state.get("remote_cache")
+    if cache and time.time() - cache[0] < 300:
+        return cache[1]
+    found = {}
+    if data_sync.enabled(_path(0)):
+        this_year = datetime.now(timezone.utc).year
+        for year in range(this_year - 1, this_year + 2):
+            history = _parse(data_sync.pull_one(_path(year)))
+            if history is not None:
+                found[str(year)] = history
+    _state["remote_cache"] = (time.time(), found)
+    return found
+
+
 def status():
-    counts, withdrawn = {}, 0
+    histories = {}
     if os.path.isdir(HISTORY_DIR):
         for name in sorted(os.listdir(HISTORY_DIR)):
             if name.endswith(".json"):
-                history = _read_local(f"{HISTORY_DIR}/{name}") or {}
-                counts[name[:-5]] = len(history)
-                withdrawn += sum(1 for r in history.values() if isinstance(r, dict) and r.get("withdrawn"))
+                histories[name[:-5]] = _read_local(f"{HISTORY_DIR}/{name}") or {}
+    for year, history in _remote_counts().items():
+        if len(history) > len(histories.get(year, {})):
+            histories[year] = history
+    counts = {y: len(h) for y, h in sorted(histories.items())}
+    withdrawn = sum(1 for h in histories.values() for r in h.values() if isinstance(r, dict) and r.get("withdrawn"))
     return {"years": counts, "total": sum(counts.values()), "withdrawn": withdrawn, "last_run": _state["last"] or None, "last_error": _state["last_error"]}

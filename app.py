@@ -1002,6 +1002,10 @@ if is_admin_route:
                 st.caption(f"Persistent storage: 🔴 last sync failed ({sync['last_error']}).")
             else:
                 st.caption(f"Persistent storage: 🟢 GitHub data repo connected, {sync['pushes']} save(s) since this server started.")
+            try:
+                maybe_record()  # the admin page also keeps the event record going (the radar page does the same, at most every 6 h)
+            except Exception:
+                pass
             hist = events_history_status()
             if hist["last_error"]:
                 st.caption(f"Event history: 🔴 last recording failed ({hist['last_error']}).")
