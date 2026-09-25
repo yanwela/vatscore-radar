@@ -14,3 +14,6 @@ secrets.toml
 .env
 .env.*
 .cache/
+
+# cached OpenStreetMap airport layouts (synced to the data repo)
+layouts/

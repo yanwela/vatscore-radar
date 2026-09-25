@@ -15,7 +15,7 @@ RADAR_LOG_FILE = "radar_traffic_logs.csv"
 SYNCED_FILES = (SITE_BANNER_FILE, CID_BLOCKLIST_FILE, PAGE_VIEWS_FILE, ADMIN_AUDIT_FILE, RADAR_LOG_FILE)
 
 _lock = threading.Lock()
-_state = {"pulled": False, "last_ok": None, "last_error": None, "pushes": 0, "last_pushed": {}, "hashes": {}, "store": None}
+_state = {"pulled": False, "last_ok": None, "last_error": None, "pushes": 0, "last_pushed": {}, "hashes": {}, "store": None, "remote": None}
 
 
 def _secret(key):
@@ -25,20 +25,24 @@ def _secret(key):
         return ""
 
 
-def _get_store():
-    if _state["store"] is not None:
+def _get_store(path=None):
+    # DATA_SYNC = "off" keeps the mutable admin data (banner, blocklist, logs) local, e.g. on a dev machine. The cached OpenStreetMap
+    # airport layouts (layouts/...) are public, not sensitive and identical everywhere, so they sync regardless of that switch.
+    if _state["store"] is not None:  # an injected store (tests) wins over everything
         return _state["store"]
-    if _secret("DATA_SYNC").lower() == "off":
+    shared_layout = bool(path) and str(path).startswith("layouts/")
+    if _secret("DATA_SYNC").lower() == "off" and not shared_layout:
         return None
-    repo, token = _secret("DATA_REPO"), _secret("DATA_REPO_TOKEN")
-    if not repo or not token:
-        return None
-    _state["store"] = GitHubFileStore(repo, token, branch=_secret("DATA_REPO_BRANCH") or "main")
-    return _state["store"]
+    if _state["remote"] is None:
+        repo, token = _secret("DATA_REPO"), _secret("DATA_REPO_TOKEN")
+        if not repo or not token:
+            return None
+        _state["remote"] = GitHubFileStore(repo, token, branch=_secret("DATA_REPO_BRANCH") or "main")
+    return _state["remote"]
 
 
-def enabled():
-    return _get_store() is not None
+def enabled(path=None):
+    return _get_store(path) is not None
 
 
 def _note(ok, store):
@@ -75,7 +79,7 @@ def _digest(text):
 
 
 def push(path, message=None):
-    store = _get_store()
+    store = _get_store(path)
     if store is None:
         return False
     with _lock:
@@ -110,6 +114,25 @@ def push_if_due(path, min_seconds=600):
         return
     _state["last_pushed"][path] = now
     threading.Thread(target=push, args=(path, f"update {path} (batched)"), daemon=True).start()
+
+
+def pull_one(path):
+    store = _get_store(path)
+    if store is None:
+        return None
+    text = store.read(path)
+    if text is None:
+        if store.last_error:
+            _note(False, store)
+        return None
+    _state["hashes"][path] = _digest(text)
+    _note(True, store)
+    return text
+
+
+def push_background(path, message=None):
+    if enabled(path):
+        threading.Thread(target=push, args=(path, message), daemon=True).start()
 
 
 def status():

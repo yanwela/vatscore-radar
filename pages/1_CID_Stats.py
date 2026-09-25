@@ -21,6 +21,7 @@ from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, f
 from flight_replay_view import replay_document
 from atc_area_data import build_area_replay
 from atc_area_sessions import area_sessions
+from airport_layout_cache import is_retrying, load_airport_layout, sync_local_layouts_in_background, warm_in_background
 from atc_replay_data import build_atc_replay
 from atc_replay_view import atc_replay_document
 from atc_sessions import replay_sessions
@@ -532,6 +533,13 @@ if atc_replay_allowed:
     except Exception:
         pass  # the airport positions still work without the VATSpy tables
     atc_replay_sessions.sort(key=lambda s: s["on"], reverse=True)
+    # fetch the ground layouts of this controller's airports in the background, so picking a session later finds them ready
+    _ground_airports = {}
+    for _s in atc_replay_sessions:
+        if _s.get("kind") != "area" and _s.get("role") in ("DEL", "GND", "TWR") and _s.get("icao") and _s["icao"] not in _ground_airports:
+            _ground_airports[_s["icao"]] = (_s["icao"], _s["lat"], _s["lon"])
+    warm_in_background("cid:" + cid, list(_ground_airports.values())[:12], min_interval_s=1800)
+    sync_local_layouts_in_background()
 atc_replay_open = st.query_params.get("atcreplay") == "1" and atc_replay_allowed
 atc_replay_chip = ""
 if atc_replay_allowed:
@@ -777,7 +785,14 @@ def render_atc_replay():
     loaded.add(chosen["id"])
     if not payload["flights"]:
         st.info("statsim.net has no recorded track for the traffic of this session, so there is nothing to draw. Tracks are only kept for a pilot's last 60 flights.")
-    st.iframe(atc_replay_document(payload), height=800)
+    layout, layout_state = None, "ready"
+    if payload.get("session", {}).get("role") in ("DEL", "GND", "TWR") and payload.get("airport"):
+        ap = payload["airport"]
+        with st.spinner("Loading the airport layout (taxiways, stands)…"):
+            layout = load_airport_layout(ap["icao"], ap["lat"], ap["lon"], http)
+        if layout is None:
+            layout_state = "retrying" if is_retrying(ap["icao"]) else "failed"
+    st.iframe(atc_replay_document({**payload, "layout": layout, "layoutState": layout_state}), height=800)
 
 
 if atc_replay_open:

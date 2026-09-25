@@ -15,6 +15,7 @@ from shapely.prepared import prep
 
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
+from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
 from redaction import add_to_blocklist, is_blocked, load_blocklist, remove_from_blocklist
@@ -273,6 +274,7 @@ def log_activity(action):
 
 try:
     ensure_pulled()
+    sync_local_layouts_in_background()
 except Exception:
     pass
 
@@ -1172,6 +1174,21 @@ if is_admin_route:
 set_browser_title(labels=["Leaderboard", "Selected FIR Focus", "Global Stats & ATC", "Anomaly Radar", "CID Stats", "Network Stats", "Project Roadmap"])
 
 data = fetch_vatsim_data()
+if data:
+    # the airports with the most filed flights right now get their ground layout fetched in the background (at most once an hour,
+    # one polite request at a time), so an ATC Replay of a busy airport finds it ready instead of waiting for OpenStreetMap
+    try:
+        _traffic = Counter()
+        for _p in data.get("pilots", []):
+            _fp = _p.get("flight_plan") or {}
+            for _k in ("departure", "arrival"):
+                _code = str(_fp.get(_k, "")).strip().upper()
+                if len(_code) == 4:
+                    _traffic[_code] += 1
+        _csv_airports = load_csv_database()
+        warm_in_background("popular", [(c, _csv_airports[c]["latitude"], _csv_airports[c]["longitude"]) for c, _n in _traffic.most_common(40) if c in _csv_airports][:12])
+    except Exception:
+        pass
 global_grouped_firs = load_and_group_fir_boundaries()
 
 if data:

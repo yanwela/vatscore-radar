@@ -34,6 +34,13 @@ html, body { margin: 0; background: #0a0c14; color: #e2e8f0; font-family: 'Segoe
 .ar-tag { position: absolute; left: 12px; top: -22px; padding: 0 4px; border-radius: 3px; background: rgba(10, 12, 20, 0.82); color: #f1f5f9; font-size: 11px; white-space: nowrap; }
 .ar-airport-tip { background: #f1f5f9; color: #0a0c14; border: none; font-weight: 600; box-shadow: none; }
 .ar-airport-tip::before { display: none; }
+.ar-lbl-wrap { pointer-events: none; }
+.ar-lbl { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; padding: 0 4px; border-radius: 3px; font-size: 11px; font-weight: 600; line-height: 15px; }
+.ar-lbl-twy { background: rgba(10, 12, 20, 0.78); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.55); }
+.ar-lbl-rwy { background: rgba(248, 250, 252, 0.9); color: #0a0c14; }
+.ar-lbl-stand { background: rgba(10, 12, 20, 0.7); color: #7dd3fc; font-size: 10px; padding: 0 3px; }
+.ar-lbl-hold { background: rgba(10, 12, 20, 0.7); color: #fca5a5; font-size: 10px; padding: 0 3px; }
+.leaflet-control-layers-expanded { padding: 6px 10px; background: #11131f; color: #e2e8f0; border: 1px solid #1e293b; }
 """
 
 _BODY = """
@@ -62,13 +69,14 @@ _BODY = """
 
 
 def atc_replay_document(payload):
-    """One self-contained HTML page for an airport controller session; `payload` = {"session", "airport", "flights", "stats"}."""
+    """One self-contained HTML page for an airport controller session; `payload` = {"session", "airport", "flights", "stats", optionally "layout"}."""
     return (
         "<!DOCTYPE html><html><head><meta charset='utf-8'><style>" + _CSS + "</style></head><body>" + _BODY
         + "<script>const ATC_DATA = " + _js(payload) + ";</script>"
         + "<script>" + asset("replay_core.js") + "</script>"
         + "<script>" + asset("atc_zone.js") + "</script>"
         + "<script>" + asset("atc_poly_zone.js") + "</script>"
+        + "<script>" + asset("airport_layout.js") + "</script>"
         + "<script>" + asset("atc_replay.js") + "</script>"
         + "</body></html>"
     )

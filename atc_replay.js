@@ -158,6 +158,10 @@
         }
     }
 
+    function hasLayout(l) {
+        return !!l && Array.isArray(l.taxiways) && Array.isArray(l.runways) && (l.taxiways.length > 0 || l.runways.length > 0);
+    }
+
     function buildUi() {
         $("arTitle").textContent = S.callsign;
         $("arMeta").textContent = (IS_AREA ? D.area.name : AP.icao + " " + (AP.name || "")) + "  ·  " + replayClock(tStart) + "–" + replayClock(tEnd);
@@ -176,6 +180,11 @@
             stats.tracked + " of " + stats.found + " flights of this session have a recorded track (statsim keeps tracks of a pilot's last 60 flights only). " +
             (IS_AREA ? "Flights are picked from their planned great-circle route and confirmed by their recorded track" + (stats.capped ? "; a busy airspace is capped at " + stats.found + " flights, so not every flight is shown." : ".")
                      : "Local and VFR flights appear when their flight plan names " + AP.icao + "; pilots without any flight plan are not in statsim's airport data.");
+        if (GROUND && !hasLayout(D.layout)) $("arNote").textContent += ($("arNote").textContent ? "  " : "") + (D.layout
+            ? "OpenStreetMap has no taxiway data for " + AP.icao + ", so only the satellite image is shown."
+            : (D.layoutState === "retrying"
+                ? "The OpenStreetMap servers are busy, so the airport layout is still being fetched in the background: pick this session again in a minute and it will be there."
+                : "The OpenStreetMap servers did not answer just now, so the airport layout is missing: pick this session again in a minute to retry."));
         const scrub = $("arScrub");
         scrub.min = String(Math.floor(tStart)); scrub.max = String(Math.ceil(tEnd)); scrub.value = String(Math.floor(tStart));
         scrub.oninput = e => setTime(Number(e.target.value));
@@ -202,6 +211,7 @@
                 // innerHTML, and AP.icao ultimately traces back to server data - always go through a safe node, not a string.
                 .bindTooltip(el("span", "", AP.icao), { permanent: true, direction: "top", offset: [0, -6], className: "ar-airport-tip" }).addTo(map);
         }
+        if (GROUND && hasLayout(D.layout)) drawAirportLayout(map, D.layout);
         layer = L.layerGroup().addTo(map);
         // ground positions are zoomed in on the airfield itself (the taxiways are within ~1 NM), the zone ring reaches beyond the view; pan or zoom out to follow approaching aircraft
         const VIEW_NM = { DEL: 1.3, GND: 1.3, TWR: 4.5, APP: zone.radiusNm * 1.35 }[ROLE];
