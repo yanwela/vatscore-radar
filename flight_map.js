@@ -839,6 +839,10 @@ function ringContains(ring, lat, lon) {  // ray casting; ring = [[lat, lon], ...
                         }
                         mapLive = { lat: live.latitude, lon: live.longitude, heading: live.heading, gs: live.groundspeed, alt: live.altitude };
                         pushTrackSample();
+                        // the distance-progress bar above the map lives in the page script, not here: keep it on the live position too
+                        if (typeof updateHaversineProgressMetrics === "function") {
+                            try { updateHaversineProgressMetrics(base.origin, base.destination, mapLive.lat, mapLive.lon); } catch (e) { /* the bar is cosmetic */ }
+                        }
                         renderMapFlight(false);
                     } catch (e) { /* keep the last known position */ }
                     finally { clearTimeout(timeout); mapBusy = false; }

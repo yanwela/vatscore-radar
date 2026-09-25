@@ -1882,8 +1882,10 @@ if data:
                         
                         let totalNM = Math.round(getDistanceNM(lat1, lon1, lat2, lon2));
                         let remainingNM = Math.round(getDistanceNM(currentLat, currentLon, lat2, lon2));
-                        let flownNM = Math.round(getDistanceNM(lat1, lon1, currentLat, currentLon));
-                        
+                        // Progress = the route length minus what is still to go, so it always agrees with "To go (direct)" on the map ribbon.
+                        // (The old figure was the straight line from the departure airport, which is not progress once the aircraft is off that line.)
+                        let flownNM = Math.max(0, totalNM - remainingNM);
+
                         if (flownNM > totalNM) flownNM = totalNM;
                         if (remainingNM < 5) flownNM = totalNM;
 
@@ -1893,7 +1895,8 @@ if data:
                         fillBar.style.width = pct + "%";
                         planeIcon.style.left = pct + "%";
                         
-                        txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM ";
+                        txtBox.innerText = flownNM + " NM (" + pct + "%) / Total " + totalNM + " NM direct";
+                        txtBox.title = "Straight-line progress: total distance minus the distance still to go. The 'Flown (track)' figure on the map adds up the path actually flown (taxi, turns and procedures included), so it is normally larger.";
                     } catch (err) {
                         txtBox.innerText = "Error Calculating Metrics";
                     }
