@@ -20,3 +20,4 @@ layouts/
 
 # recorded VATSIM event history (synced to the data repo)
 events_history/
+anomaly_history/

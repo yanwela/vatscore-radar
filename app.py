@@ -21,6 +21,7 @@ from airport_layout_cache import sync_local_layouts_in_background, warm_in_backg
 from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
+import anomaly_archive_store
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -1666,7 +1667,7 @@ if data:
                 fig.add_bar(x=pd.to_datetime(tl["starts"], unit="s", utc=True), y=tl["counts"][sev], name=name, marker_color=AN_SEV_COLOR[sev])
             fig.update_layout(barmode="stack", height=150, margin=dict(l=0, r=0, t=8, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", template="plotly_dark",
                               legend=dict(orientation="h", y=1.3, x=0), bargap=0.15)
-            fig.update_yaxes(dtick=1, gridcolor=UI_LINE, zeroline=False, rangemode="tozero")
+            fig.update_yaxes(nticks=4, gridcolor=UI_LINE, zeroline=False, rangemode="tozero")
             fig.update_xaxes(gridcolor=UI_LINE)
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
             st.caption(f"Anomalies per 5 minutes over the last 2 hours (this server has been watching for {watched_min} min).")
@@ -1680,6 +1681,31 @@ if data:
                              hide_index=True, width="stretch", column_config={"CID": st.column_config.LinkColumn("CID", display_text=r"cid=(\d+)")})
             else:
                 st.caption("Nothing else in the last 2 hours: anomalies that have gone away are listed here.")
+        with st.expander("History (kept long-term)"):
+            days = st.radio("Period", [7, 30, 90, 365], index=1, horizontal=True, key="an_hist_days", format_func=lambda d: f"{d} days", label_visibility="collapsed")
+            hist = anomaly_archive_store.history(feed_t, days)
+            if not hist["by_type"]:
+                st.caption("Nothing archived for this period yet. Anomalies are written to the archive about 2 minutes after they end, and saved to disk every 30 minutes.")
+            else:
+                titles = {"squawk_7700": "Emergency squawk (7700)", "squawk_7600": "Radio failure squawk (7600)", "squawk_7500": "Hijack squawk (7500)", "impossible_speed": "Implausible ground speed",
+                          "impossible_altitude": "Implausible altitude", "duplicate_cid": "Duplicate connection", "shared_callsign": "Callsign in use twice", "position_jump": "Position jump",
+                          "altitude_jump": "Altitude jump", "frozen": "Reports speed but not moving", "slow_at_altitude": "Very slow at high altitude", "ga_too_fast": "Light aircraft too fast"}
+                st.dataframe(pd.DataFrame([{"Type": titles.get(k, k), "Count": n} for k, n in sorted(hist["by_type"].items(), key=lambda kv: -kv[1])]), hide_index=True, width="stretch")
+                fig = go.Figure()
+                for k, hours in sorted(hist["by_hour"].items(), key=lambda kv: -sum(kv[1])):
+                    fig.add_bar(x=[f"{h:02d}" for h in range(24)], y=hours, name=titles.get(k, k))
+                fig.update_layout(barmode="stack", height=220, margin=dict(l=0, r=0, t=8, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", template="plotly_dark", legend=dict(orientation="h", y=-0.25))
+                fig.update_yaxes(gridcolor=UI_LINE, zeroline=False)
+                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+                st.caption("Anomalies by hour of day (UTC).")
+                if hist["recent"]:
+                    clock = lambda m: datetime.fromtimestamp(m * 60, timezone.utc).strftime("%Y-%m-%d %H:%M")
+                    st.dataframe(pd.DataFrame([{"Started (UTC)": clock(e["t"]), "Type": titles.get(e["k"], e["k"]), "Callsign": e["cs"], "Aircraft": e["ac"], "Minutes": e["d"],
+                                                "Near": (f"{e['lat']}, {e['lon']}" if e.get("lat") is not None and e.get("lon") is not None else ""),
+                                                "CID": (page_url("CID_Stats", cid=e["cid"]) if e.get("cid") else "")} for e in hist["recent"]]),
+                                 hide_index=True, width="stretch", column_config={"CID": st.column_config.LinkColumn("CID", display_text=r"cid=(\d+)")})
+                st.caption("Squawk, implausible-value and duplicate cases are kept one by one for 90 days, then only counted. Jumps, frozen and slow cases are only ever counted. "
+                           "Recorded by this server since it started watching.")
         st.caption("Rules: emergency squawks (7700 / 7600 / 7500), duplicate connections and shared callsigns, position or altitude jumps between two feed updates, "
                    "aircraft frozen in the air, implausible speed or altitude, light aircraft flying too fast, very slow high above the nearest airport. "
                    "The history covers what this server has seen since it started.")

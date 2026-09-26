@@ -4,10 +4,12 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from airport_elevation import build_index, nearest_elevation
+import anomaly_archive_store
 from anomaly_rules import anomaly_key, detect_anomalies
 from vatsim_data import load_airports
 
 RECENT_S = 2 * 3600
+ARCHIVE_AFTER_S = 120  # an anomaly that has been gone this long is over: it goes to the long-term archive
 
 
 def feed_time(feed):
@@ -49,10 +51,18 @@ def update(pilots, feed_t):
             key = anomaly_key(a)
             record = engine["seen"].get(key)
             if record is None:
-                engine["seen"][key] = {"first": feed_t, "last": feed_t, "a": a}
+                engine["seen"][key] = {"first": feed_t, "last": feed_t, "a": a, "archived": False}
             else:
-                record["last"], record["a"] = feed_t, a
+                record["last"], record["a"], record["archived"] = feed_t, a, False
+        closed = []
+        for record in engine["seen"].values():
+            if not record["archived"] and feed_t - record["last"] >= ARCHIVE_AFTER_S:
+                record["archived"] = True
+                closed.append((record["a"], record["first"], record["last"]))
+        if closed:
+            anomaly_archive_store.add_closed(closed)
         engine["seen"] = {k: r for k, r in engine["seen"].items() if r["last"] >= feed_t - RECENT_S}
+    anomaly_archive_store.flush()
 
 
 def snapshot_view():
