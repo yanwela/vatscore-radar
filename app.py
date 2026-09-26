@@ -1754,7 +1754,8 @@ if data:
     st.page_link("pages/4_Events.py", label="Events", icon="🗓️")
 
     def nav_watcher(page_key):
-        st.components.v1.html("""
+        st.iframe("""
+        <style>html, body { margin: 0; padding: 0; overflow: hidden; background: transparent; }</style>
         <script>
             let wasVisible = false;
             setInterval(() => {
@@ -1771,7 +1772,7 @@ if data:
                 wasVisible = isVisible;
             }, 150);
         </script>
-        """.replace("PAGE_KEY", page_key), height=0)
+        """.replace("PAGE_KEY", page_key), height=1)
 
     with tab_cid:
         nav_watcher("CID_Stats")
@@ -2527,7 +2528,7 @@ if data:
             # Dynamic height: 48px per row, max 900. The Flight Record window is centred in this iframe (position: fixed, 100vh), so even a
             # one-row table needs room for it: below ~760px the window is cut off at the top.
             dynamic_height = min(900, max(760, 120 + len(fir_pilots) * 48))
-            st.components.v1.html(html_table_and_modal_code, height=dynamic_height, scrolling=True)
+            st.iframe(html_table_and_modal_code, height=dynamic_height)
 
             st.markdown("<br>", unsafe_allow_html=True)
             csv = csv_safe_for_download(doc_fir).to_csv(index=False).encode('utf-8')
