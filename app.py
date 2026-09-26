@@ -1,5 +1,7 @@
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
+from html import escape as html_escape
 import requests
 import pandas as pd
 from collections import Counter
@@ -16,6 +18,8 @@ from shapely.prepared import prep
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
 from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
+from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
+from anomaly_timeline import build_timeline
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -28,7 +32,7 @@ from pin_sync import render_pin_sync
 from region_options import FEATURED, order_regions, parse_country_names, traffic_by_region
 from registration_country import country_of_registration, extract_registration
 from ui_theme import (AMBER, CID_BLOCKLIST_FILE, CYAN, EMERALD, LINE as UI_LINE, PAGE_VIEWS_FILE, ROSE, SITE_BANNER_FILE,
-                      TEXT as UI_TEXT, VIOLET, card_css, page_url, record_card, render_banner, set_browser_title)
+                      TEXT as UI_TEXT, VIOLET, card_css, page_url, record_card, render_banner, set_browser_title, stat_card)
 from leaderboard_records import flight_records, member_records
 from vatsim_data import _member_api_limiter, fetch_member_rating, load_airports
 from flight_track import fetch_track
@@ -1513,43 +1517,152 @@ if data:
                 st.caption(f"Every airport with {GLOBAL_NEEDS_MIN_FLIGHTS}+ filed flights has a controller.")
         st.caption("Airspaces count aircraft airborne right now; airports count flights filed from or to them.")
 
+    SEVERITY_LABEL = {"high": "🔴 High", "medium": "🟠 Medium", "low": "🟡 Low"}
+
+    AN_SEV_COLOR = {"high": "#fb7185", "medium": "#fb923c", "low": "#facc15"}
+    # Motion only where the data changes (a new row, a row that just went away, a counter that changed, the refresh cycle); nothing loops or glows,
+    # and everything is switched off for visitors who ask their system for reduced motion.
+    AN_CSS = """<style>
+.an-wrap { overflow-x: auto; margin: 6px 0 4px; }
+.an-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.an-table th { text-align: left; font-weight: 600; color: #94a3b8; padding: 8px 10px; border-bottom: 1px solid #1f2937; white-space: nowrap; }
+.an-table td { padding: 8px 10px; border-bottom: 1px solid #161c2b; color: #e8eef7; vertical-align: top; }
+.an-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.an-table td:first-child { border-left: 3px solid transparent; white-space: nowrap; }
+.an-table tr.sev-high td:first-child { border-left-color: #fb7185; }
+.an-table tr.sev-medium td:first-child { border-left-color: #fb923c; }
+.an-table tr.sev-low td:first-child { border-left-color: #facc15; }
+.an-table tr.sev-watch td:first-child { border-left-color: #60a5fa; }
+.an-table a { color: #60a5fa; text-decoration: none; }
+.an-table a:hover { text-decoration: underline; }
+.an-table tr.is-new { animation: anFlash 1.6s ease-out; }
+.an-table tr.is-leaving { animation: anLeave 1.2s ease-in forwards; }
+@keyframes anFlash { from { background-color: rgba(251, 191, 36, 0.16); } to { background-color: transparent; } }
+@keyframes anLeave { from { opacity: 1; } to { opacity: 0; visibility: collapse; } }
+.an-tick { animation: anTick 0.35s ease-out; }
+@keyframes anTick { from { opacity: 0.3; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.an-refresh { height: 2px; background: #1f2937; border-radius: 1px; overflow: hidden; margin: 8px 0 3px; }
+.an-refresh i { display: block; height: 100%; background: #334155; transform-origin: left; }
+.an-refresh.cycle-a i { animation: anCycleA 20s linear forwards; }
+.an-refresh.cycle-b i { animation: anCycleB 20s linear forwards; }
+@keyframes anCycleA { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes anCycleB { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.an-meta { color: #64748b; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .an-table tr.is-new, .an-tick, .an-refresh i { animation: none !important; }
+  .an-table tr.is-leaving { display: none; }
+}
+</style>"""
+
+    def an_card(label, value, color, tick):
+        return (f'<div class="vs-card"><div class="vs-kpi-label">{html_escape(label)}</div>'
+                f'<div class="vs-kpi-val{" an-tick" if tick else ""}" style="color:{color};">{html_escape(str(value))}</div></div>')
+
+    def an_cid_cell(cid):
+        cid = str(cid)
+        if cid.isdigit():
+            return f'<a href="{html_escape(page_url("CID_Stats", cid=cid))}" target="_blank" rel="noopener">{html_escape(cid)}</a>'
+        return html_escape(cid)
+
+    def an_row_html(cls, severity_text, title, callsign, details, aircraft, altitude, speed, cid, since):
+        return (f'<tr class="{cls}"><td>{html_escape(severity_text)}</td><td>{html_escape(title)}</td><td><b>{html_escape(str(callsign))}</b></td><td>{html_escape(details)}</td>'
+                f'<td>{html_escape(str(aircraft))}</td><td class="num">{int(altitude or 0):,}</td><td class="num">{int(speed or 0):,}</td><td>{an_cid_cell(cid)}</td><td>{html_escape(since)}</td></tr>')
+
     @st.fragment(run_every=20)
     def render_anomaly_table():
         d = fetch_vatsim_data()
         an_pilots = d.get("pilots", []) if d else []
+        anomaly_update(an_pilots, anomaly_feed_time(d))
+        view = anomaly_view()
+        blocked = load_blocklist(CID_BLOCKLIST_FILE)  # a redacted member is not listed here either
+        active = [row for row in view["active"] if row["a"]["cid"] not in blocked]
+        recent = [row for row in view["recent"] if row["a"]["cid"] not in blocked]
         vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
         vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
+        feed_t = view["feed_t"] or time.time()
 
-        anomalies = []
+        def ago(t):
+            minutes = max(int((feed_t - t) // 60), 0)
+            return "just now" if minutes < 1 else (f"{minutes} min" if minutes < 90 else f"{minutes // 60} h {minutes % 60:02d} min")
+
+        st.markdown(card_css() + AN_CSS, unsafe_allow_html=True)
+        counts = {sev: sum(1 for row in active if row["a"]["severity"] == sev) for sev in SEVERITY_LABEL}
+        prev_counts = st.session_state.get("an_prev_counts", {})
+        cur_counts = {}
+        kpis = st.columns(4)
+        for col, (label, value, color) in zip(kpis, [("High", counts["high"], ROSE), ("Medium", counts["medium"], AMBER), ("Low", counts["low"], CYAN),
+                                                      ("Recent (2 h)", len(recent), UI_TEXT)]):
+            cur_counts[label] = value
+            with col:
+                st.markdown(an_card(label, value, color, label in prev_counts and prev_counts[label] != value), unsafe_allow_html=True)
+        st.session_state["an_prev_counts"] = cur_counts
+
+        shown_sev = st.multiselect("Show", list(SEVERITY_LABEL.values()), default=list(SEVERITY_LABEL.values()), key="an_severity", label_visibility="collapsed")
+        body = []
         for p in an_pilots:
+            cid = str(p.get("cid", ""))
             callsign = p.get("callsign", "N/A")
-            cid = str(p.get("cid", "N/A"))
-            alt = p.get("altitude", 0)
-            gs = p.get("groundspeed", 0)
-            fplan = p.get("flight_plan") or {}
-            dep = fplan.get("departure", "").strip().upper()
-            arr = fplan.get("arrival", "").strip().upper()
-            ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
+            if cid in vip_cid_array or str(callsign).upper() in vip_callsign_array:
+                fplan = p.get("flight_plan") or {}
+                body.append(an_row_html("sev-watch", "🎯 Watchlist", "Watchlist match", callsign, f"Pilot is online. Route: {fplan.get('departure', '')} to {fplan.get('arrival', '')}",
+                                        (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", p.get("altitude", 0), p.get("groundspeed", 0), cid, "-"))
+        for row in active:
+            a = row["a"]
+            if SEVERITY_LABEL[a["severity"]] not in shown_sev:
+                continue
+            cls = f"sev-{a['severity']}" + (" is-new" if feed_t - row["first"] <= 30 else "")
+            body.append(an_row_html(cls, SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], ago(row["first"])))
+        # an anomaly that went away in the latest update fades out here once, before it only lives in the "Recent" list
+        for r in recent:
+            a = r["a"]
+            if r["ended_now"] and SEVERITY_LABEL[a["severity"]] in shown_sev:
+                body.append(an_row_html(f"sev-{a['severity']} is-leaving", SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], "ended"))
 
-            if str(p.get("transponder")) == "7700":
-                anomalies.append({"Type": "🚨 Emergency squawk (7700)", "Callsign": callsign, "Details": "Transponder set to 7700 (general emergency)", "Aircraft": ac_type, "Altitude (FT)": alt, "Speed (KT)": gs})
-            if gs > 1150:
-                anomalies.append({"Type": "⚠️ Implausible ground speed", "Callsign": callsign, "Details": f"Ground speed {gs} KT is above the 1,150 KT limit", "Aircraft": ac_type, "Altitude (FT)": alt, "Speed (KT)": gs})
-            if cid in vip_cid_array or callsign in vip_callsign_array:
-                anomalies.insert(0, {
-                    "Type": "🎯 Watchlist match",
-                    "Callsign": f"{callsign} (CID: {cid})",
-                    "Details": f"Pilot is online. Route: {dep} to {arr}",
-                    "Aircraft": ac_type,
-                    "Altitude (FT)": alt,
-                    "Speed (KT)": gs
-                })
+        # a new emergency squawk pops up once per browser session, without anyone having to watch the table
+        toasted = st.session_state.setdefault("an_toasted", set())
+        for row in active:
+            if row["a"]["severity"] == "high" and row["key"] not in toasted:
+                toasted.add(row["key"])
+                if feed_t - row["first"] <= 120:
+                    st.toast(f"{row['a']['callsign']}: {row['a']['title']}", icon="🚨")
 
-        if anomalies:
-            df_anomalies = pd.DataFrame(anomalies)
-            st.dataframe(df_anomalies, width='stretch')
+        if body:
+            head = "".join(f"<th>{h}</th>" for h in ("Severity", "Type", "Callsign", "Details", "Aircraft", "Altitude (ft)", "Speed (kt)", "CID", "Since"))
+            st.markdown(f'<div class="an-wrap"><table class="an-table"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>', unsafe_allow_html=True)
         else:
             st.success("No anomalies or emergencies at the moment.")
+
+        cycle = st.session_state["an_cycle"] = 1 - st.session_state.get("an_cycle", 0)
+        stamp = datetime.fromtimestamp(feed_t, timezone.utc).strftime("%H:%M:%S")
+        st.markdown(f'<div class="an-refresh cycle-{"ab"[cycle]}"><i></i></div><div class="an-meta">VATSIM data from {stamp}Z · this list refreshes every 20 s</div>', unsafe_allow_html=True)
+
+        watched_min = int((feed_t - view["started"]) // 60) if view["started"] else 0
+        if watched_min < 10:
+            st.caption(f"The 2-hour timeline appears after about 10 minutes of data (this server has been watching for {watched_min} min).")
+        else:
+            tl = build_timeline([r for r in view["records"] if r["cid"] not in blocked], feed_t)
+            fig = go.Figure()
+            for sev, name in (("high", "High"), ("medium", "Medium"), ("low", "Low")):
+                fig.add_bar(x=pd.to_datetime(tl["starts"], unit="s", utc=True), y=tl["counts"][sev], name=name, marker_color=AN_SEV_COLOR[sev])
+            fig.update_layout(barmode="stack", height=150, margin=dict(l=0, r=0, t=8, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", template="plotly_dark",
+                              legend=dict(orientation="h", y=1.3, x=0), bargap=0.15)
+            fig.update_yaxes(dtick=1, gridcolor=UI_LINE, zeroline=False, rangemode="tozero")
+            fig.update_xaxes(gridcolor=UI_LINE)
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.caption(f"Anomalies per 5 minutes over the last 2 hours (this server has been watching for {watched_min} min).")
+
+        recent = [r for r in recent if SEVERITY_LABEL[r["a"]["severity"]] in shown_sev]
+        with st.expander(f"Recent anomalies, last 2 hours ({len(recent)})"):
+            if recent:
+                clock = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%H:%M")
+                st.dataframe(pd.DataFrame([{"Severity": SEVERITY_LABEL[r["a"]["severity"]], "Type": r["a"]["title"], "Callsign": r["a"]["callsign"], "Details": r["a"]["details"],
+                                            "First seen (Z)": clock(r["first"]), "Last seen (Z)": clock(r["last"]), "CID": page_url("CID_Stats", cid=r["a"]["cid"])} for r in recent]),
+                             hide_index=True, width="stretch", column_config={"CID": st.column_config.LinkColumn("CID", display_text=r"cid=(\d+)")})
+            else:
+                st.caption("Nothing else in the last 2 hours: anomalies that have gone away are listed here.")
+        st.caption("Rules: emergency squawks (7700 / 7600 / 7500), duplicate connections and shared callsigns, position or altitude jumps between two feed updates, "
+                   "aircraft frozen in the air, implausible speed or altitude, light aircraft flying too fast, very slow high above the nearest airport. "
+                   "The history covers what this server has seen since it started.")
 
     # Keep the Roadmap LAST: put any new tab before it in both the label list and the unpacking below.
     tab_leaderboard, tab_fir, tab_global, tab_anomaly, tab_cid, tab_network, tab_events, tab_roadmap = st.tabs([
