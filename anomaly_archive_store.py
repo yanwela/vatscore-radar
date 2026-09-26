@@ -142,3 +142,9 @@ def purge(cid):
     events = purge_cid(_read(EVENTS_PATH, list), cid)
     _write(EVENTS_PATH, events)
     data_sync.push_background(EVENTS_PATH, "anomaly history")
+
+
+def status():
+    with _lock:
+        pending = len(_state["pending"])
+    return {"pending": pending, "archived": _state["last_written"], "last_error": _state["last_error"], "last_flush": _state["last_flush"] or None, "synced": data_sync.enabled(EVENTS_PATH)}

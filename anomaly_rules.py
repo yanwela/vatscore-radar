@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 # some clients report their position only every ~2 minutes, so a position can be that much older than the feed: not a teleport
 STALE_S = 120
+MAX_GS = 1300  # kt; above the Concorde's real cruise speed
 
 GA_TYPES = {"C150","C152","C162","C170","C172","C182","C185","C206","C207","P28A","P28R","PA28","PA32","PA34","PA46","DA40","DA42","DA62","SR20","SR22","BE33","BE35","BE36","M20P","M20T","TB20","AA5","RV7","RV8"}
 
@@ -120,8 +121,8 @@ def detect_anomalies(pilots, prev, now_s, ground_elevation=None):
             add("high", "squawk_7600", "Radio failure squawk (7600)", "Transponder set to 7600 (communication failure)", cs, cid, aircraft, alt, gs, lat, lon)
         elif squawk == "7500":
             add("high", "squawk_7500", "Hijack squawk (7500)", "Transponder set to 7500. On VATSIM this is often a test or a mistake", cs, cid, aircraft, alt, gs, lat, lon)
-        if gs > 1150:
-            add("high", "impossible_speed", "Implausible ground speed", f"Ground speed {gs} kt is above the 1,150 kt limit", cs, cid, aircraft, alt, gs, lat, lon)
+        if gs > MAX_GS:
+            add("high", "impossible_speed", "Implausible ground speed", f"Ground speed {gs} kt is above the {MAX_GS:,} kt limit", cs, cid, aircraft, alt, gs, lat, lon)
         if alt > 60000 or alt < -2000:
             add("high", "impossible_altitude", "Implausible altitude", f"Altitude {alt:,} ft", cs, cid, aircraft, alt, gs, lat, lon)
         if aircraft in GA_TYPES and gs > 260:

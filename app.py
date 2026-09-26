@@ -22,6 +22,7 @@ from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anom
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
 import anomaly_archive_store
+import anomaly_recorder
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -78,6 +79,10 @@ def csv_safe_for_download(df):
 
 # API URLs
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
+try:
+    anomaly_recorder.start()  # keeps the anomaly archive going even when nobody has the site open
+except Exception:
+    pass
 VATSIM_TRANSCEIVERS_URL = "https://data.vatsim.net/v3/transceivers-data.json"
 VATSIM_FIR_GEO_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/Boundaries.geojson"
 VATSPY_DAT_URL = "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/VATSpy.dat"
@@ -1019,6 +1024,19 @@ if is_admin_route:
                 per_year = ", ".join(f"{y}: {n}" for y, n in hist["years"].items()) or "nothing recorded yet"
                 st.caption(f"Event history: 🟢 {hist['total']} event(s) recorded ({per_year}), {hist['withdrawn']} withdrawn. Finished events stay here after VATSIM drops them.")
 
+            try:
+                rec, arc = anomaly_recorder.status(), anomaly_archive_store.status()
+                if not rec["running"]:
+                    st.caption("Anomaly archive: ⚪ the background recorder is not running.")
+                elif rec["last_error"] or arc["last_error"]:
+                    st.caption(f"Anomaly archive: 🔴 {rec['last_error'] or arc['last_error']}")
+                else:
+                    seen = datetime.fromtimestamp(rec["last_ok"], timezone.utc).strftime("%H:%M:%S") + "Z" if rec["last_ok"] else "waiting for the first feed"
+                    where = "saved to the data storage" if arc["synced"] else "kept on this server only (data storage is off)"
+                    st.caption(f"Anomaly archive: 🟢 recorder running (last feed {seen}), {arc['archived']} record(s) in the archive, {arc['pending']} waiting for the next save, {where}.")
+            except Exception:
+                pass
+
             st.markdown("---")
             st.caption("Site-wide request budgets (shared by every visitor)")
             limiter_rows = []
@@ -1715,6 +1733,15 @@ if data:
         "🏆 Leaderboard", "✈️ Selected FIR Focus", "🌐 Global Stats & ATC", "🛸 Anomaly Radar",
         "📊 CID Stats", "📈 Network Stats", "🗓️ Events", "🚀 Project Roadmap",
     ])
+    signature_slot = st.container()  # sits below the tabs but is filled right away, so the signature does not wait for every tab body to finish
+    signature_slot.markdown("""
+    <div class="signature-container">
+        VatScoreRadar - Made by alp-1863530 <br>
+        📬 For any questions or requests, contact:
+        <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
+        <br><span style="opacity:0.7;">This site logs basic, non-personal session info (device type, browser, OS, page visited) for admin diagnostics only - no accounts, no tracking cookies, never shared with third parties.</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     # st.tabs() has no on-click callback and renders every tab's body on every
     # run regardless of which one is visible, so tab_cid/tab_network can't just call
@@ -2578,15 +2605,5 @@ with tab_roadmap:
     </div>
     """, unsafe_allow_html=True)
 
-if data:
-    st.markdown("""
-    <div class="signature-container">
-        VatScoreRadar - Made by alp-1863530 <br>
-        📬 For any questions or requests, contact:
-        <a class="signature-link" href="mailto:alpqwesy1@gmail.com">alpqwesy1@gmail.com</a>
-        <br><span style="opacity:0.7;">This site logs basic, non-personal session info (device type, browser, OS, page visited) for admin diagnostics only - no accounts, no tracking cookies, never shared with third parties.</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-else:
+if not data:
     st.error("Could not fetch data from VATSIM API. Please reload page.")
