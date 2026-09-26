@@ -21,6 +21,7 @@ from airport_layout_cache import sync_local_layouts_in_background, warm_in_backg
 from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
+from fir_regions import canonical_region, fir_base, fir_display_name, region_prefix, sub_firs
 import anomaly_archive_store
 import anomaly_recorder
 from events_history_store import maybe_record, status as events_history_status
@@ -406,6 +407,8 @@ FIR_FALLBACK_NAMES = {
     "EG": "United Kingdom Airspace Hub",
     "LF": "France Airspace Hub",
     "K": "United States Airspace Hub",
+    "Z": "China Airspace Hub",
+    "Y": "Australia Airspace Hub",
     "OM": "UAE & Oman Airspace Hub",
     "LO": "Austria Airspace Hub",
     "LI": "Italy Airspace Hub",
@@ -427,7 +430,7 @@ def load_fir_raw_geometries():
                     icao = str(properties.get("id") or properties.get("icao") or "").upper().strip()
                     if not icao:
                         continue
-                    prefix = "K" if icao.startswith("K") else icao[:2]
+                    prefix = region_prefix(icao)
                     if prefix not in raw_groups:
                         raw_groups[prefix] = []
                     if geometry:
@@ -574,6 +577,25 @@ def fir_index():
             continue
         items.append({"id": f["id"], "geometry": g, "bounds": g.bounds, "prepared": prep(g), "label": f.get("label")})
     return items
+
+
+@st.cache_resource(ttl=86400, show_spinner=False)
+def fir_base_index():
+    # base FIR code (LTAA, LTBB) -> its boundary pieces (sectors included), for "which FIR is this aircraft in"
+    out = {}
+    for item in fir_index():
+        base = fir_base(item["id"])
+        if base:
+            out.setdefault(base, []).append((item["bounds"], item["prepared"]))
+    return out
+
+
+def point_in_fir(base, lat, lon):
+    pt = Point(lon, lat)
+    for (minx, miny, maxx, maxy), prepared in fir_base_index().get(base, []):
+        if minx <= lon <= maxx and miny <= lat <= maxy and prepared.contains(pt):
+            return True
+    return False
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -1300,7 +1322,7 @@ if data:
     filtered_pilots_raw = []
 
     if is_valid_fir_prefix(st.query_params.get("saved_fir")):
-        st.session_state.current_fir_prefix = st.query_params["saved_fir"]
+        st.session_state.current_fir_prefix = canonical_region(st.query_params["saved_fir"])  # an old link to a merged prefix (PH) lands on its hub (K)
     
     if "current_fir_prefix" not in st.session_state:
         st.session_state.current_fir_prefix = "LT"
@@ -1308,10 +1330,10 @@ if data:
     # pinned regions live in the URL (?pins=EG,ED) and in the browser's localStorage (pin_sync.py): a fresh visit without the URL gets them
     # back through this hidden field, which the sync script fills
     if "pinned_firs" not in st.session_state:
-        st.session_state.pinned_firs = [p for p in str(st.query_params.get("pins", "")).split(",") if is_valid_fir_prefix(p)][:8]
+        st.session_state.pinned_firs = list(dict.fromkeys(canonical_region(p) for p in str(st.query_params.get("pins", "")).split(",") if is_valid_fir_prefix(p)))[:8]
     restored_pins = st.text_input("vs_pins_restore", key="vs_pins_restore", label_visibility="collapsed", max_chars=40)
     if restored_pins and not st.session_state.pinned_firs and not st.session_state.get("pins_cleared", False):
-        st.session_state.pinned_firs = [p for p in restored_pins.split(",") if is_valid_fir_prefix(p)][:8]
+        st.session_state.pinned_firs = list(dict.fromkeys(canonical_region(p) for p in restored_pins.split(",") if is_valid_fir_prefix(p)))[:8]
         if st.session_state.pinned_firs:
             st.query_params["pins"] = ",".join(st.session_state.pinned_firs)
 
@@ -1825,7 +1847,24 @@ if data:
                       help="Pinned regions stay at the top of the list.", width="stretch")
         # keeps the pins in the browser (and restores them on a fresh visit whose URL carries none)
         render_pin_sync(st.session_state.pinned_firs, st.session_state.get("pins_cleared", False))
-        
+
+        # a region that holds several FIRs (Ankara and Istanbul in Türkiye, the ARTCCs in the US ...) can be narrowed to one of them
+        try:
+            fir_ids = [f["id"] for f in load_fir_features_raw()]
+            vatspy_rows = [(r[0], r[3], r[2], r[1]) for r in load_vatspy_fir_rows()]  # (icao, name, callsign prefix, boundary id)
+        except Exception:
+            fir_ids, vatspy_rows = [], []
+        subs = sub_firs(fir_ids, selected_option)
+        sub_fir = ""
+        if len(subs) >= 2:
+            if st.session_state.get("sub_fir_hub") != selected_option:
+                st.session_state["sub_fir_hub"] = selected_option
+                st.session_state["sub_fir_select"] = ""
+            if st.session_state.get("sub_fir_select") not in [""] + subs:
+                st.session_state["sub_fir_select"] = ""
+            sub_label = lambda b: "All FIRs in this region" if not b else f"{b} - {fir_display_name(b, vatspy_rows)}"
+            sub_fir = st.selectbox("FIR within this region:", [""] + subs, key="sub_fir_select", format_func=sub_label)
+
         if "only_physical_inside" not in st.session_state:
             st.session_state.only_physical_inside = False
 
@@ -1840,7 +1879,9 @@ if data:
         current_isolation_filter = st.session_state.airline_isolation_filter
 
         target_fir_shapes = global_grouped_firs.get(selected_fir_prefix, {}).get("shapes", [])
-        if st.session_state.only_physical_inside and not target_fir_shapes:
+        if sub_fir:
+            st.caption(f"Showing the aircraft physically inside {fir_display_name(sub_fir, vatspy_rows)} ({sub_fir}); a single FIR always uses its airspace boundary.")
+        elif st.session_state.only_physical_inside and not target_fir_shapes:
             st.caption("This region has no airspace boundary under this code, so the inside-airspace filter cannot show anything here.")
 
         for p in pilots:
@@ -1871,7 +1912,9 @@ if data:
                 if cs_prefix not in allowed_codes:
                     continue
 
-            if st.session_state.only_physical_inside:
+            if sub_fir:
+                include_aircraft = bool(lat and lon) and point_in_fir(sub_fir, lat, lon)
+            elif st.session_state.only_physical_inside:
                 # Shapely point-in-polygon checks are the expensive part of this loop,
                 # so only run them when the result can actually change the outcome.
                 is_physically_here = False
@@ -1883,7 +1926,7 @@ if data:
                             break
                 include_aircraft = is_physically_here
             else:
-                include_aircraft = str(dep).startswith(selected_fir_prefix) or str(arr).startswith(selected_fir_prefix)
+                include_aircraft = any(len(str(code)) == 4 and region_prefix(code) == selected_fir_prefix for code in (dep, arr))
 
             if include_aircraft:
                 display_dep = dep if dep else "NO FPL"
@@ -1917,7 +1960,7 @@ if data:
                     st.bar_chart(df_spd_chart, y='Speed (KT)', color='#22c55e')
 
             active_cols = ["Callsign"] + [c for c in st.session_state.visible_columns if c in doc_fir.columns]
-            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside unified airspace {selected_option} - {region_name(selected_option)}. Click a row to open the flight record.")
+            st.info(f"Showing {len(doc_fir)} active aircraft tracks inside {(sub_fir + " - " + fir_display_name(sub_fir, vatspy_rows)) if sub_fir else "unified airspace " + selected_option + " - " + region_name(selected_option)}. Click a row to open the flight record.")
             
             th_elements = "".join([f"<th>{col}</th>" for col in active_cols])
             

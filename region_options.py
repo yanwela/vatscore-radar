@@ -1,10 +1,6 @@
 FEATURED = ("LT","EG","ED","LF","K","LE","LI","LO","OM")
 
-def region_prefix(code):
-    code = str(code or "").strip().upper()
-    if code.startswith("K"):
-        return "K"
-    return code[:2]
+from fir_regions import region_prefix
 
 def traffic_by_region(pilots):
     counts = {}
