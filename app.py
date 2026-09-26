@@ -322,7 +322,7 @@ def _admin_hash_iterations():
         return None
 
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=15, show_spinner="Loading live VATSIM data…")
 def fetch_vatsim_data():
     try:
         r = requests.get(VATSIM_DATA_URL, timeout=10)
@@ -335,7 +335,7 @@ def fetch_vatsim_data():
         _report_health("VATSIM feed", False, e)
     return None
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=15, show_spinner="Loading pilot radio frequencies…")
 def fetch_pilot_frequencies():
     # VATSIM's main data feed has no per-pilot frequency field — it lives in this
     # separate transceivers feed instead, keyed by callsign, frequency in Hz.
@@ -357,7 +357,7 @@ def fetch_pilot_frequencies():
         _report_health("VATSIM transceivers feed", False, e)
     return freq_map
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400, show_spinner="Loading the airline list…")
 def load_vatsim_radar_airlines():
     airlines_map = {}
     try:
@@ -415,7 +415,7 @@ FIR_FALLBACK_NAMES = {
     "LE": "Spain Airspace Hub"
 }
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400, show_spinner="Loading airspace boundaries…")
 def load_fir_raw_geometries():
     # Cache only raw GeoJSON geometry dicts — Shapely objects are not serializable by Streamlit cache
     raw_groups = {}
@@ -464,7 +464,7 @@ def load_and_group_fir_boundaries():
             grouped_boundaries[k] = {"name": v, "shapes": []}
     return grouped_boundaries
 
-@st.cache_data
+@st.cache_data(show_spinner="Loading the airport database…")
 def load_csv_database():
     if os.path.exists(CSV_FILE_PATH):
         try:
