@@ -20,6 +20,7 @@ from health_monitor import record_result, summarize as summarize_health
 from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
 from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
+from anomaly_map_view import anomaly_map_document
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -1535,6 +1536,8 @@ if data:
 .an-table tr.sev-watch td:first-child { border-left-color: #60a5fa; }
 .an-table a { color: #60a5fa; text-decoration: none; }
 .an-table a:hover { text-decoration: underline; }
+.an-table tr[data-an-lat] { cursor: pointer; }
+.an-table tr[data-an-lat]:hover td { background: rgba(148, 163, 184, 0.07); }
 .an-table tr.is-new { animation: anFlash 1.6s ease-out; }
 .an-table tr.is-leaving { animation: anLeave 1.2s ease-in forwards; }
 @keyframes anFlash { from { background-color: rgba(251, 191, 36, 0.16); } to { background-color: transparent; } }
@@ -1564,8 +1567,9 @@ if data:
             return f'<a href="{html_escape(page_url("CID_Stats", cid=cid))}" target="_blank" rel="noopener">{html_escape(cid)}</a>'
         return html_escape(cid)
 
-    def an_row_html(cls, severity_text, title, callsign, details, aircraft, altitude, speed, cid, since):
-        return (f'<tr class="{cls}"><td>{html_escape(severity_text)}</td><td>{html_escape(title)}</td><td><b>{html_escape(str(callsign))}</b></td><td>{html_escape(details)}</td>'
+    def an_row_html(cls, severity_text, title, callsign, details, aircraft, altitude, speed, cid, since, lat=None, lon=None):
+        pos = f' data-an-lat="{lat:.5f}" data-an-lon="{lon:.5f}" data-an-cs="{html_escape(str(callsign))}"' if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) else ""
+        return (f'<tr class="{cls}"{pos}><td>{html_escape(severity_text)}</td><td>{html_escape(title)}</td><td><b>{html_escape(str(callsign))}</b></td><td>{html_escape(details)}</td>'
                 f'<td>{html_escape(str(aircraft))}</td><td class="num">{int(altitude or 0):,}</td><td class="num">{int(speed or 0):,}</td><td>{an_cid_cell(cid)}</td><td>{html_escape(since)}</td></tr>')
 
     @st.fragment(run_every=20)
@@ -1597,7 +1601,8 @@ if data:
                 st.markdown(an_card(label, value, color, label in prev_counts and prev_counts[label] != value), unsafe_allow_html=True)
         st.session_state["an_prev_counts"] = cur_counts
 
-        shown_sev = st.multiselect("Show", list(SEVERITY_LABEL.values()), default=list(SEVERITY_LABEL.values()), key="an_severity", label_visibility="collapsed")
+        st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+        shown_sev = st.multiselect("Show", list(SEVERITY_LABEL.values()), default=[SEVERITY_LABEL["high"]], key="an_severity", label_visibility="collapsed")
         body = []
         for p in an_pilots:
             cid = str(p.get("cid", ""))
@@ -1605,18 +1610,18 @@ if data:
             if cid in vip_cid_array or str(callsign).upper() in vip_callsign_array:
                 fplan = p.get("flight_plan") or {}
                 body.append(an_row_html("sev-watch", "🎯 Watchlist", "Watchlist match", callsign, f"Pilot is online. Route: {fplan.get('departure', '')} to {fplan.get('arrival', '')}",
-                                        (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", p.get("altitude", 0), p.get("groundspeed", 0), cid, "-"))
+                                        (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", p.get("altitude", 0), p.get("groundspeed", 0), cid, "-", p.get("latitude"), p.get("longitude")))
         for row in active:
             a = row["a"]
             if SEVERITY_LABEL[a["severity"]] not in shown_sev:
                 continue
             cls = f"sev-{a['severity']}" + (" is-new" if feed_t - row["first"] <= 30 else "")
-            body.append(an_row_html(cls, SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], ago(row["first"])))
+            body.append(an_row_html(cls, SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], ago(row["first"]), a.get("lat"), a.get("lon")))
         # an anomaly that went away in the latest update fades out here once, before it only lives in the "Recent" list
         for r in recent:
             a = r["a"]
             if r["ended_now"] and SEVERITY_LABEL[a["severity"]] in shown_sev:
-                body.append(an_row_html(f"sev-{a['severity']} is-leaving", SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], "ended"))
+                body.append(an_row_html(f"sev-{a['severity']} is-leaving", SEVERITY_LABEL[a["severity"]], a["title"], a["callsign"], a["details"], a["aircraft"], a["altitude"], a["speed"], a["cid"], "ended", a.get("lat"), a.get("lon")))
 
         # a new emergency squawk pops up once per browser session, without anyone having to watch the table
         toasted = st.session_state.setdefault("an_toasted", set())
@@ -1631,6 +1636,21 @@ if data:
             st.markdown(f'<div class="an-wrap"><table class="an-table"><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>', unsafe_allow_html=True)
         else:
             st.success("No anomalies or emergencies at the moment.")
+
+        if body:
+            by_cid = {(str(p.get("cid", "")), str(p.get("callsign", ""))): p for p in an_pilots}
+            grouped = {}
+            for r in active:
+                a = r["a"]
+                if SEVERITY_LABEL[a["severity"]] not in shown_sev or not isinstance(a.get("lat"), (int, float)) or not isinstance(a.get("lon"), (int, float)):
+                    continue
+                g = grouped.setdefault((str(a["cid"]), str(a["callsign"])), {"lat": a["lat"], "lon": a["lon"], "callsign": str(a["callsign"]), "aircraft": a["aircraft"], "alt": a["altitude"],
+                                                                          "gs": a["speed"], "severity": a["severity"], "titles": [], "heading": (by_cid.get((str(a["cid"]), str(a["callsign"]))) or {}).get("heading", 0)})
+                if a["title"] not in g["titles"]:
+                    g["titles"].append(a["title"])
+            map_points = list(grouped.values())
+            st.iframe(anomaly_map_document(map_points), height=350)
+            st.caption("Click a row in the table to bring that aircraft into view on the map.")
 
         cycle = st.session_state["an_cycle"] = 1 - st.session_state.get("an_cycle", 0)
         stamp = datetime.fromtimestamp(feed_t, timezone.utc).strftime("%H:%M:%S")

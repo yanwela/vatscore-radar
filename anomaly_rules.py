@@ -117,13 +117,13 @@ def detect_anomalies(pilots, prev, now_s, ground_elevation=None):
         if squawk == "7700":
             add("high", "squawk_7700", "Emergency squawk (7700)", "Transponder set to 7700 (general emergency)", cs, cid, aircraft, alt, gs, lat, lon)
         elif squawk == "7600":
-            add("medium", "squawk_7600", "Radio failure squawk (7600)", "Transponder set to 7600 (communication failure)", cs, cid, aircraft, alt, gs, lat, lon)
+            add("high", "squawk_7600", "Radio failure squawk (7600)", "Transponder set to 7600 (communication failure)", cs, cid, aircraft, alt, gs, lat, lon)
         elif squawk == "7500":
-            add("medium", "squawk_7500", "Hijack squawk (7500)", "Transponder set to 7500. On VATSIM this is often a test or a mistake", cs, cid, aircraft, alt, gs, lat, lon)
+            add("high", "squawk_7500", "Hijack squawk (7500)", "Transponder set to 7500. On VATSIM this is often a test or a mistake", cs, cid, aircraft, alt, gs, lat, lon)
         if gs > 1150:
-            add("medium", "impossible_speed", "Implausible ground speed", f"Ground speed {gs} kt is above the 1,150 kt limit", cs, cid, aircraft, alt, gs, lat, lon)
+            add("high", "impossible_speed", "Implausible ground speed", f"Ground speed {gs} kt is above the 1,150 kt limit", cs, cid, aircraft, alt, gs, lat, lon)
         if alt > 60000 or alt < -2000:
-            add("medium", "impossible_altitude", "Implausible altitude", f"Altitude {alt:,} ft", cs, cid, aircraft, alt, gs, lat, lon)
+            add("high", "impossible_altitude", "Implausible altitude", f"Altitude {alt:,} ft", cs, cid, aircraft, alt, gs, lat, lon)
         if aircraft in GA_TYPES and gs > 260:
             add("low", "ga_too_fast", "Light aircraft too fast", f"{aircraft} at {gs} kt", cs, cid, aircraft, alt, gs, lat, lon)
         # Height above the nearest airport (AGL), not a fixed MSL number: a parked aircraft at a 12,000 ft airport is on the ground, not "high". Far from every
@@ -141,7 +141,7 @@ def detect_anomalies(pilots, prev, now_s, ground_elevation=None):
         if p["cid"] and cid_counts[p["cid"]] > 1:
             n = cid_counts[p["cid"]]
             cs_list = [q["cs"] for q in parsed if q["cid"] == p["cid"]]
-            add("medium", "duplicate_cid", "Duplicate connection", f"CID {p['cid']} is online {n} times: {', '.join(cs_list)}", p["cs"], p["cid"], p["aircraft"], p["alt"], p["gs"], p["lat"], p["lon"])
+            add("low", "duplicate_cid", "Duplicate connection", f"CID {p['cid']} is online {n} times: {', '.join(cs_list)}", p["cs"], p["cid"], p["aircraft"], p["alt"], p["gs"], p["lat"], p["lon"])
 
     cs_cid_map = {}
     for p in parsed:
@@ -153,7 +153,7 @@ def detect_anomalies(pilots, prev, now_s, ground_elevation=None):
         key = p["cs"].lower()
         if len(cs_cid_map[key]) > 1:
             n = len(cs_cid_map[key])
-            add("medium", "shared_callsign", "Callsign in use twice", f"{p['cs']} is used by {n} different pilots", p["cs"], p["cid"], p["aircraft"], p["alt"], p["gs"], p["lat"], p["lon"])
+            add("low", "shared_callsign", "Callsign in use twice", f"{p['cs']} is used by {n} different pilots", p["cs"], p["cid"], p["aircraft"], p["alt"], p["gs"], p["lat"], p["lon"])
 
     new_snapshot = {}
     for p in parsed:
