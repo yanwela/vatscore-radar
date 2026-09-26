@@ -56,7 +56,7 @@ def update(pilots, feed_t):
                 record["last"], record["a"], record["archived"] = feed_t, a, False
         closed = []
         for record in engine["seen"].values():
-            if not record["archived"] and feed_t - record["last"] >= ARCHIVE_AFTER_S:
+            if not record.get("archived", False) and feed_t - record["last"] >= ARCHIVE_AFTER_S:  # records made by an older version of this module have no flag
                 record["archived"] = True
                 closed.append((record["a"], record["first"], record["last"]))
         if closed:
