@@ -21,6 +21,9 @@ from airport_layout_cache import sync_local_layouts_in_background, warm_in_backg
 from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
+from aircraft_category import classify_aircraft
+from table_prefs import airline_counts, is_default as prefs_are_default, prefs_json, sanitize_prefs
+from table_prefs_sync import render_table_prefs_sync
 from fir_regions import canonical_region, fir_base, fir_display_name, region_prefix, sub_firs
 import anomaly_archive_store
 import anomaly_recorder
@@ -132,6 +135,14 @@ st.markdown("""
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_lookup_cid"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_track_req"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_pins_restore"]) { display: none; }
+    div[data-testid="stElementContainer"]:has(input[aria-label="vs_prefs_restore"]) { display: none; }
+    /* The settings panel slides open and shut: it is always on the page and the marker inside it says which state it is in (a one-off transition, nothing loops). */
+    .st-key-radar_customizer [data-testid="stElementContainer"]:has(.vs-panel-state) { display: none; }
+    .st-key-radar_customizer { overflow: hidden; transition: max-height 0.26s ease, opacity 0.2s ease, transform 0.26s ease, visibility 0s linear 0.26s; }
+    .st-key-radar_customizer:has(.vs-panel-state.closed) { max-height: 0; opacity: 0; transform: translateY(-8px); visibility: hidden; }
+    .st-key-radar_customizer:has(.vs-panel-state.open) { max-height: 460px; opacity: 1; transform: none; visibility: visible; transition: max-height 0.26s ease, opacity 0.2s ease, transform 0.26s ease, visibility 0s; }
+    @media (max-width: 800px) { .st-key-radar_customizer:has(.vs-panel-state.open) { max-height: 1200px; } }
+    @media (prefers-reduced-motion: reduce) { .st-key-radar_customizer, .st-key-radar_customizer:has(.vs-panel-state.open) { transition: none; } }
     div[data-testid="stElementContainer"]:has(iframe[srcdoc*="vs-rating-sync"]) { display: none; }
     /* Streamlit fades elements while a (fragment) rerun is running; with 20s auto-refresh that reads as constant flicker. */
     [data-stale="true"] { opacity: 1 !important; transition: none !important; }
@@ -865,27 +876,6 @@ def flight_map_asset(name):
     return _read_asset(name, os.path.getmtime(os.path.join(_ASSET_DIR, name)))
 
 
-def classify_aircraft(ac_type, callsign):
-    ac_type = str(ac_type).upper().strip()
-    callsign = str(callsign).upper().strip()
-    
-    military_types = {
-        "F16", "F18", "F15", "F22", "F35", "F4", "F5", "EFAF", "GR4", 
-        "SU27", "SU35", "B52", "C17", "A400", "C130", "KC10", "K35R", 
-        "E3TF", "B1B", "B2", "A10", "TOR", "H64", "UH60", "CH47", "NH90"
-    }
-    if ac_type in military_types: return "Military"
-    military_prefixes = ("TUR", "RCH", "AME", "BAF", "IAM", "GAF", "ASY", "MIL", "NAVY", "ARMY", "AF1", "AF2")
-    if callsign.startswith(military_prefixes): return "Military"
-        
-    ga_types = {"C150", "C152", "C172", "C182", "C206", "C208", "P28A", "PA34", "DA40", "DA42", "SR22", "SR20", "E300", "DV20"}
-    if ac_type in ga_types: return "General Aviation"
-        
-    biz_jets = {"GLF5", "GLF6", "CL60", "C56X", "FA7X", "LJ45"}
-    if ac_type in biz_jets: return "Business Jet"
-        
-    return "Commercial"
-
 is_admin_route = query_params.get("admin") == "true"
 
 if is_admin_route:
@@ -1291,22 +1281,71 @@ if data:
     if "fleet_filter_selection" not in st.session_state: st.session_state.fleet_filter_selection = "All Flights"
     if "rules_filter_selection" not in st.session_state: st.session_state.rules_filter_selection = "All Rules"
     if "airline_isolation_filter" not in st.session_state: st.session_state.airline_isolation_filter = ""
+    fleet_options = ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Helicopter Only", "Military Only"]
+    rules_options = ["All Rules", "IFR Only", "VFR Only"]
 
-    if st.session_state.show_panel:
-        with st.container():
+    # the table settings come back on a fresh visit: the browser hands its saved copy through this hidden field (table_prefs_sync.py), and only
+    # values that pass the whitelist in sanitize_prefs are used
+    restored_prefs = st.text_input("vs_prefs_restore", key="vs_prefs_restore", label_visibility="collapsed", max_chars=800)
+    if restored_prefs and not st.session_state.get("prefs_restored"):
+        st.session_state.prefs_restored = True
+        saved_prefs = sanitize_prefs(restored_prefs, all_columns, fleet_options, rules_options)
+        st.session_state.visible_columns = saved_prefs["columns"]
+        st.session_state.fleet_filter_selection = saved_prefs["fleet"]
+        st.session_state.rules_filter_selection = saved_prefs["rules"]
+        st.session_state.airline_isolation_filter = ", ".join(saved_prefs["airlines"])
+
+    # A slot that is always there: when the panel appeared and disappeared, every element below it moved one position, so the page below (the
+    # leaderboard included) was rebuilt and flashed empty on each toggle.
+    panel_slot = st.container()
+    panel_state = "open" if st.session_state.show_panel else "closed"
+    if True:  # always rendered: opening and closing is a CSS transition on the state marker below, so the panel can also animate away
+        with panel_slot.container(key="radar_customizer"):
+            st.markdown(f'<div class="vs-panel-state {panel_state}"></div>', unsafe_allow_html=True)
             st.markdown("### ⚙️ Live Radar Customizer")
+            st.caption("These settings apply to the table in the Selected FIR Focus tab (columns and filters).")
             cfg_col1, cfg_col2 = st.columns(2)
             with cfg_col1:
                 st.session_state.visible_columns = st.multiselect("Select Table Columns:", options=all_columns, default=st.session_state.visible_columns)
-                st.session_state.airline_isolation_filter = st.text_input(
-                    "Airline Call-Sign Isolation (ICAO):", 
-                    value=st.session_state.airline_isolation_filter,
-                    placeholder="e.g. THY, PGT, BAW (Leave empty for all)"
-                )
+                selected_airlines = [c.strip().upper() for c in st.session_state.airline_isolation_filter.split(",") if c.strip()]
+                online_airlines = dict(airline_counts([p.get("callsign") for p in pilots]))
+                try:
+                    airline_names = load_vatsim_radar_airlines()
+                except Exception:
+                    airline_names = {}
+                airline_codes = list(online_airlines) + [c for c in selected_airlines if c not in online_airlines]
+
+                def airline_label(code):
+                    entry = airline_names.get(code) or {}
+                    # a virtual airline's own name (vBAW) says little: show the radio callsign instead (Speedbird)
+                    name = str(entry.get("callsign", "")).title() if entry.get("virtual") else entry.get("name", "")
+                    return f"{code}" + (f" - {name}" if name and name.upper() not in ("UNKNOWN", "UNKNOWN AIRLINE") else "") + (f" · {online_airlines[code]} flying" if code in online_airlines else "")
+
+                # keyed, because the labels carry live counts and an unkeyed widget would lose the pick whenever a new feed changed them; the key's
+                # value is only rewritten when the saved value changed from outside (Reset, a restored visit)
+                wanted_airlines = [c for c in selected_airlines if c in airline_codes]
+                if st.session_state.get("table_airlines_seen") != wanted_airlines:
+                    st.session_state["table_airlines"] = wanted_airlines
+                chosen_airlines = st.multiselect(
+                    "Airlines (leave empty for all):", options=airline_codes, default=None if "table_airlines" in st.session_state else wanted_airlines, key="table_airlines",
+                    format_func=airline_label, placeholder="Type to search, e.g. THY or Lufthansa", max_selections=12)
+                st.session_state["table_airlines_seen"] = chosen_airlines
+                st.session_state.airline_isolation_filter = ", ".join(chosen_airlines)
             with cfg_col2:
-                st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", ["All Flights", "Commercial Only", "General Aviation Only", "Business Jet Only", "Military Only"], horizontal=True)
-                st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", ["All Rules", "IFR Only", "VFR Only"], horizontal=True)
+                # the radios start on the saved choice, so closing and reopening this panel no longer resets the filters
+                st.session_state.fleet_filter_selection = st.radio("Fleet Category Filter:", fleet_options, index=fleet_options.index(st.session_state.fleet_filter_selection) if st.session_state.fleet_filter_selection in fleet_options else 0, horizontal=True)
+                st.session_state.rules_filter_selection = st.radio("Flight Rules Filter:", rules_options, index=rules_options.index(st.session_state.rules_filter_selection) if st.session_state.rules_filter_selection in rules_options else 0, horizontal=True)
             st.markdown("---")
+
+    current_prefs = {"columns": st.session_state.visible_columns, "fleet": st.session_state.fleet_filter_selection, "rules": st.session_state.rules_filter_selection,
+                     "airlines": [c.strip().upper() for c in st.session_state.airline_isolation_filter.split(",") if c.strip()]}
+    if not prefs_are_default(current_prefs, all_columns):
+        st.session_state.prefs_touched = True
+        render_table_prefs_sync("save", prefs_json(current_prefs))
+    elif st.session_state.get("prefs_touched"):
+        render_table_prefs_sync("clear")
+    else:
+        render_table_prefs_sync("restore")
 
     @st.fragment(run_every=20)
     def render_network_counts():
@@ -1884,6 +1923,9 @@ if data:
         elif st.session_state.only_physical_inside and not target_fir_shapes:
             st.caption("This region has no airspace boundary under this code, so the inside-airspace filter cannot show anything here.")
 
+        filters_active = current_fleet_filter != "All Flights" or current_rules_filter != "All Rules" or bool(current_isolation_filter.strip())
+        region_total = 0  # aircraft of the region before the table filters, for the "x of y" line
+
         for p in pilots:
             callsign = p.get("callsign", "N/A")
             alt = p.get("altitude", 0)
@@ -1896,21 +1938,23 @@ if data:
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
             flight_rules = fplan.get("flight_rules", "I")
 
-            category = classify_aircraft(ac_type, callsign)
-            if current_fleet_filter == "Commercial Only" and category != "Commercial": continue
-            if current_fleet_filter == "General Aviation Only" and category != "General Aviation": continue
-            if current_fleet_filter == "Business Jet Only" and category != "Business Jet": continue
-            if current_fleet_filter == "Military Only" and category != "Military": continue
-
-            if current_rules_filter == "IFR Only" and flight_rules != "I": continue
-            if current_rules_filter == "VFR Only" and flight_rules != "V": continue
-
-            if current_isolation_filter.strip():
+            category = classify_aircraft(fplan.get("aircraft_short") or ac_type, callsign)
+            passes = True
+            if current_fleet_filter != "All Flights" and category != current_fleet_filter.replace(" Only", ""):
+                passes = False
+            if current_rules_filter == "IFR Only" and flight_rules != "I":
+                passes = False
+            if current_rules_filter == "VFR Only" and flight_rules != "V":
+                passes = False
+            if passes and current_isolation_filter.strip():
                 allowed_codes = [c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()]
                 cs_prefix_match = re.match(r"^[A-Z]+", callsign.upper())
                 cs_prefix = cs_prefix_match.group(0) if cs_prefix_match else ""
                 if cs_prefix not in allowed_codes:
-                    continue
+                    passes = False
+
+            if not passes and not filters_active:
+                continue
 
             if sub_fir:
                 include_aircraft = bool(lat and lon) and point_in_fir(sub_fir, lat, lon)
@@ -1929,6 +1973,11 @@ if data:
                 include_aircraft = any(len(str(code)) == 4 and region_prefix(code) == selected_fir_prefix for code in (dep, arr))
 
             if include_aircraft:
+                region_total += 1
+            if not passes:
+                continue
+
+            if include_aircraft:
                 display_dep = dep if dep else "NO FPL"
                 display_arr = arr if arr else "NO FPL"
                 
@@ -1943,6 +1992,22 @@ if data:
                 p["_category"] = category
                 p["_reg_iso"] = country_of_registration(extract_registration(fplan.get("remarks"))) or ""
                 filtered_pilots_raw.append(p)
+
+        if filters_active:
+            active = [current_fleet_filter.replace(" Only", "")] if current_fleet_filter != "All Flights" else []
+            if current_rules_filter != "All Rules":
+                active.append(current_rules_filter.replace(" Only", ""))
+            if current_isolation_filter.strip():
+                active.append("airlines " + ", ".join(c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()))
+
+            def reset_table_filters():
+                st.session_state.fleet_filter_selection = "All Flights"
+                st.session_state.rules_filter_selection = "All Rules"
+                st.session_state.airline_isolation_filter = ""
+
+            sum_col, reset_col = st.columns([10, 2], vertical_alignment="center")
+            sum_col.caption(f"Filters: {' · '.join(active)}  —  {len(fir_pilots)} of {region_total} aircraft in this region")
+            reset_col.button("Reset filters", key="fir_reset_filters", on_click=reset_table_filters, width="stretch")
 
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
         
