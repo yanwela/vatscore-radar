@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from airport_elevation import build_index, nearest_elevation
+from nearest_place import build_index as build_place_index, nearest_label
 import anomaly_archive_store
 from anomaly_rules import anomaly_key, detect_anomalies
 from vatsim_data import load_airports
@@ -19,6 +20,19 @@ def feed_time(feed):
         return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
     except (KeyError, TypeError, ValueError):
         return None
+
+
+@st.cache_resource(show_spinner=False)
+def _place_lookup():
+    # nearest airport's ICAO code, so the caller can turn it into the same region/country name the rest of the site
+    # already shows (fir_regions.region_prefix + the VATSpy country list), for a plain-language "Near" column
+    index = build_place_index((a.get("lat"), a.get("lon"), icao) for icao, a in load_airports().items())
+
+    def lookup(lat, lon):
+        found = nearest_label(index, lat, lon, 200.0)
+        return found[0] if found else None
+
+    return lookup
 
 
 @st.cache_resource(show_spinner=False)
@@ -79,3 +93,12 @@ def snapshot_view():
         recent.sort(key=lambda r: -r["last"])
         records = [{"first": r["first"], "last": r["last"], "severity": r["a"]["severity"], "cid": r["a"]["cid"]} for r in engine["seen"].values()]
         return {"feed_t": feed_t, "started": engine["started"], "active": active, "recent": recent, "records": records}
+
+
+def nearest_airport_icao(lat, lon):
+    if lat is None or lon is None:
+        return None
+    try:
+        return _place_lookup()(lat, lon)
+    except Exception:
+        return None

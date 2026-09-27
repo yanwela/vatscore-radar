@@ -18,10 +18,11 @@ from shapely.prepared import prep
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
 from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
-from anomaly_engine import feed_time as anomaly_feed_time, snapshot_view as anomaly_view, update as anomaly_update
+from anomaly_engine import feed_time as anomaly_feed_time, nearest_airport_icao as anomaly_nearest_airport_icao, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
 from aircraft_category import classify_aircraft
+from aircraft_type_index import aircraft_info
 from table_prefs import airline_counts, is_default as prefs_are_default, prefs_json, sanitize_prefs
 from table_prefs_sync import render_table_prefs_sync
 from fir_regions import canonical_region, fir_base, fir_display_name, region_prefix, sub_firs
@@ -1425,17 +1426,18 @@ if data:
         def duration(minutes):
             return f"{minutes // 1440} d {(minutes % 1440) // 60} h" if minutes >= 1440 else f"{minutes // 60} h {minutes % 60:02d} min"
 
-        def style_chart(fig, height=300):
+        def style_chart(fig, height=300, y_title=""):
             fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=6, b=0), height=height,
                               font=dict(family="ui-monospace, 'Cascadia Code', monospace", color=UI_TEXT, size=11), legend_title_text="")
             fig.update_xaxes(gridcolor=UI_LINE, zeroline=False, title="")
-            fig.update_yaxes(gridcolor=UI_LINE, zeroline=False, title="")
+            # a plain grouped number ("40,000") beats Plotly's default "40k": the unit only makes sense written out in full
+            fig.update_yaxes(gridcolor=UI_LINE, zeroline=False, title=y_title, tickformat=",.0f")
             return fig
 
         # key, ranking name, card title (None = no card), entries, value text, colour, bar height (None = a CID rank has no meaningful bar),
         # header of the value column, description
         records = [
-            ("altitude", "Altitude", "Highest altitude", flight["altitude"], lambda e: f"{int(e['value']):,} ft", CYAN, lambda e: e["value"],
+            ("altitude", "Altitude", "Highest altitude", flight["altitude"], lambda e: f"{int(e['value']):,} ft", CYAN, lambda e: e["value"] / 100,
              "Altitude", "The highest reported altitude among the pilots online right now."),
             ("speed", "Ground speed", "Highest ground speed", flight["speed"], lambda e: f"{int(e['value'])} kt", EMERALD, lambda e: e["value"],
              "Ground speed", "The highest ground speed among the pilots online right now."),
@@ -1474,6 +1476,7 @@ if data:
         # the full rankings: one picker (pills, not a second tab bar), then chart, search and table of the chosen record
         st.markdown("&nbsp;", unsafe_allow_html=True)
         st.subheader("Rankings")
+        chart_unit = {"altitude": "ft", "speed": "kt", "slow": "kt", "session": "h", "route": "NM", "away": "NM"}
         names = [r[1] for r in records]
         chosen = st.pills("Ranking", names, default=names[0], key="lb_ranking", label_visibility="collapsed") or names[0]
         key, _name, _title, entries, fmt, color, bar, value_header, description = next(r for r in records if r[1] == chosen)
@@ -1491,16 +1494,27 @@ if data:
                 for rank, e in enumerate(entries, 1):
                     # the member cell links to CID Stats and shows the name (the CID when the pilot gave no name): the link text sits after the "#"
                     label = e["name"] if e["name"] and e["name"] != str(e["cid"]) else (str(e["cid"]) if e["cid"] else "-")
-                    rows.append({"Rank": rank, "Callsign": e["callsign"], value_header: fmt(e), "Route": e["route"].replace("->", "→"),
-                                 "Member": f"{page_url('CID_Stats', cid=e['cid'])}#{label}" if e["cid"] else None, "_label": label, "_bar": bar(e) if bar else 0})
+                    row = {"Rank": rank, "Callsign": e["callsign"], value_header: fmt(e), "Route": e["route"].replace("->", "→"),
+                           "Member": f"{page_url('CID_Stats', cid=e['cid'])}#{label}" if e["cid"] else None, "_label": label, "_bar": bar(e) if bar else 0}
+                    if key == "altitude":
+                        row["FL"] = f"FL{int(round(e['value'] / 100)):03d}"
+                    rows.append(row)
                 df = pd.DataFrame(rows)
                 if bar:
-                    fig = px.bar(df.head(LB_CHART_TOP), x="Callsign", y="_bar", template="plotly_dark", color_discrete_sequence=[color], custom_data=[value_header])
-                    fig.update_traces(hovertemplate="%{x}<br>%{customdata[0]}<extra></extra>")
+                    custom_cols = [value_header, "FL"] if key == "altitude" else [value_header]
+                    fig = px.bar(df.head(LB_CHART_TOP), x="Callsign", y="_bar", template="plotly_dark", color_discrete_sequence=[color], custom_data=custom_cols)
+                    # a pilot reads FL at a glance; the exact figure (with its unit) is right there too, no hover needed to tell "40,000" from "40,000 ft"
+                    fig.update_traces(hovertemplate="%{x}<br>%{customdata[0]} (%{customdata[1]})<extra></extra>" if key == "altitude" else "%{x}<br>%{customdata[0]}<extra></extra>")
                     fig.update_layout(transition=dict(duration=400, easing="cubic-in-out"))
-                    st.plotly_chart(style_chart(fig), width="stretch", config={"displayModeBar": False})
+                    unit = chart_unit.get(key, "")
+                    styled = style_chart(fig, y_title="Altitude (FL)" if key == "altitude" else (f"{value_header} ({unit})" if unit else value_header))
+                    if key == "altitude":
+                        styled.update_yaxes(tickprefix="FL", tickformat=",.0f")  # bars are plotted in hundreds of feet, so the axis reads like a pilot expects
+                    st.plotly_chart(styled, width="stretch", config={"displayModeBar": False})
                 if not (df["Route"] != "").any():
                     df = df.drop(columns=["Route"])
+                if "FL" in df.columns:
+                    df = df.drop(columns=["FL"])
                 query = st.text_input("Search", key=f"lb_q_{key}", placeholder="Search callsign, name or CID…", label_visibility="collapsed", max_chars=60).strip()
                 if query:
                     haystack = df["Callsign"] + " " + df["_label"] + " " + df["Member"].fillna("").str.extract(r"cid=(\d+)")[0].fillna("")
@@ -1761,6 +1775,18 @@ if data:
             else:
                 st.caption("Nothing else in the last 2 hours: anomalies that have gone away are listed here.")
         with st.expander("History (kept long-term)"):
+            try:
+                hist_country_names = load_country_names()
+            except Exception:
+                hist_country_names = {}
+
+            def near_place(lat, lon):
+                icao = anomaly_nearest_airport_icao(lat, lon)
+                if not icao:
+                    return "-"
+                prefix = region_prefix(icao)
+                return hist_country_names.get(prefix) or FIR_FALLBACK_NAMES.get(prefix) or prefix or "-"
+
             days = st.radio("Period", [7, 30, 90, 365], index=1, horizontal=True, key="an_hist_days", format_func=lambda d: f"{d} days", label_visibility="collapsed")
             hist = anomaly_archive_store.history(feed_t, days)
             if not hist["by_type"]:
@@ -1773,14 +1799,15 @@ if data:
                 fig = go.Figure()
                 for k, hours in sorted(hist["by_hour"].items(), key=lambda kv: -sum(kv[1])):
                     fig.add_bar(x=[f"{h:02d}" for h in range(24)], y=hours, name=titles.get(k, k))
-                fig.update_layout(barmode="stack", height=220, margin=dict(l=0, r=0, t=8, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", template="plotly_dark", legend=dict(orientation="h", y=-0.25))
+                fig.update_layout(barmode="stack", height=260, margin=dict(l=0, r=10, t=8, b=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", template="plotly_dark",
+                                  legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, font=dict(size=10)))
                 fig.update_yaxes(gridcolor=UI_LINE, zeroline=False)
                 st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
                 st.caption("Anomalies by hour of day (UTC).")
                 if hist["recent"]:
                     clock = lambda m: datetime.fromtimestamp(m * 60, timezone.utc).strftime("%Y-%m-%d %H:%M")
                     st.dataframe(pd.DataFrame([{"Started (UTC)": clock(e["t"]), "Type": titles.get(e["k"], e["k"]), "Callsign": e["cs"], "Aircraft": e["ac"], "Minutes": e["d"],
-                                                "Near": (f"{e['lat']}, {e['lon']}" if e.get("lat") is not None and e.get("lon") is not None else ""),
+                                                "Near": near_place(e.get("lat"), e.get("lon")),
                                                 "CID": (page_url("CID_Stats", cid=e["cid"]) if e.get("cid") else "")} for e in hist["recent"]]),
                                  hide_index=True, width="stretch", column_config={"CID": st.column_config.LinkColumn("CID", display_text=r"cid=(\d+)")})
                 st.caption("Squawk, implausible-value and duplicate cases are kept one by one for 90 days, then only counted. Jumps, frozen and slow cases are only ever counted. "
@@ -1923,7 +1950,13 @@ if data:
         elif st.session_state.only_physical_inside and not target_fir_shapes:
             st.caption("This region has no airspace boundary under this code, so the inside-airspace filter cannot show anything here.")
 
-        filters_active = current_fleet_filter != "All Flights" or current_rules_filter != "All Rules" or bool(current_isolation_filter.strip())
+        active_filter_labels = [current_fleet_filter.replace(" Only", "")] if current_fleet_filter != "All Flights" else []
+        if current_rules_filter != "All Rules":
+            active_filter_labels.append(current_rules_filter.replace(" Only", ""))
+        if current_isolation_filter.strip():
+            active_filter_labels.append("airlines " + ", ".join(c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()))
+        filters_active = bool(active_filter_labels)
+        region_focus_name = (fir_display_name(sub_fir, vatspy_rows) if sub_fir else region_name(selected_option))
         region_total = 0  # aircraft of the region before the table filters, for the "x of y" line
 
         for p in pilots:
@@ -1938,7 +1971,8 @@ if data:
             ac_type = fplan.get("aircraft", "").split("/")[0] or "N/A"
             flight_rules = fplan.get("flight_rules", "I")
 
-            category = classify_aircraft(fplan.get("aircraft_short") or ac_type, callsign)
+            _type_for_cat = fplan.get("aircraft_short") or ac_type
+            category = classify_aircraft(_type_for_cat, callsign, extra_category=(aircraft_info(_type_for_cat) or {}).get("category"))
             passes = True
             if current_fleet_filter != "All Flights" and category != current_fleet_filter.replace(" Only", ""):
                 passes = False
@@ -1994,19 +2028,13 @@ if data:
                 filtered_pilots_raw.append(p)
 
         if filters_active:
-            active = [current_fleet_filter.replace(" Only", "")] if current_fleet_filter != "All Flights" else []
-            if current_rules_filter != "All Rules":
-                active.append(current_rules_filter.replace(" Only", ""))
-            if current_isolation_filter.strip():
-                active.append("airlines " + ", ".join(c.strip().upper() for c in current_isolation_filter.split(",") if c.strip()))
-
             def reset_table_filters():
                 st.session_state.fleet_filter_selection = "All Flights"
                 st.session_state.rules_filter_selection = "All Rules"
                 st.session_state.airline_isolation_filter = ""
 
             sum_col, reset_col = st.columns([10, 2], vertical_alignment="center")
-            sum_col.caption(f"Filters: {' · '.join(active)}  —  {len(fir_pilots)} of {region_total} aircraft in this region")
+            sum_col.caption(f"Filters: {' · '.join(active_filter_labels)} - {len(fir_pilots)} of {region_total} aircraft in this region")
             reset_col.button("Reset filters", key="fir_reset_filters", on_click=reset_table_filters, width="stretch")
 
         chart_expander = st.expander("📊 Open Interactive Analytics Charts (Altitude & Speed Profiles)", expanded=False)
@@ -2642,7 +2670,10 @@ if data:
             csv = csv_safe_for_download(doc_fir).to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Download This FIR Data as CSV", data=csv, file_name=f"vatsim_fir_{selected_fir_prefix}_data.csv", mime="text/csv")
         else:
-            st.warning("No active flights found within the boundaries of this unified FIR focus right now.")
+            if filters_active:
+                st.warning(f"No {' / '.join(active_filter_labels)} aircraft found in {region_focus_name} right now. Try Reset filters above to see everything.")
+            else:
+                st.warning(f"No active flights found in {region_focus_name} right now.")
 
 
 # ─── Remaining tabs (FIR focus, CID and Network live above) ─────────────────

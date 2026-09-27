@@ -20,6 +20,7 @@ from flight_connections import group_connections, merge_tracks
 from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, flights_for_callsign
 from flight_replay_view import replay_document
 from atc_area_data import build_area_replay
+from aircraft_type_index import aircraft_info
 from fir_regions import region_prefix
 from route_interest import most_interesting_route
 from atc_area_sessions import area_sessions
@@ -128,14 +129,29 @@ def icao_type(raw):
     return str(raw).split("/")[0].strip().upper() or "ZZZZ"
 
 
+_MFR_CASING = {"MCDONNELL DOUGLAS": "McDonnell Douglas", "USA-GOVERNMENT": "U.S. Government"}
+
+
+def _titled_manufacturer(raw):
+    return _MFR_CASING.get(raw, raw.title())
+
+
 def manufacturer_of(icao):
     t = str(icao).upper()
+    info = aircraft_info(t)
+    if info and info.get("manufacturer"):
+        return _titled_manufacturer(info["manufacturer"])
     for name, prefixes in _MFR_PREFIXES:
         if t.startswith(prefixes):
             return name
     if t.startswith("A"): return "Airbus"
     if t.startswith("B"): return "Boeing"
     return "Other"
+
+
+def model_of(icao):
+    info = aircraft_info(str(icao).upper())
+    return info["model"] if info and info.get("model") else ""
 
 
 def fmt_hm(minutes):
@@ -837,7 +853,9 @@ with p2:
             if len(cs_counts):
                 top_prefix = cs_counts.idxmax()
                 top_airline = airlines_db.get(top_prefix, top_prefix)
-            top_ac_html = f"{html_escape(str(top_ac))} <span class='vs-kpi-sub'>({html_escape(top_mfr)})</span><br><span class='vs-kpi-sub'>{html_escape(str(top_airline))}</span>"
+            top_model = model_of(top_ac)
+            top_ac_html = (f"{html_escape(str(top_ac))} <span class='vs-kpi-sub'>({html_escape(top_mfr)}" + (f" {html_escape(top_model)}" if top_model else "") + ")</span>"
+                           f"<br><span class='vs-kpi-sub'>{html_escape(str(top_airline))}</span>")
     st.markdown(f"""
     <div class="vs-card">
       <div class="vs-kpi-label">Most Flown Route</div>

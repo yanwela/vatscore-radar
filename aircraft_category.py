@@ -37,7 +37,9 @@ MILITARY_CALLSIGN_PREFIXES = (
     "AF1", "AF2"
 )
 
-def classify_aircraft(ac_type, callsign):
+def classify_aircraft(ac_type, callsign, extra_category=None):
+    # extra_category: an optional category (e.g. from the full ICAO type-designator table, aircraft_type_index.aircraft_info)
+    # for a type this module does not hand-curate; only "Helicopter" and "General Aviation" are trusted from it.
     t = str(ac_type or "").upper().strip()
     cs = str(callsign or "").upper().strip()
     if t in MILITARY_TYPES:
@@ -51,4 +53,6 @@ def classify_aircraft(ac_type, callsign):
         return "General Aviation"
     if t in BUSINESS_JET_TYPES:
         return "Business Jet"
+    if extra_category in ("Helicopter", "General Aviation"):
+        return extra_category
     return "Commercial"
