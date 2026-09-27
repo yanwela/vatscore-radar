@@ -2791,6 +2791,27 @@ with tab_roadmap:
     st.subheader("🚀 VatScore Strategic Development Roadmap")
     st.markdown("""
     <div class="roadmap-card">
+        <div class="roadmap-badge" style="background-color: #22c55e;">Phase 4: Completed</div>
+        <div class="roadmap-title">🛰️ Live Operations, New Pages & Anomaly Intelligence</div>
+        <div class="roadmap-desc">
+            <strong>Status:</strong> Completed — September 27, 2026<br>
+            Our biggest phase yet: new pages, a real live map, full flight and ATC replay, stronger security, data that now survives a restart, and a completely rebuilt Anomaly Radar.
+            <ul>
+                <li><strong> New Pages:</strong> Airport, Network Stats and Events each got their own dedicated page, plus a live CID activity map.</li>
+                <li><strong> Live Flight Map:</strong> Shows an aircraft's real flight path, nearby airspace and controllers, with Follow and Fit-route buttons.</li>
+                <li><strong> Flight Replay & ATC Replay:</strong> Watch a past flight or a controller's session play back, including real airport ground layouts (taxiways, aprons) and live METAR.</li>
+                <li><strong> Stronger Security & Reliability:</strong> Admin login protection, request rate limiting, closed security gaps in pilot-supplied data, and a fix for pilot ratings sometimes showing incorrectly as "Suspended."</li>
+                <li><strong> Redesigned Region Picker & Leaderboard:</strong> Airspace regions consolidated into clean, searchable hubs, plus a rebuilt Leaderboard and a rain radar layer on the live map.</li>
+                <li><strong> Data That Survives a Restart:</strong> The site banner, blocked accounts, admin logs and recorded events now persist through every update instead of resetting.</li>
+                <li><strong> Anomaly Radar Rebuilt:</strong> New High/Medium/Low severity levels, a live map and a timeline chart, and a long-term history you can look back through — plus a "slow at altitude" check that now measures real height above the nearest airport instead of one fixed number worldwide.</li>
+                <li><strong> Bigger Aircraft Database:</strong> Thousands of real aircraft types now recognised correctly, fixing mix-ups like a military transport showing up as a small Cessna.</li>
+                <li><strong> Clearer Filters & Settings:</strong> Selected FIR Focus shows which filters are active with a one-click reset, and your table and filter choices are now remembered between visits.</li>
+                <li><strong> Member Watchlist Redo:</strong> One simple list (with notes) now flags a watched member whether they're flying or controlling, shows them on the live map, and only alerts you when they actually just connected.</li>
+                <li><strong> Overall Polish:</strong> Clearer numbers and units on every chart, a smarter "most interesting route" highlight, and clearer messages throughout the site.</li>
+            </ul>
+        </div>
+    </div>
+    <div class="roadmap-card">
         <div class="roadmap-badge" style="background-color: #22c55e;">Phase 3: Completed</div>
         <div class="roadmap-title">📊 The Ultimate Score, Analytics & Hyper-Personalization</div>
         <div class="roadmap-desc">
