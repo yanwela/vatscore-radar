@@ -1,5 +1,5 @@
 # Vatscore-radar
-VatScore Web is a Streamlit-based global radar dashboard that fetches live flight and air traffic control (ATC) data from the VATSIM network to provide detailed airspace analytics.
+A live VATSIM network dashboard with radar tracking, pilot and ATC statistics, and flight/ATC replay.
 
 ## VatScore Strategic Development Roadmap
 
