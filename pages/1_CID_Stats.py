@@ -20,6 +20,8 @@ from flight_connections import group_connections, merge_tracks
 from flight_replay_data import callsigns_in, fetch_flight_track, flight_label, flights_for_callsign
 from flight_replay_view import replay_document
 from atc_area_data import build_area_replay
+from fir_regions import region_prefix
+from route_interest import most_interesting_route
 from atc_area_sessions import area_sessions
 from airport_layout_cache import is_retrying, load_airport_layout, sync_local_layouts_in_background, warm_in_background
 from atc_replay_data import build_atc_replay
@@ -846,20 +848,19 @@ with p2:
 
 with p3:
     interesting_html = "—"
-    if has_valid_routes:
-        rc = Counter(df[df["route"] != "→"]["route"].tolist())
-        dr = df[(df["route"] != "→") & (df["dur_min"] > 30)].copy()
-        if len(dr) and rc:
-            dr["freq"] = dr["route"].map(rc)
-            dr = dr.sort_values(["freq", "dur_min"], ascending=[True, False])
-            row = dr.iloc[0]
-            d, a = row["route"].split("→")
-            interesting_html = f"{html_escape(d)} → {html_escape(a)} <span class='vs-kpi-sub'>({html_escape(str(row['ac']))} · {fmt_hm(row['dur_min'])})</span>"
+    interesting_sub = "A route stands out for being rarely flown, long-haul, crossing regions, or a rare aircraft for this pilot"
+    if has_flights:
+        flight_rows = df[["route", "dep", "arr", "ac", "dur_min", "distance_nm"]].to_dict("records")
+        best = most_interesting_route(flight_rows, region_prefix)
+        if best:
+            interesting_html = (f"{html_escape(best['dep'])} → {html_escape(best['arr'])} "
+                                 f"<span class='vs-kpi-sub'>({html_escape(str(best['ac']) or 'N/A')} · {fmt_hm(best['dur_min'])} · {best['distance_nm']:,.0f} NM)</span>")
+            interesting_sub = ", ".join(best["reasons"]) if best["reasons"] else interesting_sub
     st.markdown(f"""
     <div class="vs-card">
       <div class="vs-kpi-label">Most Interesting Route Flown</div>
       <div style="color:{AMBER};font-size:15px;margin:4px 0;">{interesting_html}</div>
-      <div class="vs-kpi-sub" style="margin-top:8px;">Among rarely-flown routes over 30 min</div>
+      <div class="vs-kpi-sub" style="margin-top:8px;">{html_escape(interesting_sub)}</div>
     </div>""", unsafe_allow_html=True)
 
 # ── KPI strip ──────────────────────────────────────────────────────────────
