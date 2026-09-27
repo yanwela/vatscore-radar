@@ -25,6 +25,9 @@ from aircraft_category import classify_aircraft
 from aircraft_type_index import aircraft_info
 from table_prefs import airline_counts, is_default as prefs_are_default, prefs_json, sanitize_prefs
 from table_prefs_sync import render_table_prefs_sync
+from network_stats import parse_logon
+from watchlist_entries import match_map, sanitize_entries
+from watchlist_sync import render_watchlist_sync
 from fir_regions import canonical_region, fir_base, fir_display_name, region_prefix, sub_firs
 import anomaly_archive_store
 import anomaly_recorder
@@ -137,6 +140,7 @@ st.markdown("""
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_track_req"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_pins_restore"]) { display: none; }
     div[data-testid="stElementContainer"]:has(input[aria-label="vs_prefs_restore"]) { display: none; }
+    div[data-testid="stElementContainer"]:has(input[aria-label="vs_watch_restore"]) { display: none; }
     /* The settings panel slides open and shut: it is always on the page and the marker inside it says which state it is in (a one-off transition, nothing loops). */
     .st-key-radar_customizer [data-testid="stElementContainer"]:has(.vs-panel-state) { display: none; }
     .st-key-radar_customizer { overflow: hidden; transition: max-height 0.26s ease, opacity 0.2s ease, transform 0.26s ease, visibility 0s linear 0.26s; }
@@ -316,10 +320,8 @@ if "initialized" not in st.session_state:
 # Initialize VIP Watchlist Session State
 if "vip_watchlist" not in st.session_state:
     st.session_state.vip_watchlist = []
-if "vip_cids" not in st.session_state:
-    st.session_state.vip_cids = ""
-if "vip_callsigns" not in st.session_state:
-    st.session_state.vip_callsigns = ""
+if "watchlist_entries" not in st.session_state:
+    st.session_state.watchlist_entries = []
 
 query_params = st.query_params
 def _admin_hash_iterations():
@@ -1675,8 +1677,8 @@ if data:
         blocked = load_blocklist(CID_BLOCKLIST_FILE)  # a redacted member is not listed here either
         active = [row for row in view["active"] if row["a"]["cid"] not in blocked]
         recent = [row for row in view["recent"] if row["a"]["cid"] not in blocked]
-        vip_cid_array = [c.strip() for c in st.session_state.vip_cids.split(",") if c.strip()]
-        vip_callsign_array = [cs.strip().upper() for cs in st.session_state.vip_callsigns.split(",") if cs.strip()]
+        watch_lookup = match_map(st.session_state.watchlist_entries)
+        vip_cid_notes, vip_callsign_notes = watch_lookup["cid"], watch_lookup["callsign"]
         feed_t = view["feed_t"] or time.time()
 
         def ago(t):
@@ -1698,13 +1700,56 @@ if data:
         st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
         shown_sev = st.multiselect("Show", list(SEVERITY_LABEL.values()), default=[SEVERITY_LABEL["high"]], key="an_severity", label_visibility="collapsed")
         body = []
+        watch_matches = []
+        an_controllers = d.get("controllers", []) if d else []
+        FRESH_CONNECT_S = 180  # a login the feed only just picked up; older than this, it is not "just connected" any more
+
+        def logon_epoch(raw):
+            parsed = parse_logon(raw)
+            return parsed.timestamp() if parsed else None
+
         for p in an_pilots:
             cid = str(p.get("cid", ""))
-            callsign = p.get("callsign", "N/A")
-            if cid in vip_cid_array or str(callsign).upper() in vip_callsign_array:
+            callsign = str(p.get("callsign", "N/A"))
+            note = vip_cid_notes.get(cid) or vip_callsign_notes.get(callsign.upper())
+            if cid in vip_cid_notes or callsign.upper() in vip_callsign_notes:
                 fplan = p.get("flight_plan") or {}
-                body.append(an_row_html("sev-watch", "🎯 Watchlist", "Watchlist match", callsign, f"Pilot is online. Route: {fplan.get('departure', '')} to {fplan.get('arrival', '')}",
-                                        (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", p.get("altitude", 0), p.get("groundspeed", 0), cid, "-", p.get("latitude"), p.get("longitude")))
+                dep, arr = fplan.get("departure", ""), fplan.get("arrival", "")
+                logon = logon_epoch(p.get("logon_time"))
+                since = ago(logon) if logon is not None else "-"
+                details = f"{note} · Route: {dep} to {arr}" if note else f"Pilot is online. Route: {dep} to {arr}"
+                watch_matches.append({"cid": cid, "callsign": callsign, "kind": "pilot", "logon": logon, "note": note, "dep": dep, "arr": arr,
+                                      "aircraft": (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", "alt": p.get("altitude", 0), "gs": p.get("groundspeed", 0),
+                                      "lat": p.get("latitude"), "lon": p.get("longitude"), "heading": p.get("heading", 0)})
+                body.append(an_row_html("sev-watch", "🎯 Watchlist", "Watchlist match", callsign, details,
+                                        (fplan.get("aircraft", "") or "N/A").split("/")[0] or "N/A", p.get("altitude", 0), p.get("groundspeed", 0), cid, since, p.get("latitude"), p.get("longitude")))
+        for c in an_controllers:
+            cid = str(c.get("cid", ""))
+            callsign = str(c.get("callsign", "N/A"))
+            note = vip_cid_notes.get(cid) or vip_callsign_notes.get(callsign.upper())
+            if cid in vip_cid_notes or callsign.upper() in vip_callsign_notes:
+                freq = c.get("frequency", "")
+                logon = logon_epoch(c.get("logon_time"))
+                since = ago(logon) if logon is not None else "-"
+                details = f"{note} · On {freq}" if note else f"Controlling on {freq}" if freq else "Controller is online"
+                watch_matches.append({"cid": cid, "callsign": callsign, "kind": "atc", "logon": logon, "note": note, "dep": "", "arr": "",
+                                      "aircraft": "", "alt": 0, "gs": 0, "lat": None, "lon": None, "heading": 0})
+                body.append(an_row_html("sev-watch", "🎯 Watchlist (ATC)", "Watchlist match", callsign, details, "-", 0, 0, cid, since, None, None))
+
+        # a watched pilot or controller pops up once, the moment the feed shows them as freshly connected — not every time you
+        # open the tab and they happen to already be online (that used the feed's own logon_time, not "have I seen them before")
+        watch_toasted = st.session_state.setdefault("watch_toasted", set())
+        for m in watch_matches:
+            toast_key = (m["cid"], m["callsign"], m["kind"], m["logon"])
+            if toast_key in watch_toasted:
+                continue
+            watch_toasted.add(toast_key)
+            if m["logon"] is not None and feed_t - m["logon"] <= FRESH_CONNECT_S:
+                label = "(ATC watchlist)" if m["kind"] == "atc" else "(watchlist)"
+                route = f" · {m['dep']} → {m['arr']}" if m["dep"] or m["arr"] else ""
+                st.toast(f"{m['callsign']} {label} just connected{route}", icon="🎯")
+        if len(watch_toasted) > 500:
+            st.session_state["watch_toasted"] = set(list(watch_toasted)[-200:])
         for row in active:
             a = row["a"]
             if SEVERITY_LABEL[a["severity"]] not in shown_sev:
@@ -1742,6 +1787,14 @@ if data:
                                                                           "gs": a["speed"], "severity": a["severity"], "titles": [], "heading": (by_cid.get((str(a["cid"]), str(a["callsign"]))) or {}).get("heading", 0)})
                 if a["title"] not in g["titles"]:
                     g["titles"].append(a["title"])
+            for m in watch_matches:
+                if not isinstance(m.get("lat"), (int, float)) or not isinstance(m.get("lon"), (int, float)):
+                    continue
+                g = grouped.setdefault((m["cid"], m["callsign"]), {"lat": m["lat"], "lon": m["lon"], "callsign": m["callsign"], "aircraft": m["aircraft"], "alt": m["alt"],
+                                                                    "gs": m["gs"], "severity": "watch", "titles": [], "heading": m["heading"]})
+                watch_title = f"Watchlist: {m['note']}" if m.get("note") else "Watchlist match"
+                if watch_title not in g["titles"]:
+                    g["titles"].append(watch_title)
             map_points = list(grouped.values())
             st.iframe(anomaly_map_document(map_points), height=350)
             st.caption("Click a row in the table to bring that aircraft into view on the map.")
@@ -2690,14 +2743,48 @@ with tab_global:
 
 with tab_anomaly:
     st.subheader("🛸 Live Anomalies")
-    with st.expander("⚙️ Pilot Watchlist", expanded=False):
+
+    # the watchlist comes back on a fresh visit the same way the table settings do: the browser hands over its saved copy
+    # through one hidden JSON field, and only then only once (never overwrites a list the visitor already edited this session)
+    restored_wl = st.text_input("vs_watch_restore", key="vs_watch_restore", label_visibility="collapsed", max_chars=4000)
+    if restored_wl and not st.session_state.get("watchlist_restored"):
+        st.session_state.watchlist_restored = True
+        try:
+            saved_wl = json.loads(restored_wl)
+        except Exception:
+            saved_wl = []
+        if isinstance(saved_wl, list) and not st.session_state.watchlist_entries:
+            st.session_state.watchlist_entries = sanitize_entries(saved_wl)
+
+    with st.expander("⚙️ Member Watchlist", expanded=False):
         st.markdown("#### Watchlist Settings")
-        wl_c1, wl_c2 = st.columns(2)
-        with wl_c1:
-            st.text_input("Pilot CIDs (comma-separated):", placeholder="e.g. 1863530, 1869429", key="vip_cids")
-        with wl_c2:
-            st.text_input("Callsigns (comma-separated):", placeholder="e.g. THY123, PGT456", key="vip_callsigns")
+        st.caption("A CID or a callsign per row, with an optional note. Whoever is on it is flagged whether they show up as a pilot or as a "
+                   "controller. Clear a row's CID/callsign to remove it. Saved in this browser.")
+        # "fixed" rows (not "dynamic") drops the row-selection gutter the dynamic editor otherwise shows on the left; a blank
+        # row is always kept at the end for the next entry, and clearing a row's id is how an existing entry is removed
+        wl_base = pd.DataFrame(st.session_state.watchlist_entries + [{"id": "", "note": ""}])
+        wl_edited = st.data_editor(wl_base, key="wl_editor", num_rows="fixed", hide_index=True, width="stretch",
+                                   column_config={"id": st.column_config.TextColumn("CID or callsign", max_chars=20),
+                                                  "note": st.column_config.TextColumn("Note", max_chars=30)})
+        st.session_state.watchlist_entries = sanitize_entries(wl_edited.to_dict("records"))
+
+        checked_cids = list(match_map(st.session_state.watchlist_entries)["cid"])[:10]
+        if checked_cids:
+            previews = []
+            for cid in checked_cids:
+                result = fetch_member_rating(cid)
+                previews.append(f"{cid} ✅" if not result.get("error") else f"{cid} ❌ not a real VATSIM CID" if result.get("reason") == "not_found" else f"{cid} ⏳ (checked later)")
+            st.caption("CID check: " + " · ".join(previews))
         st.markdown("---")
+
+    if st.session_state.watchlist_entries:
+        render_watchlist_sync("save", st.session_state.watchlist_entries)
+        st.session_state.watchlist_touched = True
+    elif st.session_state.get("watchlist_touched"):
+        render_watchlist_sync("clear")
+    else:
+        render_watchlist_sync("restore")
+
     render_anomaly_table()
 
 with tab_roadmap:

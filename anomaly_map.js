@@ -5,7 +5,7 @@
         "leaflet.css": "sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H",
         "leaflet.js": "sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
     };
-    const COLOR = { high: "#fb7185", medium: "#fb923c", low: "#facc15" };
+    const COLOR = { high: "#fb7185", medium: "#fb923c", low: "#facc15", watch: "#60a5fa" };
     const VIEW_KEY = "anMapView";
     const note = document.getElementById("anNote");
 
