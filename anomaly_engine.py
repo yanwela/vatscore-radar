@@ -1,3 +1,4 @@
+import re
 import threading
 from datetime import datetime, timezone
 
@@ -5,11 +6,13 @@ import streamlit as st
 
 from airport_elevation import build_index, nearest_elevation
 from nearest_place import build_index as build_place_index, nearest_label
+from ocean_name import ocean_name
 import anomaly_archive_store
 from anomaly_rules import anomaly_key, detect_anomalies
 from vatsim_data import load_airports
 
 RECENT_S = 2 * 3600
+_REAL_ICAO = re.compile(r"[A-Z]{4}")
 ARCHIVE_AFTER_S = 120  # an anomaly that has been gone this long is over: it goes to the long-term archive
 
 
@@ -25,14 +28,22 @@ def feed_time(feed):
 @st.cache_resource(show_spinner=False)
 def _place_lookup():
     # nearest airport's ICAO code, so the caller can turn it into the same region/country name the rest of the site
-    # already shows (fir_regions.region_prefix + the VATSpy country list), for a plain-language "Near" column
-    index = build_place_index((a.get("lat"), a.get("lon"), icao) for icao, a in load_airports().items())
+    # already shows (fir_regions.region_prefix + the VATSpy country list), for a plain-language "Near" column.
+    # Only real 4-letter ICAO codes count: the airport list also holds ~11,000 US/Canadian local-code strips ("6IA6", "00AA") whose
+    # first two characters name no country, so the nearest one of those used to print as a raw "6I".
+    index = build_place_index((a.get("lat"), a.get("lon"), icao) for icao, a in load_airports().items() if _REAL_ICAO.fullmatch(icao))
 
     def lookup(lat, lon):
         found = nearest_label(index, lat, lon, 200.0)
         return found[0] if found else None
 
     return lookup
+
+
+@st.cache_resource(show_spinner=False)
+def _any_airport_index():
+    # every airport in the list, local-code strips included (the elevation value is a placeholder): "is there any airfield near here at all?"
+    return build_index((a.get("lat"), a.get("lon"), 0.0) for a in load_airports().values())
 
 
 @st.cache_resource(show_spinner=False)
@@ -100,5 +111,18 @@ def nearest_airport_icao(lat, lon):
         return None
     try:
         return _place_lookup()(lat, lon)
+    except Exception:
+        return None
+
+
+def open_water_name(lat, lon):
+    # An ocean name, but only where there is no airfield of any kind within 250 NM: that is open water. Over land the airport list is dense, so
+    # a gap there means "remote land" and a coarse ocean band would be a wrong label, not a helpful one.
+    if lat is None or lon is None:
+        return None
+    try:
+        if nearest_elevation(_any_airport_index(), lat, lon, 250.0) is not None:
+            return None
+        return ocean_name(lat, lon)
     except Exception:
         return None

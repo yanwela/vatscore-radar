@@ -18,7 +18,7 @@ from shapely.prepared import prep
 from admin_audit import append_audit_event, read_audit_events
 from health_monitor import record_result, summarize as summarize_health
 from airport_layout_cache import sync_local_layouts_in_background, warm_in_background
-from anomaly_engine import feed_time as anomaly_feed_time, nearest_airport_icao as anomaly_nearest_airport_icao, snapshot_view as anomaly_view, update as anomaly_update
+from anomaly_engine import feed_time as anomaly_feed_time, nearest_airport_icao as anomaly_nearest_airport_icao, open_water_name as anomaly_open_water_name, snapshot_view as anomaly_view, update as anomaly_update
 from anomaly_timeline import build_timeline
 from anomaly_map_view import anomaly_map_document
 from aircraft_category import classify_aircraft
@@ -1836,9 +1836,9 @@ if data:
             def near_place(lat, lon):
                 icao = anomaly_nearest_airport_icao(lat, lon)
                 if not icao:
-                    return "-"
+                    return anomaly_open_water_name(lat, lon) or "-"
                 prefix = region_prefix(icao)
-                return hist_country_names.get(prefix) or FIR_FALLBACK_NAMES.get(prefix) or prefix or "-"
+                return hist_country_names.get(prefix) or FIR_FALLBACK_NAMES.get(prefix) or "-"  # never a raw code like "6I"
 
             days = st.radio("Period", [7, 30, 90, 365], index=1, horizontal=True, key="an_hist_days", format_func=lambda d: f"{d} days", label_visibility="collapsed")
             hist = anomaly_archive_store.history(feed_t, days)
