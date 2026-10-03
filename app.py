@@ -31,6 +31,7 @@ from watchlist_sync import render_watchlist_sync
 from fir_regions import canonical_region, fir_base, fir_display_name, region_prefix, sub_firs
 import anomaly_archive_store
 import anomaly_recorder
+import network_pulse_store
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -1039,6 +1040,16 @@ if is_admin_route:
                 per_year = ", ".join(f"{y}: {n}" for y, n in hist["years"].items()) or "nothing recorded yet"
                 st.caption(f"Event history: 🟢 {hist['total']} event(s) recorded ({per_year}), {hist['withdrawn']} withdrawn. Finished events stay here after VATSIM drops them.")
 
+            try:
+                pulse = network_pulse_store.status()
+                if pulse["last_error"]:
+                    st.caption(f"Network history: 🔴 {pulse['last_error']}")
+                else:
+                    since = datetime.fromtimestamp(pulse["first_sample"], timezone.utc).strftime("%H:%M") + "Z" if pulse["first_sample"] else "waiting for the first feed"
+                    where = "saved to the data storage" if pulse["synced"] else "kept on this server only (data storage is off)"
+                    st.caption(f"Network history: 🟢 {pulse['samples']} hourly-summary sample(s) since {since}, {pulse['stored_months']} month file(s) stored, {where}.")
+            except Exception:
+                pass
             try:
                 rec, arc = anomaly_recorder.status(), anomaly_archive_store.status()
                 if not rec["running"]:

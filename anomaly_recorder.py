@@ -4,6 +4,7 @@ import time
 import requests
 
 import anomaly_engine
+import network_pulse_store
 
 FEED_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 INTERVAL_S = 20
@@ -19,7 +20,9 @@ def _once(fetch=None):
         feed = r.json()
     else:
         feed = fetch()
-    anomaly_engine.update(feed.get("pilots", []), anomaly_engine.feed_time(feed))
+    pilots, feed_t = feed.get("pilots", []), anomaly_engine.feed_time(feed)
+    anomaly_engine.update(pilots, feed_t)
+    network_pulse_store.record(feed_t, pilots, feed.get("controllers", []))  # same feed, no extra request: the hourly network history
     _state["last_ok"] = time.time()
     _state["passes"] += 1
     _state["last_error"] = None
