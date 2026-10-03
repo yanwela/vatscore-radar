@@ -160,6 +160,24 @@ def _remote_counts():
     return found
 
 
+def all_records(ttl=60):
+    # every recorded event (this server's files, plus the data repo's when a fresh deploy has an empty disk), cached briefly for the statistics view
+    cache = _state.get("all_cache")
+    if cache and time.time() - cache[0] < ttl:
+        return cache[1]
+    histories = {}
+    if os.path.isdir(HISTORY_DIR):
+        for name in sorted(os.listdir(HISTORY_DIR)):
+            if name.endswith(".json"):
+                histories[name[:-5]] = _read_local(f"{HISTORY_DIR}/{name}") or {}
+    for year, history in _remote_counts().items():
+        if len(history) > len(histories.get(year, {})):
+            histories[year] = history
+    records = [dict(rec, key=key) for history in histories.values() for key, rec in history.items() if isinstance(rec, dict)]
+    _state["all_cache"] = (time.time(), records)
+    return records
+
+
 def status():
     histories = {}
     if os.path.isdir(HISTORY_DIR):

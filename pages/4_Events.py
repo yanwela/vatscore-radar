@@ -5,6 +5,7 @@ import streamlit as st
 
 import network_stats as ns
 from events_data import event_ics, filter_events, group_events, parse_events, relative, time_line, utc_label
+from event_stats_view import render_event_stats
 from events_history_store import maybe_record
 from site_banner import read_banner
 from ui_theme import (AMBER, CYAN, EMERALD, LINE, PANEL, SITE_BANNER_FILE, SUBTLE, TEXT, VIOLET, apply_base_css, page_url,
@@ -155,4 +156,8 @@ def render_events():
 
 st.page_link("app.py", label="Back to Live Radar", icon="⬅️")
 st.title("🗓️ Events")
-render_events()
+calendar_tab, stats_tab = st.tabs(["Calendar", "Statistics"])
+with calendar_tab:
+    render_events()
+with stats_tab:
+    render_event_stats()

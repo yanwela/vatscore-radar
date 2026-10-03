@@ -22,3 +22,4 @@ layouts/
 events_history/
 anomaly_history/
 network_pulse/
+events_traffic/

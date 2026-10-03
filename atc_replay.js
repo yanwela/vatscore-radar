@@ -2,7 +2,7 @@
 // the airport) or an area position (CTR / FSS, the VATSpy boundary of the airspace).
 // Expects ATC_DATA (see atc_replay_view.py), replay_core.js (replayStateAt, replayIndexAt, replayNextTime, replayClock, replayDuration) and atc_zone.js.
 (function () {
-    const D = ATC_DATA, S = D.session, ROLE = S.role, zone = atcZone(ROLE), IS_AREA = S.kind === "area";
+    const D = ATC_DATA, S = D.session, ROLE = S.role, zone = atcZone(ROLE), IS_AREA = S.kind === "area", IS_EVENT = S.kind === "event";
     const AP = IS_AREA ? { icao: D.area.name, name: "", lat: D.area.lat, lon: D.area.lon, elevation: 0 } : D.airport;
     const LEAFLET_BASE = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/";
     const LEAFLET_SRI = {
@@ -175,16 +175,17 @@
         }
         $("arRole").textContent = ROLE_TEXT;
         $("arHandled").textContent = handled;
+        if (IS_EVENT) $("arHandled").parentNode.firstChild.nodeValue = "Flights in this replay";  // an event has no controller session
         const stats = D.stats || {};
         $("arNote").textContent = stats.found === undefined ? "" :
-            stats.tracked + " of " + stats.found + " flights of this session have a recorded track (statsim keeps tracks of a pilot's last 60 flights only). " +
+            stats.tracked + " of " + stats.found + " flights " + (IS_EVENT ? "of this event" : "of this session") + " have a recorded track (statsim keeps tracks of a pilot's last 60 flights only). " +
             (IS_AREA ? "Flights are picked from their planned great-circle route and confirmed by their recorded track" + (stats.capped ? "; a busy airspace is capped at " + stats.found + " flights, so not every flight is shown." : ".")
                      : "Local and VFR flights appear when their flight plan names " + AP.icao + "; pilots without any flight plan are not in statsim's airport data.");
         if (GROUND && !hasLayout(D.layout)) $("arNote").textContent += ($("arNote").textContent ? "  " : "") + (D.layout
             ? "OpenStreetMap has no taxiway data for " + AP.icao + ", so only the satellite image is shown."
             : (D.layoutState === "retrying"
-                ? "The OpenStreetMap servers are busy, so the airport layout is still being fetched in the background: pick this session again in a minute and it will be there."
-                : "The OpenStreetMap servers did not answer just now, so the airport layout is missing: pick this session again in a minute to retry."));
+                ? "The OpenStreetMap servers are busy, so the airport layout is still being fetched in the background: " + (IS_EVENT ? "load the replay again" : "pick this session again") + " in a minute and it will be there."
+                : "The OpenStreetMap servers did not answer just now, so the airport layout is missing: " + (IS_EVENT ? "load the replay again" : "pick this session again") + " in a minute to retry."));
         const scrub = $("arScrub");
         scrub.min = String(Math.floor(tStart)); scrub.max = String(Math.ceil(tEnd)); scrub.value = String(Math.floor(tStart));
         scrub.oninput = e => setTime(Number(e.target.value));

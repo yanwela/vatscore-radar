@@ -32,6 +32,7 @@ from fir_regions import canonical_region, fir_base, fir_display_name, region_pre
 import anomaly_archive_store
 import anomaly_recorder
 import network_pulse_store
+import event_traffic_store
 from events_history_store import maybe_record, status as events_history_status
 from data_sync import ADMIN_AUDIT_FILE, RADAR_LOG_FILE, ensure_pulled, push, push_if_due, status as sync_status
 from page_views import record_view, summarize_views
@@ -90,6 +91,10 @@ def csv_safe_for_download(df):
 VATSIM_DATA_URL = "https://data.vatsim.net/v3/vatsim-data.json"
 try:
     anomaly_recorder.start()  # keeps the anomaly archive going even when nobody has the site open
+except Exception:
+    pass
+try:
+    event_traffic_store.start()  # measures the traffic of finished events from StatSim, a few at a time, in the background
 except Exception:
     pass
 VATSIM_TRANSCEIVERS_URL = "https://data.vatsim.net/v3/transceivers-data.json"
@@ -1040,6 +1045,17 @@ if is_admin_route:
                 per_year = ", ".join(f"{y}: {n}" for y, n in hist["years"].items()) or "nothing recorded yet"
                 st.caption(f"Event history: 🟢 {hist['total']} event(s) recorded ({per_year}), {hist['withdrawn']} withdrawn. Finished events stay here after VATSIM drops them.")
 
+            try:
+                traffic = event_traffic_store.status()
+                if not traffic["key_set"]:
+                    st.caption("Event traffic: ⚪ no StatSim key is set, so nothing can be measured.")
+                elif traffic["last_error"]:
+                    st.caption(f"Event traffic: 🔴 {traffic['last_error']}")
+                else:
+                    st.caption(f"Event traffic: 🟢 {traffic['stored']} event(s) measured, {traffic['waiting']} waiting (an event is measured about a day after it ends), "
+                               f"{traffic['computed']} measured since this server started.")
+            except Exception:
+                pass
             try:
                 pulse = network_pulse_store.status()
                 if pulse["last_error"]:

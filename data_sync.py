@@ -12,7 +12,7 @@ CID_BLOCKLIST_FILE = "cid_blocklist.json"
 PAGE_VIEWS_FILE = "page_views.jsonl"
 ADMIN_AUDIT_FILE = "admin_audit_log.jsonl"
 RADAR_LOG_FILE = "radar_traffic_logs.csv"
-SHARED_PREFIXES = ("layouts/", "events_history/")  # public data, identical everywhere: synced even when DATA_SYNC is "off"
+SHARED_PREFIXES = ("layouts/", "events_history/", "events_traffic/")  # public data, identical everywhere: synced even when DATA_SYNC is "off"
 SYNCED_FILES = (SITE_BANNER_FILE, CID_BLOCKLIST_FILE, PAGE_VIEWS_FILE, ADMIN_AUDIT_FILE, RADAR_LOG_FILE)
 
 _lock = threading.Lock()
